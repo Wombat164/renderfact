@@ -201,6 +201,36 @@ def test_lychee_unusable_invocation_fails_closed(tmp_path):
     assert "unusable" in r.detail
 
 
+# ---- demo skin GoldenRules style (writing doctrine as CONSUMER config) ----
+
+DEMO_VALE_CONFIG = REPO_ROOT / "demo" / "skin" / "vale" / "vale.ini"
+
+
+@pytestmark_real
+def test_demo_skin_style_blocks_throat_clearing(tmp_path):
+    bad = tmp_path / "bad.md"
+    bad.write_text("# T\n\nIn this section we will discuss things.\n", encoding="utf-8")
+    rc = run_gates.main([str(bad), "--stages", "vale", "--vale-config", str(DEMO_VALE_CONFIG)])
+    assert rc == 1
+
+
+@pytestmark_real
+def test_demo_skin_hedges_warn_but_do_not_block(tmp_path):
+    warn = tmp_path / "warn.md"
+    warn.write_text("# T\n\nThe plan is quite ambitious.\n", encoding="utf-8")
+    rc = run_gates.main([str(warn), "--stages", "vale", "--vale-config", str(DEMO_VALE_CONFIG)])
+    assert rc == 0
+
+
+@pytestmark_real
+def test_demo_source_passes_its_own_skin_rules():
+    """The demo dossier must satisfy the demo skin's own writing doctrine
+    (dogfood invariant: the README claims it, so a test keeps it true)."""
+    rc = run_gates.main([str(REPO_ROOT / "demo" / "source"), "--stages", "vale",
+                         "--vale-config", str(DEMO_VALE_CONFIG)])
+    assert rc == 0
+
+
 HAVE_LYCHEE = shutil.which("lychee") is not None
 
 

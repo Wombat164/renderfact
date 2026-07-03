@@ -1,0 +1,13 @@
+extends: existence
+message: "Hedge or intensifier ('%s'): cut it, or commit to the claim."
+level: warning
+ignorecase: true
+tokens:
+  - quite
+  - rather
+  - very
+  - fairly
+  - somewhat
+  - arguably
+  - basically
+  - essentially
