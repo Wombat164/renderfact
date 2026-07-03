@@ -140,6 +140,19 @@ def test_extract_comments_and_tracked_changes(tmp_path):
     assert dele == [("Reviewer B", "removed words")]
 
 
+def test_embedded_objects_are_inventoried_not_ignored(tmp_path):
+    p = tmp_path / "with-embed.docx"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("word/document.xml", _DOC_XML)
+        z.writestr("word/embeddings/oleObject1.xlsx", b"PK-fake-workbook-bytes")
+        z.writestr("word/embeddings/blob.bin", b"\x00\x01")
+    z = zipfile.ZipFile(p)
+    embedded = reingest.extract_embedded(z)
+    assert {e["name"] for e in embedded} == {"oleObject1.xlsx", "blob.bin"}
+    xlsx = next(e for e in embedded if e["kind"] == "xlsx")
+    assert xlsx["bytes"] == len(b"PK-fake-workbook-bytes")
+
+
 # ---- fast-forward plan discipline ----
 
 def _plan(md_text: str, edited_lines: list[str]):

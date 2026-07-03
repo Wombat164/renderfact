@@ -83,6 +83,24 @@ def extract_comments(z: zipfile.ZipFile) -> list[dict]:
     return out
 
 
+def extract_embedded(z: zipfile.ZipFile) -> list[dict]:
+    """Inventory of OLE-embedded objects (word/embeddings/: an embedded XLSX,
+    a nested DOCX, a binary OLE blob). SURFACED, not silently ignored: a
+    reviewer can edit an embedded workbook too. Deep extraction of embedded
+    documents rides the per-format round-trip paths later; this report at
+    least tells you they are there and whether they changed size."""
+    out = []
+    for info in z.infolist():
+        if info.filename.startswith("word/embeddings/"):
+            name = info.filename.split("/")[-1]
+            out.append({
+                "name": name,
+                "bytes": info.file_size,
+                "kind": Path(name).suffix.lstrip(".").lower() or "ole",
+            })
+    return out
+
+
 def extract_tracked(doc_root) -> tuple[list, list]:
     ins, dele = [], []
     for el in doc_root.iter():
@@ -285,7 +303,8 @@ def apply_fast_forward(source_path: Path, safe_edits: list) -> int:
 # ------------------------------------------------------------------- report --
 
 def build_report(artifact: Path, prov, verdict: str, comments, ins, dele,
-                 items, delta_lines: list[str], safe, manual, applied: int | None) -> str:
+                 items, delta_lines: list[str], safe, manual, applied: int | None,
+                 embedded: list[dict] | None = None) -> str:
     tables = [p for k, p in items if k == "table"]
     R = [f"# Re-ingestion extract: {artifact.name}\n"]
     R.append(f"## 0. Provenance verdict: {verdict}\n")
@@ -310,6 +329,11 @@ def build_report(artifact: Path, prov, verdict: str, comments, ins, dele,
     else:
         R.append("- (none: edits are direct/accepted; rely on the delta below)")
     R.append("")
+    if embedded:
+        R.append("## 2b. Embedded objects (NOT diffed here: inspect by hand or via "
+                 "their own round-trip path)\n")
+        R.extend([f"- {e['name']} ({e['kind']}, {e['bytes']} bytes)" for e in embedded])
+        R.append("")
     R.append("## 3. Table column widths (formatting to canonicalize)\n")
     for i, t in enumerate(tables, 1):
         hdr = " | ".join(h[:18] for h in t["header"])
@@ -365,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         body = doc_root.find(f"{W}body")
         comments = extract_comments(z)
         ins, dele = extract_tracked(doc_root)
+        embedded = extract_embedded(z)
         items = walk_structure(body)
 
         md_text = args.source.read_text(encoding="utf-8")
@@ -394,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
                 "comments": comments,
                 "tracked_insertions": ins,
                 "tracked_deletions": dele,
+                "embedded_objects": embedded,
                 "delta": delta,
                 "safe_edits": [{"line": i, "new": n, "old": o} for i, _m, n, o in safe],
                 "manual": [list(m) for m in manual],
@@ -402,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         report = build_report(args.artifact, prov, verdict, comments, ins, dele,
-                              items, delta, safe, manual, applied)
+                              items, delta, safe, manual, applied, embedded=embedded)
         if args.report:
             args.report.write_text(report, encoding="utf-8", newline="\n")
             print(f"wrote {args.report}")
