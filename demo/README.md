@@ -55,3 +55,15 @@ Copy the pattern, not the fiction: write your own ladders + profiles (start from
 `projection/profiles-example.yaml`), mark up your source with the same fenced-div blocks,
 and supply your own brand override of `tokens/brand.yaml` (see `demo/skin/brand.yaml`).
 The engine has no built-in vocabulary: ladders, audiences, and brand are all yours.
+
+## Writing rules as skin config (golden rules)
+
+`skin/writing-golden-rules.md` is the demo organisation's writing doctrine (core-message-first
+condensation + a fluff taxonomy + four engagement moves), and `skin/vale/` encodes its
+deterministic slice as a consumer Vale style: throat-clearing patterns BLOCK, hedges WARN.
+Doctrine is skin, not core: the generic gate ships only built-in checks, and an organisation
+plugs its own rules in exactly like this:
+
+    RENDERFACT_VALE_CONFIG=demo/skin/vale/vale.ini python render.py gate demo/source --stages vale
+
+The demo dossier passes its own rules (that is a test, so it stays true).

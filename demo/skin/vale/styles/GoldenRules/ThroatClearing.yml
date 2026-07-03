@@ -1,0 +1,12 @@
+extends: existence
+message: "Throat-clearing meta-text ('%s'): the heading plus a point sentence already do this job."
+level: error
+ignorecase: true
+tokens:
+  - in this section we will
+  - in this chapter we will
+  - this section describes
+  - this document describes
+  - the purpose of this document is
+  - it should be noted that
+  - it is important to note that
