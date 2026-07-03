@@ -55,7 +55,11 @@ DONE reflects code that exists and is tested; everything else is NEXT or specifi
   RENDERFACT_VALE_CONFIG), vale 3.15.1 pinned in tools.lock + Containerfile + verify-pins.sh +
   doctor probes. Fail-closed means findings fail AND a requested-but-missing tool fails (exit 2):
   a gate that cannot run is not a gate that passed. Distinct from `render qa` (report-only,
-  post-render). lychee (B3b) and veraPDF-as-CLI-subprocess (B3c) are the next stages.
+  post-render). **B3b lychee DONE 2026-07-04:** offline-by-default link-integrity stage (relative file links
++ anchors; external URLs excluded so the verdict is deterministic and CI-safe; --online opts in);
+lychee 0.24.2 pinned across lock/Containerfile/verify-pins/doctor; RENDERFACT_LYCHEE_BIN override
+for hosts where the binary is not on PATH. Default chain is now vale,lychee.
+veraPDF-as-CLI-subprocess (B3c) is the remaining stage.
 - **B4 - Visual-QA for all families.** NEXT.
 
 ## Track C - Add

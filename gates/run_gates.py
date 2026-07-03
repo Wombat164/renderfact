@@ -12,11 +12,16 @@ Stages (each adopted per docs/ROADMAP.md B3, CLI-subprocess only):
   vale     text hygiene on markdown sources (errata-ai/vale). Generic default
            config: gates/vale/vale.ini (repetition blocks, spelling warns);
            override with --vale-config or RENDERFACT_VALE_CONFIG.
-Planned next: lychee (link integrity), verapdf (PDF/A + PDF/UA conformance,
-CLI-subprocess invocation per the recorded licence election).
+  lychee   link integrity on markdown sources (lycheeverse/lychee). OFFLINE by
+           default (relative file links + anchors only; external URLs excluded)
+           so the verdict is deterministic and CI-safe; --online opts into
+           checking external URLs, accepting network flakiness. Binary override:
+           RENDERFACT_LYCHEE_BIN (for hosts where lychee is not on PATH).
+Planned next: verapdf (PDF/A + PDF/UA conformance, CLI-subprocess invocation
+per the recorded licence election).
 
 Usage:
-    render gate <files-or-dirs...> [--stages vale] [--vale-config PATH]
+    render gate <files-or-dirs...> [--stages vale,lychee] [--vale-config PATH] [--online]
 
 Exit codes: 0 every requested stage passed; 1 findings; 2 a requested stage's
 tool is missing or the invocation itself is unusable.
@@ -79,8 +84,38 @@ def run_vale(targets: list[str], config: Path | None,
                        f"{(proc.stderr or output).strip()[:300]}")
 
 
+def run_lychee(targets: list[str], online: bool = False,
+               which=shutil.which, runner=subprocess.run) -> StageResult:
+    files = _resolve_files(targets, (".md",))
+    if not files:
+        return StageResult("lychee", "NO_FILES", "no .md files among the targets")
+    exe = os.environ.get("RENDERFACT_LYCHEE_BIN") or which("lychee")
+    if not exe:
+        return StageResult("lychee", "TOOL_MISSING",
+                           "lychee not installed (lycheeverse/lychee); a requested gate that "
+                           "cannot run is a FAILED gate, not a skipped one")
+    cmd = [exe, "--no-progress"]
+    if not online:
+        cmd.append("--offline")  # deterministic: file links only, external URLs excluded
+    proc = runner(
+        [*cmd, *map(str, files)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600,
+    )
+    output = (proc.stdout or "").strip()
+    # lychee exit codes: 0 = clean, 2 = broken links found, anything else = unusable run
+    if proc.returncode == 0:
+        mode = "online" if online else "offline"
+        return StageResult("lychee", "PASS", f"{len(files)} file(s) clean ({mode})")
+    if proc.returncode == 2:
+        return StageResult("lychee", "FAIL", output or "broken links found")
+    return StageResult("lychee", "TOOL_MISSING",
+                       f"lychee invocation unusable (exit {proc.returncode}): "
+                       f"{(proc.stderr or output).strip()[:300]}")
+
+
 STAGES = {
     "vale": run_vale,
+    "lychee": run_lychee,
 }
 
 
@@ -90,11 +125,14 @@ def main(argv: list[str] | None = None) -> int:
         description="Deterministic fail-closed QA gate chain (B3). No LLM, no network.",
     )
     ap.add_argument("targets", nargs="+", help="files or directories to gate")
-    ap.add_argument("--stages", default="vale",
+    ap.add_argument("--stages", default="vale,lychee",
                     help=f"comma-separated stages to run (available: {', '.join(sorted(STAGES))})")
     ap.add_argument("--vale-config", type=Path, default=None,
                     help="Vale config override (default: the generic-core "
                          "gates/vale/vale.ini, or RENDERFACT_VALE_CONFIG)")
+    ap.add_argument("--online", action="store_true",
+                    help="lychee: also check external URLs (non-deterministic, "
+                         "network-dependent; default is offline file-link integrity)")
     args = ap.parse_args(argv)
 
     requested = [s.strip() for s in args.stages.split(",") if s.strip()]
@@ -108,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
     for stage in requested:
         if stage == "vale":
             results.append(run_vale(args.targets, args.vale_config))
+        elif stage == "lychee":
+            results.append(run_lychee(args.targets, online=args.online))
 
     worst = 0
     for r in results:
