@@ -23,7 +23,7 @@ openpyxl:     installed       # pip (unpinned); ADDED 2026-07-03 -- D11 provenan
 python-pptx:  installed       # pip (unpinned); ADDED 2026-07-03 -- D11 provenance (chunk 4.1) needs PPTX core-properties access; same treatment as python-docx
 docxcompose:  2.2.0           # PIN -- Word-COM-free DOCX merge (bundle-annex-linux.py)
 pypdf:        6.14.2          # bump from 6.13 (latest 2026-06-23); PDF merge
-drawio-desktop: BROKEN        # install currently FAILS in image (n/a); research UNRESOLVED whether headless drawio is still right. Non-fatal layer; mermaid+d2+graphviz cover diagrams. TODO: resolve or drop.
+drawio-desktop: DROPPED       # RESOLVED 2026-07-04 by C8: the round-trip is pure XML (generate + re-ingest need no rendering; the operator's own draw.io app is the visual layer, and headless drawio hard-requires Electron/Chromium per the prior-art pass). mermaid+d2+graphviz remain the generated-render engines.
 fonts:        Inter, Palanquin, Roboto
 likec4:       1.58.0          # ADDED 2026-07-02 -- architecture-diagrams skill's LikeC4 DSL -> PNG (closes the A4 diagram-skill-reconciliation gap; Playwright-managed chromium, --with-deps)
 vale:         3.15.1          # ADDED 2026-07-04 (B3a) -- deterministic text-hygiene gate stage; version = dev-host-verified working pin

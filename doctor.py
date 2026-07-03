@@ -137,8 +137,8 @@ def check(pins: dict[str, str], which=shutil.which, runner=subprocess.run,
         if tool in SKIP_ENTRIES:
             results.append(Result(tool, pinned, None, "SKIP", SKIP_ENTRIES[tool]))
             continue
-        if pinned.upper() == "BROKEN":
-            results.append(Result(tool, pinned, None, "SKIP", "marked BROKEN in tools.lock"))
+        if pinned.upper() in ("BROKEN", "DROPPED"):
+            results.append(Result(tool, pinned, None, "SKIP", f"marked {pinned.upper()} in tools.lock"))
             continue
         if tool in CLI_PROBES:
             candidates, args, regex = CLI_PROBES[tool]
