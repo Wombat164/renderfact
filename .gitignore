@@ -15,6 +15,10 @@ node_modules/
 !assets/brand/
 !assets/brand/**
 
+# template-pack exemplars are deliberately committed (identity-free: rendered with PROVENANCE=off)
+!templates/renders/
+!templates/renders/**
+
 # demo exemplars are deliberately committed (the showcase must be visible without a local build)
 !demo/renders/
 !demo/renders/**

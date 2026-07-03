@@ -23,6 +23,7 @@
   <a href="#how-it-works">How it works</a> ·
   <a href="#whats-in-the-box">Capabilities</a> ·
   <a href="demo/">Demo</a> ·
+  <a href="templates/">Templates</a> ·
   <a href="docs/">Docs</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -88,6 +89,7 @@ bound, in which case provenance is stripped.
 | | Diagrams (mermaid, d2) with pre-render lint + visual-QA metrics | `render diagram` |
 | | Brand tokens to per-engine themes | `render tokens` |
 | | Template import: derive a skin from any branded DOCX | `render import-template` |
+| | Genre template pack (executive summary, briefs, pitches, purchase request) with rendered exemplars | [`templates/`](templates/) |
 | **Round-trip** | Hidden provenance across DOCX/XLSX/PPTX | `render provenance` |
 | | Mechanical DOCX re-ingestion: verdicts, reviewer-edit report, fast-forward apply, embedded-doc triage | `render reingest` |
 | | Editable-diagram round-trip (draw.io lead adapter; stable IDs; semantic/style/layout routing) | `render drawio` |
