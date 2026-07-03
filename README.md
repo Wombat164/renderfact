@@ -1,3 +1,17 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/renderfact-lockup-dark.svg">
+    <img src="assets/brand/renderfact-lockup.svg" alt="renderfact" width="480">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Wombat164/renderfact/actions/workflows/ci.yml"><img src="https://github.com/Wombat164/renderfact/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/renderfact/"><img src="https://img.shields.io/pypi/v/renderfact" alt="PyPI"></a>
+  <a href="https://pypi.org/project/renderfact/"><img src="https://img.shields.io/pypi/pyversions/renderfact" alt="Python versions"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Wombat164/renderfact" alt="License: MIT"></a>
+</p>
+
 # renderfact
 
 A lightweight, governed **docs-as-code render framework**: take one full-candor source and

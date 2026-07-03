@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a capability or an improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before proposing: docs/ROADMAP.md lists what is planned and why, with
+        adopt/imitate/build tags, and docs/DECISIONS.md records why things are
+        the way they are. Referencing them saves everyone a round-trip.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do today, or what is painful? Describe the workflow, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape
+      description: What would it look like (CLI flag, config key, new mode)? Prior art in other tools is very welcome; this project prefers adopting or imitating proven patterns over inventing.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - projection (audience/clearance gating)
+        - DOCX pipeline / docstyle
+        - diagrams / lint
+        - provenance / round-trip
+        - API / serve
+        - tokens / theming
+        - container / engines
+        - packaging / CI
+        - docs
+        - other
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: This fits the generic core (domain-neutral); consumer-specific behaviour belongs in a private skin
+          required: true

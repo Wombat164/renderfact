@@ -11,6 +11,10 @@ node_modules/
 .renderfact-copy-paste-prompt.txt
 *.egg-info/
 
+# brand assets are deliberately committed (README logo + social preview)
+!assets/brand/
+!assets/brand/**
+
 # demo exemplars are deliberately committed (the showcase must be visible without a local build)
 !demo/renders/
 !demo/renders/**
