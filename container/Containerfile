@@ -46,6 +46,34 @@ RUN wget -q https://github.com/errata-ai/vale/releases/download/v3.15.1/vale_3.1
 # 4c. lychee 0.24.2 (binary release) -- B3b offline link-integrity gate stage
 RUN wget -q https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz -O /tmp/lychee.tar.gz     && tar -xzf /tmp/lychee.tar.gz -C /tmp lychee     && mv /tmp/lychee /usr/local/bin/lychee     && chmod +x /usr/local/bin/lychee     && rm -rf /tmp/lychee*
 
+# 4d. veraPDF 1.30.2 (greenfield, headless izpack install) -- B3c PDF/A + PDF/UA
+# conformance gate stage. CLI SUBPROCESS per the recorded dual-GPL/MPL licence
+# election (THIRD-PARTY-LICENSES.md); needs a JRE.
+RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && wget -q https://software.verapdf.org/releases/1.30/verapdf-greenfield-1.30.2-installer.zip -O /tmp/vp.zip \
+    && unzip -q /tmp/vp.zip -d /tmp \
+    && printf '%s\n' \
+       '<?xml version="1.0" encoding="UTF-8" standalone="no"?>' \
+       '<AutomatedInstallation langpack="eng">' \
+       '  <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>' \
+       '  <com.izforge.izpack.panels.target.TargetPanel id="install_dir">' \
+       '    <installpath>/opt/verapdf</installpath>' \
+       '  </com.izforge.izpack.panels.target.TargetPanel>' \
+       '  <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">' \
+       '    <pack index="0" name="veraPDF GUI" selected="true"/>' \
+       '    <pack index="1" name="veraPDF Batch files" selected="true"/>' \
+       '    <pack index="2" name="veraPDF Validation model" selected="false"/>' \
+       '    <pack index="3" name="veraPDF Documentation" selected="false"/>' \
+       '    <pack index="4" name="veraPDF Sample Plugins" selected="false"/>' \
+       '  </com.izforge.izpack.panels.packs.PacksPanel>' \
+       '  <com.izforge.izpack.panels.install.InstallPanel id="install"/>' \
+       '  <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>' \
+       '</AutomatedInstallation>' > /tmp/vp-auto.xml \
+    && java -jar /tmp/verapdf-greenfield-1.30.2/verapdf-izpack-installer-1.30.2.jar /tmp/vp-auto.xml \
+    && ln -s /opt/verapdf/verapdf /usr/local/bin/verapdf \
+    && rm -rf /tmp/vp.zip /tmp/vp-auto.xml /tmp/verapdf-greenfield-*
+
 # 5. d2 v0.7.1 (per tools.lock)
 RUN wget -q https://github.com/terrastruct/d2/releases/download/v0.7.1/d2-v0.7.1-linux-amd64.tar.gz -O /tmp/d2.tar.gz \
     && tar -xf /tmp/d2.tar.gz -C /tmp \

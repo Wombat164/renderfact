@@ -42,7 +42,7 @@ pypdf BSD-3-Clause, pytest MIT (dev only).
 
 ## Recorded licence elections (decisions, not yet integrations)
 
-- **veraPDF** (planned, B3): dual GPL-3.0 / MPL-2.0. Election recorded 2026-07-03: invoke as a
+- **veraPDF** (INTEGRATED 2026-07-04, B3c; redistributed in the container image, greenfield 1.30.2 + openjdk-17-jre-headless): dual GPL-3.0 / MPL-2.0. Election recorded 2026-07-03: invoke as a
   CLI SUBPROCESS, never embed as a library, so no copyleft obligation attaches to renderfact's
   MIT code. Revisit only if performance ever demands embedding, and then under the MPL-2.0 arm.
 - **PlantUML** (planned, A6/B1): GPL-3.0. Same treatment as pandoc: a GPL engine invoked as a

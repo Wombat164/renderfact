@@ -17,11 +17,19 @@ Stages (each adopted per docs/ROADMAP.md B3, CLI-subprocess only):
            so the verdict is deterministic and CI-safe; --online opts into
            checking external URLs, accepting network flakiness. Binary override:
            RENDERFACT_LYCHEE_BIN (for hosts where lychee is not on PATH).
-Planned next: verapdf (PDF/A + PDF/UA conformance, CLI-subprocess invocation
-per the recorded licence election).
+  verapdf  PDF/A + PDF/UA conformance on rendered PDFs (veraPDF, invoked as a
+           CLI SUBPROCESS: the dual GPL/MPL licence election recorded in the
+           roadmap, no library embedding). By default validates each PDF
+           against the standard it DECLARES (auto-detect; an undeclared plain
+           PDF falls back to PDF/A-1b and fails, which is correct: an archival
+           gate should reject a non-archival PDF); --pdf-flavour forces one
+           (e.g. ua1). Binary override: RENDERFACT_VERAPDF_BIN.
+All three stages self-scope by file type, so one `render gate <dir>` run
+applies each stage to the files it understands.
 
 Usage:
-    render gate <files-or-dirs...> [--stages vale,lychee] [--vale-config PATH] [--online]
+    render gate <files-or-dirs...> [--stages vale,lychee,verapdf] [--vale-config PATH]
+                [--online] [--pdf-flavour ua1|2b|...]
 
 Exit codes: 0 every requested stage passed; 1 findings; 2 a requested stage's
 tool is missing or the invocation itself is unusable.
@@ -113,9 +121,44 @@ def run_lychee(targets: list[str], online: bool = False,
                        f"{(proc.stderr or output).strip()[:300]}")
 
 
+def run_verapdf(targets: list[str], flavour: str | None = None,
+                which=shutil.which, runner=subprocess.run) -> StageResult:
+    files = _resolve_files(targets, (".pdf",))
+    if not files:
+        return StageResult("verapdf", "NO_FILES", "no .pdf files among the targets")
+    exe = os.environ.get("RENDERFACT_VERAPDF_BIN")
+    if not exe:
+        for name in ("verapdf", "verapdf.bat"):
+            exe = which(name)
+            if exe:
+                break
+    if not exe:
+        return StageResult("verapdf", "TOOL_MISSING",
+                           "verapdf not installed (verapdf.org, needs a JRE); a requested gate "
+                           "that cannot run is a FAILED gate, not a skipped one")
+    cmd = [exe, "--format", "text"]
+    if flavour:
+        cmd += ["-f", flavour]
+    proc = runner(
+        [*cmd, *map(str, files)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
+    )
+    output = (proc.stdout or "").strip()
+    # verified against the real 1.30.2 CLI: 0 = all compliant, 1 = non-compliant
+    if proc.returncode == 0:
+        mode = f"flavour {flavour}" if flavour else "declared-standard auto-detect"
+        return StageResult("verapdf", "PASS", f"{len(files)} PDF(s) compliant ({mode})")
+    if proc.returncode == 1:
+        return StageResult("verapdf", "FAIL", output or "non-compliant PDF(s)")
+    return StageResult("verapdf", "TOOL_MISSING",
+                       f"verapdf invocation unusable (exit {proc.returncode}): "
+                       f"{(proc.stderr or output).strip()[:300]}")
+
+
 STAGES = {
     "vale": run_vale,
     "lychee": run_lychee,
+    "verapdf": run_verapdf,
 }
 
 
@@ -125,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Deterministic fail-closed QA gate chain (B3). No LLM, no network.",
     )
     ap.add_argument("targets", nargs="+", help="files or directories to gate")
-    ap.add_argument("--stages", default="vale,lychee",
+    ap.add_argument("--stages", default="vale,lychee,verapdf",
                     help=f"comma-separated stages to run (available: {', '.join(sorted(STAGES))})")
     ap.add_argument("--vale-config", type=Path, default=None,
                     help="Vale config override (default: the generic-core "
@@ -133,6 +176,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--online", action="store_true",
                     help="lychee: also check external URLs (non-deterministic, "
                          "network-dependent; default is offline file-link integrity)")
+    ap.add_argument("--pdf-flavour", default=None,
+                    help="verapdf: force a validation flavour (e.g. ua1, 2b); "
+                         "default validates each PDF against the standard it declares")
     args = ap.parse_args(argv)
 
     requested = [s.strip() for s in args.stages.split(",") if s.strip()]
@@ -148,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
             results.append(run_vale(args.targets, args.vale_config))
         elif stage == "lychee":
             results.append(run_lychee(args.targets, online=args.online))
+        elif stage == "verapdf":
+            results.append(run_verapdf(args.targets, flavour=args.pdf_flavour))
 
     worst = 0
     for r in results:

@@ -59,7 +59,14 @@ DONE reflects code that exists and is tested; everything else is NEXT or specifi
 + anchors; external URLs excluded so the verdict is deterministic and CI-safe; --online opts in);
 lychee 0.24.2 pinned across lock/Containerfile/verify-pins/doctor; RENDERFACT_LYCHEE_BIN override
 for hosts where the binary is not on PATH. Default chain is now vale,lychee.
-veraPDF-as-CLI-subprocess (B3c) is the remaining stage.
+**B3c veraPDF DONE 2026-07-04, B3 COMPLETE:** conformance stage on rendered PDFs, CLI
+subprocess per the licence election; default validates each PDF against its DECLARED standard
+(auto-detect: an undeclared PDF falls back to PDF/A-1b and fails, correct for an archival gate),
+--pdf-flavour forces one (e.g. ua1). Exit codes verified against the real 1.30.2 CLI, including
+that typst --pdf-standard a-2b output genuinely PASSES PDF/A-2b validation (the archival route
+works end to end). veraPDF 1.30.2 + openjdk-17-jre-headless in the container image (headless
+izpack install); RENDERFACT_VERAPDF_BIN override for native hosts. Default chain:
+vale,lychee,verapdf, each stage self-scoping by file type.
 - **B4 - Visual-QA for all families.** NEXT.
 
 ## Track C - Add

@@ -54,6 +54,7 @@ CLI_PROBES = {
     "libreoffice": (("soffice",), ("--version",), r"LibreOffice\s+([0-9]+(?:\.[0-9]+)+)"),
     "vale": (("vale",), ("--version",), r"vale version ([0-9]+(?:\.[0-9]+)+)"),
     "lychee": (("lychee",), ("--version",), r"lychee ([0-9]+(?:\.[0-9]+)+)"),
+    "verapdf": (("verapdf", "verapdf.bat"), ("--version",), r"veraPDF ([0-9]+(?:\.[0-9]+)+)"),
 }
 
 # Python packages: lock name -> distribution name (importlib.metadata).
