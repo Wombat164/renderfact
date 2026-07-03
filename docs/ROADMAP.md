@@ -66,7 +66,10 @@ subprocess per the licence election; default validates each PDF against its DECL
 that typst --pdf-standard a-2b output genuinely PASSES PDF/A-2b validation (the archival route
 works end to end). veraPDF 1.30.2 + openjdk-17-jre-headless in the container image (headless
 izpack install); RENDERFACT_VERAPDF_BIN override for native hosts. Default chain:
-vale,lychee,verapdf, each stage self-scoping by file type.
+vale,lychee,verapdf,uids, each stage self-scoping by file type. The uids stage (added 2026-07-04,
+operator requirement: multi-user organisations) detects DUPLICATE renderfact_uid values across a
+source tree: uuid4 generation cannot collide, but a file copy duplicates identity and corrupts
+every provenance-anchored round-trip downstream; dependency-free and deterministic.
 - **B4 - Visual-QA for all families.** NEXT.
 
 ## Track C - Add
@@ -147,6 +150,11 @@ from a proven reverse-pipeline extractor), and is REPORT-ONLY by default: --appl
 the mechanically safe subset (1:1 reworded, markup-free, unique lines) and refuses on DIVERGED
 (the three-way merge is chunk 4.6). Provenance also gained source_commit (D11 part 4 hardening):
 every render records the source repo's exact commit, -dirty-suffixed when uncommitted.
+Embedded objects are TRIAGED by provenance since 2026-07-04 (operator requirement): a
+renderfact-tracked embedded OPC document (docx/xlsx/pptx/vsdx all share docProps/core.xml, read
+generically) is routed to its own per-format path; an OOXML file without provenance is flagged
+unknown-origin (adopt candidate); any other type is tried through markitdown (optional extra)
+for a text preview. Embeddings are matched by path segment, covering XLSX/PPTX/VSDX hosts too.
 Remaining in Track D: 4.2 split-plus-embed dual output, 4.5 LLM contextualize (rides D8), 4.6
 three-way merge, 4.7 git finalize.
 

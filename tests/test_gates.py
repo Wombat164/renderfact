@@ -201,6 +201,32 @@ def test_lychee_unusable_invocation_fails_closed(tmp_path):
     assert "unusable" in r.detail
 
 
+# ---- uids stage: duplicate-identity detection (org-scale hygiene) ----
+
+def test_uids_stage_passes_on_unique_and_fails_on_copied_identity(tmp_path):
+    (tmp_path / "a.md").write_text(
+        "---\ntitle: A\nrenderfact_uid: uid-aaa\n---\n\nBody.\n", encoding="utf-8")
+    (tmp_path / "g.yaml").write_text(
+        "concepts: []\nrenderfact_uid: uid-bbb\n", encoding="utf-8")
+    r = run_gates.run_uids([str(tmp_path)])
+    assert r.status == "PASS"
+    assert "2 uid-carrying" in r.detail
+
+    # a file copy claims the original's lineage: that is the org-scale hazard
+    (tmp_path / "a-copy.md").write_text(
+        "---\ntitle: A copy\nrenderfact_uid: uid-aaa\n---\n\nForked body.\n", encoding="utf-8")
+    r = run_gates.run_uids([str(tmp_path)])
+    assert r.status == "FAIL"
+    assert "uid-aaa" in r.detail and "a-copy.md" in r.detail
+
+
+def test_uids_stage_ignores_sources_without_uid(tmp_path):
+    (tmp_path / "plain.md").write_text("# No frontmatter\n", encoding="utf-8")
+    r = run_gates.run_uids([str(tmp_path)])
+    assert r.status == "PASS"
+    assert "0 uid-carrying" in r.detail
+
+
 # ---- demo skin GoldenRules style (writing doctrine as CONSUMER config) ----
 
 DEMO_VALE_CONFIG = REPO_ROOT / "demo" / "skin" / "vale" / "vale.ini"

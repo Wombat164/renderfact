@@ -24,8 +24,13 @@ Stages (each adopted per docs/ROADMAP.md B3, CLI-subprocess only):
            PDF falls back to PDF/A-1b and fails, which is correct: an archival
            gate should reject a non-archival PDF); --pdf-flavour forces one
            (e.g. ua1). Binary override: RENDERFACT_VERAPDF_BIN.
-All three stages self-scope by file type, so one `render gate <dir>` run
-applies each stage to the files it understands.
+  uids     duplicate renderfact_uid detection across a source tree. uuid4
+           generation cannot collide, but FILE COPIES duplicate identity (a
+           forked source or a template carrying a renderfact_uid claims the
+           original's lineage); at organisational scale that corrupts every
+           provenance-anchored round-trip. Deterministic, dependency-free.
+All stages self-scope by file type, so one `render gate <dir>` run applies
+each stage to the files it understands.
 
 Usage:
     render gate <files-or-dirs...> [--stages vale,lychee,verapdf] [--vale-config PATH]
@@ -155,10 +160,56 @@ def run_verapdf(targets: list[str], flavour: str | None = None,
                        f"{(proc.stderr or output).strip()[:300]}")
 
 
+def run_uids(targets: list[str], **_ignored) -> StageResult:
+    """Duplicate renderfact_uid scan across markdown frontmatter and YAML/JSON
+    graph sources. No tool dependency: this stage can never be TOOL_MISSING."""
+    import re
+
+    import yaml as yaml_mod
+
+    files = _resolve_files(targets, (".md", ".yaml", ".yml", ".json"))
+    if not files:
+        return StageResult("uids", "NO_FILES", "no source files among the targets")
+    owners: dict[str, list[str]] = {}
+    for f in files:
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        uid = None
+        if f.suffix.lower() == ".md":
+            m = re.match(r"^---\n(.*?)\n---\n", text, flags=re.DOTALL)
+            if m:
+                try:
+                    uid = (yaml_mod.safe_load(m.group(1)) or {}).get("renderfact_uid")
+                except yaml_mod.YAMLError:
+                    uid = None
+        else:
+            try:
+                data = yaml_mod.safe_load(text)
+                if isinstance(data, dict):
+                    uid = data.get("renderfact_uid")
+            except yaml_mod.YAMLError:
+                uid = None
+        if uid:
+            owners.setdefault(str(uid), []).append(str(f))
+    dupes = {u: paths for u, paths in owners.items() if len(paths) > 1}
+    if dupes:
+        lines = ["  " + u + ":" + "".join("\n    " + p for p in paths)
+                 for u, paths in dupes.items()]
+        return StageResult("uids", "FAIL",
+                           f"{len(dupes)} renderfact_uid value(s) claimed by multiple sources "
+                           "(a file copy duplicated identity; strip the uid from the fork):\n"
+                           + "\n".join(lines))
+    return StageResult("uids", "PASS",
+                       f"{sum(len(p) for p in owners.values())} uid-carrying source(s), all unique")
+
+
 STAGES = {
     "vale": run_vale,
     "lychee": run_lychee,
     "verapdf": run_verapdf,
+    "uids": run_uids,
 }
 
 
@@ -168,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Deterministic fail-closed QA gate chain (B3). No LLM, no network.",
     )
     ap.add_argument("targets", nargs="+", help="files or directories to gate")
-    ap.add_argument("--stages", default="vale,lychee,verapdf",
+    ap.add_argument("--stages", default="vale,lychee,verapdf,uids",
                     help=f"comma-separated stages to run (available: {', '.join(sorted(STAGES))})")
     ap.add_argument("--vale-config", type=Path, default=None,
                     help="Vale config override (default: the generic-core "
@@ -196,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
             results.append(run_lychee(args.targets, online=args.online))
         elif stage == "verapdf":
             results.append(run_verapdf(args.targets, flavour=args.pdf_flavour))
+        elif stage == "uids":
+            results.append(run_uids(args.targets))
 
     worst = 0
     for r in results:

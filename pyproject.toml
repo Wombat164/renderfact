@@ -50,6 +50,8 @@ Repository = "https://github.com/Wombat164/renderfact"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# optional: text previews of foreign embedded objects during re-ingestion
+embedded-preview = ["markitdown>=0.1"]
 
 [project.scripts]
 render = "render:main"
