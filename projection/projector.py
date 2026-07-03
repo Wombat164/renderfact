@@ -37,7 +37,11 @@ guesses is not a gate.
 Provenance note (D14): the projected-header HTML comment stamps profile name +
 gate parameters + dropped-block count into the OUTPUT. Profiles for externally-bound
 renders can suppress it with `stamp_header: false` -- same audience-awareness
-principle as D14's provenance rule.
+principle as D14's provenance rule. Profiles can additionally set
+`strip_provenance: true` (default false): the DOCX pipeline then scrubs renderfact
+provenance metadata from artifacts rendered under that profile, and skips the
+default embed. The full/none rule is D14 as ratified; an opaque-token third mode
+is a documented future extension.
 
 Usage:
     render project <source.md> --profiles <config.yaml> --profile <name> [-o out.md]
@@ -90,6 +94,8 @@ def load_config(path: Path) -> tuple[dict[str, dict[str, int]], dict[str, dict]]
         for key in ("lang", "audience", "disclosure"):
             if key not in prof:
                 raise ProjectionError(f"profile {pname}: missing required key '{key}'")
+        if "strip_provenance" in prof and not isinstance(prof["strip_provenance"], bool):
+            raise ProjectionError(f"profile {pname}: strip_provenance must be a boolean")
     return ladders, profiles
 
 

@@ -403,3 +403,65 @@ def test_cli_embed_then_extract_end_to_end_for_xlsx(tmp_path):
     assert extract_result.returncode == 0, extract_result.stderr
     payload = json.loads(extract_result.stdout)
     assert payload["source_uid"] in md_path.read_text(encoding="utf-8")
+
+
+# ---- D14: strip (external/publish projections carry no internal identity) ----
+
+def _make_source_md(tmp_path: Path) -> Path:
+    src = tmp_path / "doc.md"
+    src.write_text("---\ntitle: Example\n---\n\nBody.\n", encoding="utf-8")
+    return src
+
+
+@pytest.mark.parametrize("suffix", [".docx", ".xlsx", ".pptx"])
+def test_strip_removes_provenance_across_all_three_formats(tmp_path, suffix):
+    artifact = _MAKERS[suffix](tmp_path)
+    provenance.embed(artifact, provenance.build_provenance(_make_source_md(tmp_path)))
+    assert provenance.extract(artifact) is not None
+    assert provenance.strip(artifact) is True
+    assert provenance.extract(artifact) is None
+
+
+def test_strip_is_a_noop_on_an_untracked_artifact(tmp_path):
+    artifact = _make_docx(tmp_path)
+    assert provenance.strip(artifact) is False
+    assert provenance.extract(artifact) is None
+
+
+def test_strip_never_touches_a_foreign_identifier(tmp_path):
+    """Stripping OUR metadata must not destroy someone else's dc:identifier
+    (a DOI, an organisation's own document number)."""
+    artifact = _make_docx(tmp_path)
+    doc = Document(str(artifact))
+    doc.core_properties.identifier = "doi:10.1234/example"
+    doc.save(str(artifact))
+
+    assert provenance.strip(artifact) is False
+    assert Document(str(artifact)).core_properties.identifier == "doi:10.1234/example"
+
+
+def test_strip_is_idempotent_after_a_real_strip(tmp_path):
+    artifact = _make_docx(tmp_path)
+    provenance.embed(artifact, provenance.build_provenance(_make_source_md(tmp_path)))
+    assert provenance.strip(artifact) is True
+    assert provenance.strip(artifact) is False
+
+
+def test_cli_strip_end_to_end(tmp_path):
+    artifact = _make_docx(tmp_path)
+    provenance.embed(artifact, provenance.build_provenance(_make_source_md(tmp_path)))
+
+    first = subprocess.run(
+        [sys.executable, str(RENDER_PY), "provenance", "strip", str(artifact)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert first.returncode == 0, first.stderr
+    assert "stripped renderfact provenance" in first.stdout
+    assert provenance.extract(artifact) is None
+
+    second = subprocess.run(
+        [sys.executable, str(RENDER_PY), "provenance", "strip", str(artifact)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert second.returncode == 0
+    assert "no renderfact provenance to strip" in second.stdout

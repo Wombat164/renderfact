@@ -42,3 +42,4 @@ profiles:
     audience: general
     disclosure: minimal
     stamp_header: false
+    strip_provenance: true
