@@ -104,7 +104,7 @@ pytestmark_real = pytest.mark.skipif(not HAVE_VALE, reason="vale not installed o
 def test_real_vale_repetition_blocks_with_generic_config(tmp_path):
     bad = tmp_path / "bad.md"
     bad.write_text("# T\n\nThis is is a repeated word.\n", encoding="utf-8")
-    rc = run_gates.main([str(bad)])
+    rc = run_gates.main([str(bad), "--stages", "vale"])
     assert rc == 1
 
 
@@ -112,7 +112,7 @@ def test_real_vale_repetition_blocks_with_generic_config(tmp_path):
 def test_real_vale_spelling_warns_but_does_not_block(tmp_path):
     warn_only = tmp_path / "warn.md"
     warn_only.write_text("# T\n\nA mispeled word but no repetition.\n", encoding="utf-8")
-    rc = run_gates.main([str(warn_only)])
+    rc = run_gates.main([str(warn_only), "--stages", "vale"])
     assert rc == 0  # spelling is warning-level in the generic config
 
 
@@ -120,7 +120,7 @@ def test_real_vale_spelling_warns_but_does_not_block(tmp_path):
 def test_real_vale_clean_prose_passes(tmp_path):
     good = tmp_path / "good.md"
     good.write_text("# T\n\nA clean sentence.\n", encoding="utf-8")
-    rc = run_gates.main([str(good)])
+    rc = run_gates.main([str(good), "--stages", "vale"])
     assert rc == 0
 
 
@@ -129,8 +129,89 @@ def test_render_entrypoint_dispatches_gate_mode(tmp_path):
     bad = tmp_path / "bad.md"
     bad.write_text("# T\n\nthe the doubled.\n", encoding="utf-8")
     result = subprocess.run(
-        [sys.executable, str(RENDER_PY), "gate", str(bad)],
+        [sys.executable, str(RENDER_PY), "gate", str(bad), "--stages", "vale"],
         capture_output=True, text=True, timeout=120,
     )
     assert result.returncode == 1
     assert "[vale] FAIL" in result.stdout
+
+
+# ---- lychee stage (B3b) ----
+# Exit-code mapping encoded here was verified against the real lychee 0.24.2
+# binary (release download): 0 = clean, 2 = broken links, 1 = unusable run.
+
+def test_lychee_missing_tool_is_a_failure_not_a_skip(tmp_path, monkeypatch):
+    monkeypatch.delenv("RENDERFACT_LYCHEE_BIN", raising=False)
+    (tmp_path / "doc.md").write_text("text", encoding="utf-8")
+    r = run_gates.run_lychee([str(tmp_path)], which=lambda n: None,
+                             runner=_fake_runner(0))
+    assert r.status == "TOOL_MISSING"
+
+
+def test_lychee_broken_links_fail(tmp_path):
+    (tmp_path / "doc.md").write_text("[x](nope.md)", encoding="utf-8")
+    r = run_gates.run_lychee([str(tmp_path)], which=lambda n: "/usr/bin/lychee",
+                             runner=_fake_runner(2, stdout="[ERROR] file nope.md: not found"))
+    assert r.status == "FAIL"
+    assert "nope.md" in r.detail
+
+
+def test_lychee_clean_passes_and_reports_offline_mode(tmp_path):
+    (tmp_path / "doc.md").write_text("[x](doc.md)", encoding="utf-8")
+    r = run_gates.run_lychee([str(tmp_path)], which=lambda n: "/usr/bin/lychee",
+                             runner=_fake_runner(0))
+    assert r.status == "PASS"
+    assert "offline" in r.detail
+
+
+def test_lychee_offline_flag_is_default_and_online_removes_it(tmp_path):
+    (tmp_path / "doc.md").write_text("x", encoding="utf-8")
+    seen = {}
+
+    def runner(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    run_gates.run_lychee([str(tmp_path)], which=lambda n: "/usr/bin/lychee", runner=runner)
+    assert "--offline" in seen["cmd"]
+    run_gates.run_lychee([str(tmp_path)], online=True,
+                         which=lambda n: "/usr/bin/lychee", runner=runner)
+    assert "--offline" not in seen["cmd"]
+
+
+def test_lychee_env_binary_override(tmp_path, monkeypatch):
+    (tmp_path / "doc.md").write_text("x", encoding="utf-8")
+    monkeypatch.setenv("RENDERFACT_LYCHEE_BIN", "/custom/lychee")
+    seen = {}
+
+    def runner(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    r = run_gates.run_lychee([str(tmp_path)], which=lambda n: None, runner=runner)
+    assert r.status == "PASS"
+    assert seen["cmd"][0] == "/custom/lychee"
+
+
+def test_lychee_unusable_invocation_fails_closed(tmp_path):
+    (tmp_path / "doc.md").write_text("x", encoding="utf-8")
+    r = run_gates.run_lychee([str(tmp_path)], which=lambda n: "/usr/bin/lychee",
+                             runner=_fake_runner(1, stderr="config error"))
+    assert r.status == "TOOL_MISSING"
+    assert "unusable" in r.detail
+
+
+HAVE_LYCHEE = shutil.which("lychee") is not None
+
+
+@pytest.mark.skipif(not HAVE_LYCHEE, reason="lychee not installed on this host")
+def test_real_lychee_offline_broken_and_clean(tmp_path):
+    (tmp_path / "other.md").write_text("# Other\n", encoding="utf-8")
+    bad = tmp_path / "bad.md"
+    bad.write_text("[good](other.md) [broken](nope.md) [ext](https://example.com/)\n",
+                   encoding="utf-8")
+    assert run_gates.run_lychee([str(bad)]).status == "FAIL"
+    good = tmp_path / "good.md"
+    good.write_text("[good](other.md) [ext](https://example.com/)\n", encoding="utf-8")
+    r = run_gates.run_lychee([str(good)])
+    assert r.status == "PASS"  # external URL excluded offline: deterministic verdict

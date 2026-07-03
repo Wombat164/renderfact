@@ -43,6 +43,9 @@ RUN wget -q https://github.com/typst/typst/releases/download/v0.15.0/typst-x86_6
 # 4b. vale 3.15.1 (binary release) -- B3a deterministic text-hygiene gate stage
 RUN wget -q https://github.com/errata-ai/vale/releases/download/v3.15.1/vale_3.15.1_Linux_64-bit.tar.gz -O /tmp/vale.tar.gz     && tar -xzf /tmp/vale.tar.gz -C /tmp vale     && mv /tmp/vale /usr/local/bin/vale     && chmod +x /usr/local/bin/vale     && rm -rf /tmp/vale*
 
+# 4c. lychee 0.24.2 (binary release) -- B3b offline link-integrity gate stage
+RUN wget -q https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz -O /tmp/lychee.tar.gz     && tar -xzf /tmp/lychee.tar.gz -C /tmp lychee     && mv /tmp/lychee /usr/local/bin/lychee     && chmod +x /usr/local/bin/lychee     && rm -rf /tmp/lychee*
+
 # 5. d2 v0.7.1 (per tools.lock)
 RUN wget -q https://github.com/terrastruct/d2/releases/download/v0.7.1/d2-v0.7.1-linux-amd64.tar.gz -O /tmp/d2.tar.gz \
     && tar -xf /tmp/d2.tar.gz -C /tmp \

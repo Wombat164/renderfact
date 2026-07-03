@@ -53,6 +53,7 @@ CLI_PROBES = {
     "likec4": (("likec4", "likec4.cmd"), ("--version",), r"([0-9]+(?:\.[0-9]+)+)"),
     "libreoffice": (("soffice",), ("--version",), r"LibreOffice\s+([0-9]+(?:\.[0-9]+)+)"),
     "vale": (("vale",), ("--version",), r"vale version ([0-9]+(?:\.[0-9]+)+)"),
+    "lychee": (("lychee",), ("--version",), r"lychee ([0-9]+(?:\.[0-9]+)+)"),
 }
 
 # Python packages: lock name -> distribution name (importlib.metadata).

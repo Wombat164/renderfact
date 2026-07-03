@@ -27,6 +27,7 @@ drawio-desktop: BROKEN        # install currently FAILS in image (n/a); research
 fonts:        Inter, Palanquin, Roboto
 likec4:       1.58.0          # ADDED 2026-07-02 -- architecture-diagrams skill's LikeC4 DSL -> PNG (closes the A4 diagram-skill-reconciliation gap; Playwright-managed chromium, --with-deps)
 vale:         3.15.1          # ADDED 2026-07-04 (B3a) -- deterministic text-hygiene gate stage; version = dev-host-verified working pin
+lychee:       0.24.2          # ADDED 2026-07-04 (B3b) -- offline link-integrity gate stage; version = release-binary-verified working pin
 
 
 # Deferred / open (from 2026-06-26 research openQuestions):
