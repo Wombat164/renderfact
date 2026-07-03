@@ -45,6 +45,9 @@ DEFAULT_ALLOWED_EMAIL_PATTERNS = [
     re.compile(r"^[A-Za-z0-9._-]+@users\.noreply\.github\.com$"),
     re.compile(r"^(dependabot(\[bot\])?|github-actions(\[bot\])?)@users\.noreply\.github\.com$"),
     re.compile(r"^\d+\+(dependabot|github-actions)\[bot\]@users\.noreply\.github\.com$"),
+    # GitHub's own web-flow identity: the committer on UI squash-merges AND on the
+    # synthetic refs/pull/N/merge commit CI checks out for PRs. Inherently neutral.
+    re.compile(r"^noreply@github\.com$"),
 ]
 
 
