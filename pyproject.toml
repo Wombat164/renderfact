@@ -55,5 +55,5 @@ dev = ["pytest>=8"]
 render = "render:main"
 
 [tool.setuptools]
-py-modules = ["render"]
+py-modules = ["render", "doctor"]
 packages = ["contracts", "roundtrip", "projection", "docstyle", "api"]

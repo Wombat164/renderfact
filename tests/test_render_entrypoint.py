@@ -80,11 +80,11 @@ def test_diagram_mode_help_shows_lint_render_own_parser():
     assert "Diagram Render Orchestrator" in result.stdout
 
 
-def test_doctor_mode_stub_reports_not_implemented():
+def test_doctor_mode_reports_and_never_fails(_deep_coverage_in="tests/test_doctor.py"):
     result = run_render("doctor")
-    assert result.returncode == 1
-    assert "not yet implemented" in result.stdout
-    assert "ROADMAP.md" in result.stdout
+    assert result.returncode == 0  # report-only is the D10 contract
+    assert "doctor:" in result.stdout
+    assert "never fails closed" in result.stdout
 
 
 def test_init_ai_mode_dispatches_to_contracts_init_ai():

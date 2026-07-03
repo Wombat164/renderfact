@@ -121,14 +121,13 @@ def run_container(args: list[str]) -> int:
     return result.returncode
 
 
-def run_doctor(_args: list[str]) -> int:
-    """Native-mode version-drift check (D10 / execution-plan chunk 1.5). Not yet built."""
-    print(
-        "render doctor: not yet implemented -- see docs/ROADMAP.md (A5/D10, modeled "
-        "on PaperBanana's doctor.py: warn on native-tool version drift against "
-        "tools.lock, never fail closed)."
-    )
-    return 1
+def run_doctor(args: list[str]) -> int:
+    """Native-mode version-drift check against tools.lock (D10 / chunk 1.5):
+    reports OK/DRIFT/MISSING per pinned tool, warns and never fails closed."""
+    sys.path.insert(0, str(REPO_ROOT))
+    import doctor
+
+    return doctor.main(args)
 
 
 def run_tokens(args: list[str]) -> int:

@@ -132,7 +132,7 @@ python render.py qa tables|paras|figs|all ...                    # QA gate (repo
 python render.py serve [--port N] [--enable-ui] [--root DIR]     # localhost HTTP API + thin reference
                                                                  # UI at /ui, docs at /docs (chunk 5.1)
 python render.py container <podman-args...>                     # raw passthrough to container/render
-python render.py doctor                                         # native version-drift check (not yet built, chunk 1.5)
+python render.py doctor [--json]                                # host tools vs tools.lock: warn on drift, never fail (D10)
 ```
 
 This is a thin dispatcher, not a rewrite -- each mode calls the existing, unmodified pipeline
