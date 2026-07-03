@@ -151,6 +151,104 @@ def test_embedded_objects_are_inventoried_not_ignored(tmp_path):
     assert {e["name"] for e in embedded} == {"oleObject1.xlsx", "blob.bin"}
     xlsx = next(e for e in embedded if e["kind"] == "xlsx")
     assert xlsx["bytes"] == len(b"PK-fake-workbook-bytes")
+    # OOXML suffix without provenance = unknown-origin, never silently "foreign"
+    assert xlsx["status"] == "unknown-origin"
+    assert "adopt" in xlsx["note"]
+
+
+def _zip_with_embedding(tmp_path: Path, name: str, payload: bytes) -> zipfile.ZipFile:
+    p = tmp_path / "host.docx"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("word/document.xml", _DOC_XML)
+        z.writestr(f"word/embeddings/{name}", payload)
+    return zipfile.ZipFile(p)
+
+
+def test_embedded_renderfact_tracked_doc_is_recognised(tmp_path):
+    inner_src = tmp_path / "inner.md"
+    inner_src.write_text("---\ntitle: Inner\n---\n\nBody.\n", encoding="utf-8")
+    inner = tmp_path / "inner.docx"
+    doc = Document()
+    doc.add_paragraph("Embedded report body.")
+    doc.save(str(inner))
+    provenance.embed(inner, provenance.build_provenance(inner_src))
+
+    z = _zip_with_embedding(tmp_path, "report.docx", inner.read_bytes())
+    entry = reingest.extract_embedded(z)[0]
+    assert entry["status"] == "renderfact-tracked"
+    assert entry["provenance"]["source_uid"]
+    assert "its own per-format path" in entry["note"]
+
+
+def test_embedded_vsdx_shaped_opc_is_provenance_readable(tmp_path):
+    """The generic OPC reader must cover .vsdx bytes BEFORE the full vsdx
+    adapter (C8.2) lands: docProps/core.xml is shared across all OPC formats."""
+    import io
+
+    core = ('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/'
+            'package/2006/metadata/core-properties" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            '<dc:identifier>renderfact:v1:{"source_uid": "vsdx-uid", '
+            '"source_version": "v", "rendered_at": "t", "tool_version": "x"}'
+            '</dc:identifier></cp:coreProperties>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as inner:
+        inner.writestr("docProps/core.xml", core)
+        inner.writestr("visio/document.xml", "<x/>")
+    z = _zip_with_embedding(tmp_path, "drawing.vsdx", buf.getvalue())
+    entry = reingest.extract_embedded(z)[0]
+    assert entry["status"] == "renderfact-tracked"
+    assert entry["provenance"]["source_uid"] == "vsdx-uid"
+
+
+def test_embedded_foreign_type_gets_markitdown_preview(tmp_path, monkeypatch):
+    class FakeResult:
+        text_content = "Extracted PDF text for the preview."
+
+    class FakeMarkItDown:
+        def convert_stream(self, stream, file_extension):
+            assert file_extension == ".pdf"
+            return FakeResult()
+
+    import types
+    fake = types.ModuleType("markitdown")
+    fake.MarkItDown = FakeMarkItDown
+    monkeypatch.setitem(sys.modules, "markitdown", fake)
+
+    z = _zip_with_embedding(tmp_path, "annex.pdf", b"%PDF-1.4 fake")
+    entry = reingest.extract_embedded(z)[0]
+    assert entry["status"] == "foreign"
+    assert entry["preview"].startswith("Extracted PDF text")
+
+
+def test_real_markitdown_unsupported_format_is_contained(tmp_path):
+    """markitdown's UnsupportedFormatException does NOT inherit from Exception
+    (real-library quirk that crashed the report before this regression test):
+    an unconvertible type must degrade to a note, never an escape."""
+    pytest.importorskip("markitdown")
+    preview, note = reingest._markitdown_preview(b"\x00\x01", "bin")
+    assert preview is None
+    assert "could not convert" in note
+
+
+def test_embeddings_recognised_in_non_docx_hosts(tmp_path):
+    """XLSX (xl/embeddings/), PPTX (ppt/embeddings/) and VSDX hosts carry
+    embedded objects too: the matcher keys on the path segment."""
+    p = tmp_path / "host.xlsx"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("xl/embeddings/inner.docx", b"not-a-zip")
+        z.writestr("ppt/embeddings/deck-annex.pdf", b"%PDF-1.4")
+    entries = reingest.extract_embedded(zipfile.ZipFile(p))
+    assert {e["name"] for e in entries} == {"inner.docx", "deck-annex.pdf"}
+
+
+def test_embedded_foreign_type_notes_missing_markitdown(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "markitdown", None)  # forces ImportError
+    z = _zip_with_embedding(tmp_path, "annex.pdf", b"%PDF-1.4 fake")
+    entry = reingest.extract_embedded(z)[0]
+    assert entry["status"] == "foreign"
+    assert entry["preview"] is None
+    assert "pip install markitdown" in entry["note"]
 
 
 # ---- fast-forward plan discipline ----

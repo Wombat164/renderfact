@@ -32,7 +32,7 @@ a double meaning: render + artefact (what it produces), and render *factory* (wh
 | Mechanical DOCX re-ingestion (provenance verdict, reviewer-edit report, fast-forward apply) | shipped (`render reingest`) |
 | Editable-diagram round-trip, drawio adapter (stable IDs, semantic/style/layout routing) | shipped (`render drawio`) |
 | Post-render QA gates | shipped (`render qa`) |
-| Pre-publish gate chain, fail-closed (Vale text hygiene + lychee offline link integrity + veraPDF PDF/A + PDF/UA conformance) | shipped (`render gate`) |
+| Pre-publish gate chain, fail-closed (Vale text hygiene + lychee offline link integrity + veraPDF PDF/A + PDF/UA conformance + duplicate-uid detection) | shipped (`render gate`) |
 | Localhost HTTP API + thin reference UI | shipped (`render serve`) |
 | Slide decks, A2 posters, archival PDF (PDF/UA + PDF/A) | roadmap (v0.2.x) |
 | Structured source editor (browser, direct human edit) | designed, not built |
@@ -135,7 +135,7 @@ python render.py project <src.md> --profiles <cfg.yaml> --all    # F1 projection
                                                                  # one governed render per profile
 python render.py qa leaks <full.txt> [--probes p.yaml] [--fail-on-hits]  # deterministic post-render
 python render.py qa tables|paras|figs|all ...                    # QA gate (report-only by default)
-python render.py gate <files...> [--stages vale,lychee,verapdf]  # fail-closed gate chain: findings or a missing tool FAIL (B3)
+python render.py gate <files...> [--stages vale,lychee,verapdf,uids] # fail-closed gate chain: findings or a missing tool FAIL (B3)
 python render.py serve [--port N] [--enable-ui] [--root DIR]     # localhost HTTP API + thin reference
                                                                  # UI at /ui, docs at /docs (chunk 5.1)
 python render.py container <podman-args...>                     # raw passthrough to container/render

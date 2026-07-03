@@ -83,21 +83,95 @@ def extract_comments(z: zipfile.ZipFile) -> list[dict]:
     return out
 
 
+def _opc_identifier(data: bytes) -> str | None:
+    """dc:identifier from any OPC/OOXML zip (docx, xlsx, pptx, AND vsdx: all
+    carry docProps/core.xml), read with plain zipfile + ElementTree so no
+    per-format library is needed on embedded bytes. None for non-zip or
+    core-less content."""
+    import io
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            if "docProps/core.xml" not in z.namelist():
+                return None
+            root = ET.fromstring(z.read("docProps/core.xml"))
+            el = root.find("{http://purl.org/dc/elements/1.1/}identifier")
+            return el.text if el is not None else None
+    except (zipfile.BadZipFile, ET.ParseError, OSError):
+        return None
+
+
+_RENDERFACT_PREFIX = "renderfact:v1:"
+
+
+def _markitdown_preview(data: bytes, suffix: str) -> tuple[str | None, str]:
+    """Best-effort text preview of a non-OOXML embedded object via markitdown
+    (optional dependency, extras: embedded-preview). Returns (preview, note)."""
+    import io
+
+    try:
+        from markitdown import MarkItDown
+    except ImportError:
+        return None, "no preview: pip install markitdown to extract text from this type"
+    try:
+        result = MarkItDown().convert_stream(io.BytesIO(data), file_extension=f".{suffix}")
+        text = (result.text_content or "").strip()
+        return (text[:280] or None), "markitdown preview"
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as e:
+        # BaseException deliberately: markitdown's own UnsupportedFormatException
+        # does NOT inherit from Exception (verified against the real library),
+        # so a plain `except Exception` lets it escape and crash the report.
+        return None, f"markitdown could not convert: {str(e)[:120]}"
+
+
 def extract_embedded(z: zipfile.ZipFile) -> list[dict]:
-    """Inventory of OLE-embedded objects (word/embeddings/: an embedded XLSX,
-    a nested DOCX, a binary OLE blob). SURFACED, not silently ignored: a
-    reviewer can edit an embedded workbook too. Deep extraction of embedded
-    documents rides the per-format round-trip paths later; this report at
-    least tells you they are there and whether they changed size."""
+    """Inventory + PROVENANCE TRIAGE of OLE-embedded objects (word/embeddings/).
+    SURFACED, not silently ignored: a reviewer can edit an embedded workbook too.
+    Three classes, treated differently (operator requirement, 2026-07-04):
+
+      renderfact-tracked  the embedded OPC doc carries renderfact provenance:
+                          it belongs to this round-trip world; re-ingest it via
+                          its own per-format path against ITS canonical source
+      unknown-origin      an OPC/OOXML doc (docx/xlsx/pptx/vsdx) WITHOUT
+                          renderfact provenance: a foreign attachment; consider
+                          'render provenance adopt' to bring it under governance
+      foreign             any other type (pdf, bin, ole): tried through
+                          markitdown for a text preview when available
+
+    Deep diffing of embedded documents rides the per-format round-trip paths."""
+    ooxml = {"docx", "xlsx", "pptx", "vsdx"}
     out = []
     for info in z.infolist():
-        if info.filename.startswith("word/embeddings/"):
-            name = info.filename.split("/")[-1]
-            out.append({
-                "name": name,
-                "bytes": info.file_size,
-                "kind": Path(name).suffix.lstrip(".").lower() or "ole",
-            })
+        # embeddings live under word/embeddings/ in DOCX, but XLSX (xl/), PPTX
+        # (ppt/) and VSDX hosts carry them too (operator note, 2026-07-04):
+        # match the path segment, not one host's prefix
+        if "/embeddings/" not in info.filename:
+            continue
+        name = info.filename.split("/")[-1]
+        kind = Path(name).suffix.lstrip(".").lower() or "ole"
+        data = z.read(info.filename)
+        entry = {"name": name, "bytes": info.file_size, "kind": kind,
+                 "status": "foreign", "provenance": None, "preview": None, "note": ""}
+        identifier = _opc_identifier(data)
+        if identifier and identifier.startswith(_RENDERFACT_PREFIX):
+            try:
+                payload = json.loads(identifier[len(_RENDERFACT_PREFIX):])
+            except json.JSONDecodeError:
+                payload = {"raw": identifier}
+            entry["status"] = "renderfact-tracked"
+            entry["provenance"] = payload
+            entry["note"] = "re-ingest via its own per-format path against ITS canonical source"
+        elif identifier is not None or kind in ooxml:
+            entry["status"] = "unknown-origin"
+            entry["note"] = (("carries a foreign identifier; " if identifier else "")
+                             + "no renderfact provenance: consider 'render provenance adopt'")
+        else:
+            preview, note = _markitdown_preview(data, kind)
+            entry["preview"] = preview
+            entry["note"] = note
+        out.append(entry)
     return out
 
 
@@ -330,9 +404,16 @@ def build_report(artifact: Path, prov, verdict: str, comments, ins, dele,
         R.append("- (none: edits are direct/accepted; rely on the delta below)")
     R.append("")
     if embedded:
-        R.append("## 2b. Embedded objects (NOT diffed here: inspect by hand or via "
-                 "their own round-trip path)\n")
-        R.extend([f"- {e['name']} ({e['kind']}, {e['bytes']} bytes)" for e in embedded])
+        R.append("## 2b. Embedded objects (NOT diffed here: triaged by provenance)\n")
+        for e in embedded:
+            line = f"- {e['name']} ({e['kind']}, {e['bytes']} bytes): {e['status'].upper()}"
+            if e.get("provenance"):
+                line += f" uid={e['provenance'].get('source_uid', '?')}"
+            R.append(line)
+            if e.get("note"):
+                R.append(f"    {e['note']}")
+            if e.get("preview"):
+                R.append(f"    preview: {e['preview'][:160]}")
         R.append("")
     R.append("## 3. Table column widths (formatting to canonicalize)\n")
     for i, t in enumerate(tables, 1):

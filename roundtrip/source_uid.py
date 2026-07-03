@@ -42,7 +42,14 @@ def _frontmatter_bounds(text: str) -> tuple[int, int] | None:
 def get_or_create_source_uid(source_path: Path) -> str:
     """Read `renderfact_uid:` from the source's YAML frontmatter, or generate
     one (uuid4) and persist it back into the file if absent. Idempotent --
-    calling this again on the same file returns the same UID without a write."""
+    calling this again on the same file returns the same UID without a write.
+
+    Multi-user guarantee: uuid4 is 122 random bits, so independently generated
+    UIDs do not collide at any organisational scale, with no coordination or
+    central registry. The one identity hazard is therefore FILE COPYING: a
+    duplicated source (or a template that already carries a renderfact_uid)
+    claims the original's lineage. Strip renderfact_uid when forking a
+    document; the 'uids' gate stage detects duplicates across a tree."""
     text = source_path.read_text(encoding="utf-8")
     bounds = _frontmatter_bounds(text)
 
