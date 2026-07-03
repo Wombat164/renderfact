@@ -35,6 +35,12 @@
 #   RESOURCE_PATH       pandoc --resource-path root for relative images
 #                         default: the source file's own directory
 #   OUTPUT_DIR          default: ./renders
+#   PROVENANCE          auto (default) embeds D11 provenance from the canonical
+#                       source into every rendered artifact, EXCEPT under a
+#                       projection profile with strip_provenance: true, where the
+#                       artifact is scrubbed instead (D14 full/none rule). Set
+#                       PROVENANCE=off to skip both. NB the first embed persists a
+#                       renderfact_uid line into the source's frontmatter.
 #   PANDOC / PYTHON     tool overrides, else resolved from PATH
 #
 # Note (2026-07-03 generalization): the VAULT_ROOT-era interface (self-location
@@ -121,6 +127,7 @@ done
 RESOURCE_PATH="${RESOURCE_PATH:-$(cd "$(dirname "$SOURCE")" && pwd)}"
 mkdir -p "$OUTPUT_DIR"
 
+ORIG_SOURCE="$SOURCE"
 PROJECTED=""
 if [ -n "$PROJECT_PROFILE" ]; then
   echo "Projecting source via profile '$PROJECT_PROFILE' (projection engine, $PROJECTION_CONFIG)..."
@@ -245,6 +252,23 @@ if [ "$DO_NUMBER" = "1" ]; then
     "$PYTHON" "$HEADING_NUMBERING" "$OUTPUT_FILE" "${NUM_ARGS[@]}"
   else
     echo "Skipping --number-headings: no HEADING_NUMBERING configured (consumer skin supplies one)."
+  fi
+fi
+
+# ---- D11/D14 provenance: full by default, stripped for flagged projection profiles ----
+if [ "${PROVENANCE:-auto}" != "off" ]; then
+  echo ""
+  PROV_TOOL="$REPO_ROOT/roundtrip/provenance.py"
+  PROV_STRIP=0
+  if [ -n "$PROJECT_PROFILE" ]; then
+    PROV_STRIP=$("$PYTHON" -c "import sys,yaml; prof = yaml.safe_load(open(sys.argv[1], encoding='utf-8'))['profiles'][sys.argv[2]]; print(int(bool(prof.get('strip_provenance', False))))" "$PROJECTION_CONFIG" "$PROJECT_PROFILE")
+  fi
+  if [ "$PROV_STRIP" = "1" ]; then
+    echo "Provenance (D14): profile '$PROJECT_PROFILE' is externally bound: stripping, not embedding..."
+    "$PYTHON" "$PROV_TOOL" strip "$OUTPUT_FILE"
+  else
+    echo "Provenance (D11/D14): embedding source identity (from the canonical source, not the projection)..."
+    "$PYTHON" "$PROV_TOOL" embed "$OUTPUT_FILE" --source "$ORIG_SOURCE"
   fi
 fi
 

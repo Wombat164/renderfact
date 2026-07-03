@@ -122,6 +122,7 @@ python render.py provenance embed <docx|xlsx|pptx> --source <md> # D11 hidden pr
 python render.py provenance adopt <docx|xlsx|pptx> --source <md> # D11 provenance, no source/history yet (chunk 4.1)
 python render.py provenance retarget <old> <new>                 # D11 carry provenance across a format change (chunk 4.1)
 python render.py provenance extract <docx|xlsx|pptx>             # D11 read back embedded provenance (chunk 4.1)
+python render.py provenance strip <docx|xlsx|pptx>               # D14 scrub renderfact provenance (foreign ids untouched)
 python render.py import-template <corp.docx> [--check probe.md]  # C7a: derive a template profile
                                                                  # from a branded DOCX + idempotency gate
 python render.py project <src.md> --profiles <cfg.yaml> --all    # F1 projection: one source ->

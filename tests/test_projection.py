@@ -284,3 +284,24 @@ def test_render_entrypoint_dispatches_project_mode(source_file, tmp_path):
     assert result.returncode == 0, result.stderr
     assert out.exists()
     assert "Deep internal secret." not in out.read_text(encoding="utf-8")
+
+
+# ---- D14: strip_provenance profile key ----
+
+def test_config_rejects_non_bool_strip_provenance(tmp_path):
+    p = tmp_path / "bad.yaml"
+    p.write_text(
+        'ladders:\n  clearance: [low, high]\n  distribution: [near, far]\n'
+        'profiles:\n  x:\n    clearance_ceiling: low\n    releasable_to: near\n'
+        '    lang: en\n    audience: a\n    disclosure: full\n'
+        '    strip_provenance: "external"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ProjectionError, match="strip_provenance"):
+        projector.load_config(p)
+
+
+def test_example_public_release_profile_strips_provenance(ladders_profiles):
+    _, profiles = ladders_profiles
+    assert profiles["public-release"]["strip_provenance"] is True
+    assert "strip_provenance" not in profiles["internal-full"]  # default: full provenance

@@ -39,3 +39,7 @@ profiles:
     audience: general
     disclosure: minimal
     stamp_header: false
+    # D14: externally-bound renders carry no internal source identity; the DOCX
+    # pipeline strips renderfact provenance instead of embedding it (default: full
+    # provenance on every render)
+    strip_provenance: true

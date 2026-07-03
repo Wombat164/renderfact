@@ -135,6 +135,26 @@ def extract(artifact_path: Path) -> Provenance | None:
     return Provenance(**payload)
 
 
+def strip(artifact_path: Path) -> bool:
+    """Remove renderfact provenance from an artifact (D14: external/publish
+    projections must not carry internal source identity). Returns True if
+    provenance was present and removed, False if there was nothing to strip.
+
+    Deliberately surgical: only clears a dc:identifier that carries the
+    renderfact prefix. A foreign identifier (a DOI, an organisation's own
+    document number) is never touched: stripping OUR metadata must not
+    destroy someone else's."""
+    load, properties_of, save = _adapter_for(artifact_path)
+    doc = load(artifact_path)
+    props = properties_of(doc)
+    raw = props.identifier or ""
+    if not raw.startswith(_PREFIX):
+        return False
+    props.identifier = ""
+    save(doc, artifact_path)
+    return True
+
+
 class ProvenanceError(RuntimeError):
     """A user-facing provenance-workflow mistake (missing source, re-adopting
     an already-tracked artifact, adopting over an existing source) -- distinct
@@ -304,6 +324,13 @@ def main(argv: list[str] | None = None) -> int:
     retarget_ap.add_argument("old_artifact", type=Path, help="the existing, already-tracked .docx/.xlsx/.pptx")
     retarget_ap.add_argument("new_artifact", type=Path, help="the already-produced new-format file to tag")
 
+    strip_ap = sub.add_parser(
+        "strip",
+        help="remove renderfact provenance from an artifact (D14: externally-bound renders "
+             "must not carry internal source identity); foreign identifiers are never touched",
+    )
+    strip_ap.add_argument("artifact", type=Path, help="the .docx/.xlsx/.pptx file to scrub")
+
     args = ap.parse_args(argv)
 
     try:
@@ -327,6 +354,13 @@ def main(argv: list[str] | None = None) -> int:
                 f"retargeted provenance from {args.old_artifact} onto {args.new_artifact}: "
                 f"{json.dumps(asdict(prov))}"
             )
+            return 0
+
+        if args.action == "strip":
+            if strip(args.artifact):
+                print(f"stripped renderfact provenance from {args.artifact}")
+            else:
+                print(f"{args.artifact}: no renderfact provenance to strip (foreign identifiers untouched)")
             return 0
     except ProvenanceError as e:
         print(f"ERROR: {e}", file=sys.stderr)
