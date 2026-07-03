@@ -120,8 +120,18 @@ diffable and contextualizing re-ingestion with a three-way conflict merge, git a
 infrastructure. **Provenance (part 2) is DONE**; the rest is specified, not built. Build order:
 provenance first, then split-plus-embed dual output (parallel), then re-ingestion plus diff, then the
 three-way conflict merge (hardest, build last), with git-commit wiring threading throughout.
-Provenance is projection-aware per D14: internal profiles embed it, external / publish profiles strip
-it; the strip mechanism still needs building before external renders are safe unscrubbed.
+Provenance is projection-aware per D14: internal profiles embed it, external / publish profiles
+strip it (the strip mechanism SHIPPED 2026-07-04 with the render-pipeline wiring: default renders
+embed, strip-flagged projections scrub, PROVENANCE=off opts out).
+**Chunk 4.4 (mechanical re-ingestion) DONE 2026-07-04:** render reingest anchors an edited DOCX to
+its source via provenance (UID mismatch fails closed; FAST_FORWARD vs DIVERGED verdict), extracts
+Word comments + tracked changes + structure + a normalized text delta (stdlib only, generalized
+from a proven reverse-pipeline extractor), and is REPORT-ONLY by default: --apply back-ports just
+the mechanically safe subset (1:1 reworded, markup-free, unique lines) and refuses on DIVERGED
+(the three-way merge is chunk 4.6). Provenance also gained source_commit (D11 part 4 hardening):
+every render records the source repo's exact commit, -dirty-suffixed when uncommitted.
+Remaining in Track D: 4.2 split-plus-embed dual output, 4.5 LLM contextualize (rides D8), 4.6
+three-way merge, 4.7 git finalize.
 
 ## Track E - API and reference UI
 

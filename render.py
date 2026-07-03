@@ -34,6 +34,7 @@ Usage:
     render container <podman-args...>          # raw passthrough to container/render
     render doctor [--json]                     # host tools vs tools.lock: warn, never fail (1.5)
     render gate <files...> [--stages vale]     # fail-closed pre-publish QA gate chain (B3)
+    render reingest <edited.docx> --source <md> [--apply]   # D11 mechanical re-ingestion (4.4)
 
 Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
@@ -261,6 +262,16 @@ def run_qa(args: list[str]) -> int:
     return render_qa.main(args)
 
 
+def run_reingest(args: list[str]) -> int:
+    """Dispatch to roundtrip/reingest.py: mechanical DOCX re-ingestion (D11 part
+    3a, chunk 4.4): provenance verdict + reviewer-edit report, report-only by
+    default; --apply back-ports the mechanically safe fast-forward subset."""
+    sys.path.insert(0, str(REPO_ROOT / 'roundtrip'))
+    import reingest
+
+    return reingest.main(args)
+
+
 def run_gate(args: list[str]) -> int:
     """Dispatch to gates/run_gates.py: the deterministic fail-closed QA gate
     chain (B3). Findings fail; a requested stage with no tool installed fails."""
@@ -277,6 +288,7 @@ MODES = {
     "init-ai": run_init_ai,
     "copy-paste": run_copy_paste,
     "provenance": run_provenance,
+    "reingest": run_reingest,
     "import-template": run_import_template,
     "project": run_project,
     "qa": run_qa,
