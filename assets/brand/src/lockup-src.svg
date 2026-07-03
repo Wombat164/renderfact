@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 256" role="img" aria-label="renderfact">
+  <title>renderfact lockup</title>
+  <g transform="translate(16,16) scale(0.875)">
+    <path fill="#4F46E5" fill-rule="evenodd" d="M64,28 H192 A36,36 0 0 1 228,64 V192 A36,36 0 0 1 192,228 H64 A36,36 0 0 1 28,192 V64 A36,36 0 0 1 64,28 Z M74,84 H182 A10,10 0 0 1 192,94 A10,10 0 0 1 182,104 H74 A10,10 0 0 1 64,94 A10,10 0 0 1 74,84 Z M74,122 H130 A10,10 0 0 1 140,132 A10,10 0 0 1 130,142 H74 A10,10 0 0 1 64,132 A10,10 0 0 1 74,122 Z M74,160 H182 A10,10 0 0 1 192,170 A10,10 0 0 1 182,180 H74 A10,10 0 0 1 64,170 A10,10 0 0 1 74,160 Z"/>
+    <path fill="#FFFFFF" fill-opacity="0.42" d="M160,122 H182 A10,10 0 0 1 192,132 A10,10 0 0 1 182,142 H160 A10,10 0 0 1 150,132 A10,10 0 0 1 160,122 Z"/>
+  </g>
+  <text x="272" y="164" font-family="inter" font-size="118" font-weight="600" fill="#334155">render</text>
+  <text x="640" y="164" font-family="inter" font-size="118" font-weight="600" fill="#4F46E5">fact</text>
+</svg>

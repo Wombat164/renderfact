@@ -1,0 +1,51 @@
+name: Bug report
+description: Something renders wrong, crashes, or contradicts the docs
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Security issues do NOT go here: use the private
+        vulnerability reporting form under the Security tab (see SECURITY.md).
+  - type: input
+    id: mode
+    attributes:
+      label: Mode / entry point
+      description: Which render mode or component (docx, diagram, project, provenance, serve, tokens, doctor, container, docstyle, ...)
+      placeholder: "render project"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got. Paste the exact command and output.
+      placeholder: |
+        Command:
+        Expected:
+        Got:
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest source/config that shows the problem. Strip anything private BEFORE pasting; fenced-div blocks and profile yaml snippets are usually enough.
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, install mode (editable / container), and relevant engine versions (pandoc --version etc.)
+      placeholder: "Windows 11, Python 3.11, pip install -e ., pandoc 3.10"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I ran the test suite (pytest -q) and this is not already covered by a failing test
+        - label: This report contains no private or organisation-internal content
+          required: true
