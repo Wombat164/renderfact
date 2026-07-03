@@ -32,7 +32,8 @@ Usage:
     render qa leaks|tables|paras|figs|all ...  # deterministic post-render QA gate
     render serve [--port N] [--enable-ui] [--root DIR]   # localhost HTTP API + thin UI (chunk 5.1)
     render container <podman-args...>          # raw passthrough to container/render
-    render doctor                              # stub -- chunk 1.5, not yet implemented
+    render doctor [--json]                     # host tools vs tools.lock: warn, never fail (1.5)
+    render gate <files...> [--stages vale]     # fail-closed pre-publish QA gate chain (B3)
 
 Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
@@ -260,6 +261,15 @@ def run_qa(args: list[str]) -> int:
     return render_qa.main(args)
 
 
+def run_gate(args: list[str]) -> int:
+    """Dispatch to gates/run_gates.py: the deterministic fail-closed QA gate
+    chain (B3). Findings fail; a requested stage with no tool installed fails."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from gates import run_gates
+
+    return run_gates.main(args)
+
+
 MODES = {
     "docx": run_docx,
     "diagram": run_diagram,
@@ -271,6 +281,7 @@ MODES = {
     "project": run_project,
     "qa": run_qa,
     "serve": run_serve,
+    "gate": run_gate,
     "container": run_container,
     "doctor": run_doctor,
 }

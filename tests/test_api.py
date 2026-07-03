@@ -140,7 +140,14 @@ def test_path_jail_rejects_escape():
     assert code == 403 and "escapes" in data["error"]
 
 
-def test_rate_limit_returns_429():
+def test_rate_limit_returns_429(monkeypatch):
+    # Pin the clock: the limiter's fixed 10s window is keyed on time.time()//10,
+    # so a window boundary falling between the four requests resets the counter
+    # and turns the expected 429 into a 200 (a real full-suite flake, first seen
+    # 2026-07-04 when unrelated tests shifted this test's wall-clock position).
+    import api.app as app_module
+
+    monkeypatch.setattr(app_module.time, "time", lambda: 1_000_000.0)
     api = make_api(rate_limit=3)
     for _ in range(3):
         code, _ = call(api, "GET", "/")

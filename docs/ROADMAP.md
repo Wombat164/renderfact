@@ -50,6 +50,12 @@ DONE reflects code that exists and is tested; everything else is NEXT or specifi
   the MIT claim, so either invoke it as a CLI subprocess or record the MPL-2.0 election explicitly,
   and ship a THIRD-PARTY-LICENSES / NOTICE inventory for every redistributed engine and font before
   the container image goes public. **[evaluate]** textlint and okflint per-check, not winner-take-all.
+  **B3a DONE 2026-07-04:** `render gate` ships the fail-closed chain runner with the Vale stage:
+  generic-core default config (repetition blocks, spelling warns; consumer overrides via
+  RENDERFACT_VALE_CONFIG), vale 3.15.1 pinned in tools.lock + Containerfile + verify-pins.sh +
+  doctor probes. Fail-closed means findings fail AND a requested-but-missing tool fails (exit 2):
+  a gate that cannot run is not a gate that passed. Distinct from `render qa` (report-only,
+  post-render). lychee (B3b) and veraPDF-as-CLI-subprocess (B3c) are the next stages.
 - **B4 - Visual-QA for all families.** NEXT.
 
 ## Track C - Add

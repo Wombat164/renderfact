@@ -25,6 +25,7 @@ check typst       "$(typst --version 2>/dev/null)"                            "t
 check mmdc        "$(mmdc --version 2>/dev/null | tail -1)"                   "11.15.0"
 check marp        "$(marp --version 2>/dev/null)"                             "v4.4.0"
 check d2          "$(d2 --version 2>/dev/null)"                               "0.7.1"
+check vale        "$(vale --version 2>/dev/null)"                             "3.15.1"
 check cairosvg    "$(python3 -c 'import cairosvg;print(cairosvg.__version__)' 2>/dev/null)" "2.9.0"
 check pypdf       "$(python3 -c 'import pypdf;print(pypdf.__version__)' 2>/dev/null)"        "6.14.2"
 check docxcompose "$(python3 -c 'import docxcompose,importlib.metadata as m;print(m.version("docxcompose"))' 2>/dev/null)" "2.2.0"

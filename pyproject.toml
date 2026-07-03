@@ -56,4 +56,4 @@ render = "render:main"
 
 [tool.setuptools]
 py-modules = ["render", "doctor"]
-packages = ["contracts", "roundtrip", "projection", "docstyle", "api"]
+packages = ["contracts", "roundtrip", "projection", "docstyle", "api", "gates"]
