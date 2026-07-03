@@ -35,6 +35,7 @@ Usage:
     render doctor [--json]                     # host tools vs tools.lock: warn, never fail (1.5)
     render gate <files...> [--stages vale]     # fail-closed pre-publish QA gate chain (B3)
     render reingest <edited.docx> --source <md> [--apply]   # D11 mechanical re-ingestion (4.4)
+    render drawio generate|reingest ...        # C8 editable-diagram round-trip, drawio adapter
 
 Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
@@ -272,6 +273,16 @@ def run_reingest(args: list[str]) -> int:
     return reingest.main(args)
 
 
+def run_drawio(args: list[str]) -> int:
+    """Dispatch to roundtrip/drawio.py: the editable-diagram round-trip, drawio
+    adapter (C8): generate a .drawio with stable IDs + provenance from a concept
+    graph; re-ingest hand-edits with ID-first semantic/style/layout routing."""
+    sys.path.insert(0, str(REPO_ROOT / 'roundtrip'))
+    import drawio
+
+    return drawio.main(args)
+
+
 def run_gate(args: list[str]) -> int:
     """Dispatch to gates/run_gates.py: the deterministic fail-closed QA gate
     chain (B3). Findings fail; a requested stage with no tool installed fails."""
@@ -289,6 +300,7 @@ MODES = {
     "copy-paste": run_copy_paste,
     "provenance": run_provenance,
     "reingest": run_reingest,
+    "drawio": run_drawio,
     "import-template": run_import_template,
     "project": run_project,
     "qa": run_qa,

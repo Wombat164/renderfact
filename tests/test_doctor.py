@@ -32,7 +32,7 @@ def test_parse_real_lock_extracts_pins_and_strips_comments():
     assert pins["pandoc"] == "3.10"
     assert pins["typst"] == "0.15.0"
     assert pins["python-docx"] == "installed"
-    assert pins["drawio-desktop"] == "BROKEN"
+    assert pins["drawio-desktop"] == "DROPPED"  # resolved by C8: round-trip needs no rendering
     assert all("#" not in v for v in pins.values())
 
 

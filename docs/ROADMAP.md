@@ -71,6 +71,23 @@ vale,lychee,verapdf, each stage self-scoping by file type.
 
 ## Track C - Add
 
+- **C8 - Editable-diagram round-trip.** Operator ecosystem split (2026-07-04): .drawio is the
+  LEAD adapter for the OSS/freeware ecosystem; .vsdx is the Microsoft-ecosystem adapter, and
+  never a bridge between the two (draw.io removed VSDX export in v26.1.0). **C8.1 (drawio) DONE
+  2026-07-04:** render drawio generate turns a YAML/JSON concept graph (concepts + relations with
+  STABLE IDS, the round-trip anchor) into a .drawio carrying provenance attributes on the mxfile
+  root; a separate ID-keyed layout file preserves hand-positioning across regenerations
+  (Structurizr doctrine: stored positions win, the source stays authoritative for labels); render
+  drawio reingest reads an edited .drawio, the compressed diagram format, or a .png carrying
+  draw.io official full-source embed, verifies provenance (UID mismatch fails closed,
+  FAST_FORWARD vs DIVERGED), and routes diffs ID-first: semantic (add/remove/relabel/regroup/
+  rewire) reported for the canonical source, style strings reported for the template layer,
+  geometry written to the layout file with --apply-layout. Rendering stays out of scope by
+  design (the prior-art pass, docs/prior-art-diagram-roundtrip.md: headless drawio hard-requires
+  Electron; the operator own draw.io app is the visual layer). Remaining: C8.2 vsdx adapter
+  (adopt the vsdx Python lib + the OPC provenance embed), C8.3 decision-capture step (rides the
+  D8 contract).
+
 - **C1 - VTOD executable (which content becomes a table, a formula, a diagram, a chart).** Two
   decision layers: form selection (prose / bullets / table / formula / diagram / chart) via
   deterministic signals first, then an optional dual-mode LLM step under the D8 contract for the
