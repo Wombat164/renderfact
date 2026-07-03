@@ -40,6 +40,9 @@ RUN wget -q https://github.com/typst/typst/releases/download/v0.15.0/typst-x86_6
     && chmod +x /usr/local/bin/typst \
     && rm -rf /tmp/typst*
 
+# 4b. vale 3.15.1 (binary release) -- B3a deterministic text-hygiene gate stage
+RUN wget -q https://github.com/errata-ai/vale/releases/download/v3.15.1/vale_3.15.1_Linux_64-bit.tar.gz -O /tmp/vale.tar.gz     && tar -xzf /tmp/vale.tar.gz -C /tmp vale     && mv /tmp/vale /usr/local/bin/vale     && chmod +x /usr/local/bin/vale     && rm -rf /tmp/vale*
+
 # 5. d2 v0.7.1 (per tools.lock)
 RUN wget -q https://github.com/terrastruct/d2/releases/download/v0.7.1/d2-v0.7.1-linux-amd64.tar.gz -O /tmp/d2.tar.gz \
     && tar -xf /tmp/d2.tar.gz -C /tmp \
