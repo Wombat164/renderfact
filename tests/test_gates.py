@@ -234,6 +234,82 @@ def test_demo_source_passes_its_own_skin_rules():
 HAVE_LYCHEE = shutil.which("lychee") is not None
 
 
+# ---- verapdf stage (B3c) ----
+# Exit-code mapping encoded here was verified against the real veraPDF 1.30.2
+# CLI (headless izpack install): 0 = all compliant, 1 = non-compliant. Also
+# verified live: typst --pdf-standard a-2b output PASSES PDF/A-2b validation;
+# a plain PDF auto-detects to PDF/A-1b and fails, correct for an archival gate.
+
+def test_verapdf_missing_tool_is_a_failure_not_a_skip(tmp_path, monkeypatch):
+    monkeypatch.delenv("RENDERFACT_VERAPDF_BIN", raising=False)
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.7 stub")
+    r = run_gates.run_verapdf([str(tmp_path)], which=lambda n: None,
+                              runner=_fake_runner(0))
+    assert r.status == "TOOL_MISSING"
+
+
+def test_verapdf_noncompliant_fails(tmp_path):
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.7 stub")
+    r = run_gates.run_verapdf([str(tmp_path)], which=lambda n: "/usr/bin/verapdf",
+                              runner=_fake_runner(1, stdout="FAIL doc.pdf 1b"))
+    assert r.status == "FAIL"
+    assert "1b" in r.detail
+
+
+def test_verapdf_compliant_passes_with_mode_note(tmp_path):
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.7 stub")
+    r = run_gates.run_verapdf([str(tmp_path)], which=lambda n: "/usr/bin/verapdf",
+                              runner=_fake_runner(0, stdout="PASS doc.pdf 2b"))
+    assert r.status == "PASS"
+    assert "auto-detect" in r.detail
+
+
+def test_verapdf_flavour_flag_passthrough(tmp_path):
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.7 stub")
+    seen = {}
+
+    def runner(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    r = run_gates.run_verapdf([str(tmp_path)], flavour="ua1",
+                              which=lambda n: "/usr/bin/verapdf", runner=runner)
+    assert ["-f", "ua1"] == [seen["cmd"][i] for i in (3, 4)]
+    assert "flavour ua1" in r.detail
+
+
+def test_verapdf_no_pdfs_is_reported(tmp_path):
+    (tmp_path / "doc.md").write_text("x", encoding="utf-8")
+    r = run_gates.run_verapdf([str(tmp_path)], which=lambda n: "/usr/bin/verapdf",
+                              runner=_fake_runner(0))
+    assert r.status == "NO_FILES"
+
+
+def _verapdf_available() -> bool:
+    import os
+    return bool(os.environ.get("RENDERFACT_VERAPDF_BIN")) or \
+        shutil.which("verapdf") is not None or shutil.which("verapdf.bat") is not None
+
+
+HAVE_TYPST = shutil.which("typst") is not None
+
+
+@pytest.mark.skipif(not (_verapdf_available() and HAVE_TYPST),
+                    reason="verapdf and/or typst not available on this host")
+def test_real_verapdf_passes_typst_pdfa_and_fails_plain(tmp_path):
+    src = tmp_path / "doc.typ"
+    src.write_text("= Fixture\n\nA paragraph of text.\n", encoding="utf-8")
+    pdfa = tmp_path / "pdfa.pdf"
+    plain = tmp_path / "plain.pdf"
+    subprocess.run(["typst", "compile", "--pdf-standard", "a-2b", str(src), str(pdfa)],
+                   check=True, capture_output=True, timeout=120)
+    subprocess.run(["typst", "compile", str(src), str(plain)],
+                   check=True, capture_output=True, timeout=120)
+
+    assert run_gates.run_verapdf([str(pdfa)]).status == "PASS"
+    assert run_gates.run_verapdf([str(plain)]).status == "FAIL"
+
+
 @pytest.mark.skipif(not HAVE_LYCHEE, reason="lychee not installed on this host")
 def test_real_lychee_offline_broken_and_clean(tmp_path):
     (tmp_path / "other.md").write_text("# Other\n", encoding="utf-8")
