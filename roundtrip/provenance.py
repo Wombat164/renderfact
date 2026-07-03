@@ -53,6 +53,11 @@ class Provenance:
     source_version: str
     rendered_at: str
     tool_version: str
+    # D11 part 4 hardening (2026-07-04): the exact git commit of the SOURCE's
+    # repository at render time ("<sha>" or "<sha>-dirty"), None when the source
+    # lives outside any git repo. Optional with a default so payloads embedded
+    # before this field existed still extract cleanly.
+    source_commit: str | None = None
 
 
 def now_iso() -> str:
@@ -189,7 +194,32 @@ def build_provenance(source_path: Path) -> Provenance:
         source_version=content_version(source_path),
         rendered_at=now_iso(),
         tool_version=tool_version(),
+        source_commit=source_commit(source_path),
     )
+
+
+def source_commit(source_path: Path) -> str | None:
+    """The source repository's HEAD commit at render time, '-dirty'-suffixed when
+    the source file itself has uncommitted changes; None outside a git repo.
+    Makes every render traceable to an exact commit of its source (D11 part 4),
+    independently of the TOOL's own version."""
+    src_dir = source_path.resolve().parent
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(src_dir), "rev-parse", "--short=12", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        if head.returncode != 0:
+            return None
+        sha = head.stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(src_dir), "status", "--porcelain", "--", str(source_path.resolve())],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        dirty = bool(status.stdout.strip()) if status.returncode == 0 else False
+        return f"{sha}-dirty" if dirty else sha
+    except (OSError, subprocess.TimeoutExpired):
+        return None
 
 
 def adopt(artifact_path: Path, source_path: Path) -> Provenance:

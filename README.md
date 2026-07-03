@@ -29,6 +29,7 @@ a double meaning: render + artefact (what it produces), and render *factory* (wh
 | Dual-mode LLM steps (harness / copy-paste) | shipped (`render init-ai` / `copy-paste`) |
 | Hidden provenance across DOCX/XLSX/PPTX | shipped (`render provenance`) |
 | Template import (derive a skin from a branded DOCX) | shipped (`render import-template`) |
+| Mechanical DOCX re-ingestion (provenance verdict, reviewer-edit report, fast-forward apply) | shipped (`render reingest`) |
 | Post-render QA gates | shipped (`render qa`) |
 | Pre-publish gate chain, fail-closed (Vale text hygiene + lychee offline link integrity + veraPDF PDF/A + PDF/UA conformance) | shipped (`render gate`) |
 | Localhost HTTP API + thin reference UI | shipped (`render serve`) |
@@ -124,6 +125,7 @@ python render.py provenance adopt <docx|xlsx|pptx> --source <md> # D11 provenanc
 python render.py provenance retarget <old> <new>                 # D11 carry provenance across a format change (chunk 4.1)
 python render.py provenance extract <docx|xlsx|pptx>             # D11 read back embedded provenance (chunk 4.1)
 python render.py provenance strip <docx|xlsx|pptx>               # D14 scrub renderfact provenance (foreign ids untouched)
+python render.py reingest <edited.docx> --source <md> [--apply]  # D11 mechanical re-ingestion: report-only by default (chunk 4.4)
 python render.py import-template <corp.docx> [--check probe.md]  # C7a: derive a template profile
                                                                  # from a branded DOCX + idempotency gate
 python render.py project <src.md> --profiles <cfg.yaml> --all    # F1 projection: one source ->
