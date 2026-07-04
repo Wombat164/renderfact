@@ -6,6 +6,29 @@ their hashes do not survive the history rewrite, see the publish protocol).
 `tool_version` in embedded provenance follows `git describe --tags` and picks
 up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
+## [0.3.0] - 2026-07-04
+
+PDF-backend hardening and the governed-render path. All additive over 0.2.0.
+
+### Added
+
+- **Images in PDFs**: relative image paths (`![logo](logo.png)`, subfolders included) are resolved
+  against the source directory and staged into the build so typst renders them; remote URLs pass
+  through. Over the API an image resolving outside the server root is not staged (sandbox).
+- **Governed PDFs** (`render pdf --project <profile> --profiles <config>`): compose the audience /
+  clearance projection engine with the typst backend, so one full-candor source renders one branded
+  PDF per profile. `--project all` renders every profile in one run (`<stem>-<profile>.pdf`). Also
+  wired into `POST /render/pdf`.
+- **Brand fonts** (`render pdf --font-path <dir>`, repeatable; env `RENDERFACT_FONT_PATH`): a brand can
+  ship its own font for typst to use instead of relying on host install. API `font_paths` are jailed
+  under the server root.
+- **Multi-page studio preview**: `POST /render/pdf?format=png` takes a 1-indexed `page` and returns an
+  `X-Total-Pages` header; the studio UI gains prev/next page navigation.
+- **Descriptor-driven, variant-aware semantic-block styling**: the `::: attendance` callout (fill /
+  border roles) and `::: statement` ledger (rule / heading roles) now take their colours from the
+  `theme` descriptor, so a variant can restyle them (the built-in `financial` variant restyles the
+  ledger section headings).
+
 ## [0.2.0] - 2026-07-04
 
 Layout-native PDF, financial/governance documents, a consistent fuzzy-gated LLM pipeline, and
