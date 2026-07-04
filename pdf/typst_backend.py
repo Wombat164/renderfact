@@ -28,6 +28,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 THEME_DIR = Path(__file__).resolve().parent / "theme"
 DEFAULT_THEME = THEME_DIR / "default.typ"
+BLOCKS_TYP = THEME_DIR / "blocks.typ"           # #33 semantic-block render functions
+SEMANTIC_FILTER = Path(__file__).resolve().parent / "filters" / "semantic-blocks.lua"
 
 
 class TypstBackendError(RuntimeError):
@@ -83,11 +85,13 @@ def find_typst() -> str:
 
 def md_to_typst(md_path: Path, pandoc: str) -> str:
     """Translate a markdown source to a typst FRAGMENT (no --standalone: we supply
-    the template ourselves via the theme)."""
-    result = subprocess.run(
-        [pandoc, str(md_path), "-t", "typst"],
-        capture_output=True, text=True, encoding="utf-8",
-    )
+    the template ourselves via the theme). The semantic-blocks Lua filter maps
+    renderfact's fenced-div blocks (#33) to typst function calls; it is a no-op
+    for documents that use none."""
+    cmd = [pandoc, str(md_path), "-t", "typst"]
+    if SEMANTIC_FILTER.is_file():
+        cmd += ["--lua-filter", str(SEMANTIC_FILTER)]
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     if result.returncode != 0:
         raise TypstBackendError(f"pandoc markdown->typst failed:\n{result.stderr.strip()}")
     return result.stdout
@@ -141,6 +145,7 @@ def compose_main(
     ])
     return (
         '#import "theme.typ": conf\n'
+        '#import "blocks.typ": *\n'
         f"#show: conf.with({args})\n\n"
         f"{body}\n"
     )
@@ -187,6 +192,7 @@ def render_pdf(
         work = Path(td)
         generate_tokens_typ(work, Path(brand) if brand else None, variant)
         (work / "theme.typ").write_text(theme_src.read_text(encoding="utf-8"), encoding="utf-8")
+        (work / "blocks.typ").write_text(BLOCKS_TYP.read_text(encoding="utf-8"), encoding="utf-8")
         body = md_to_typst(source, pandoc)
         (work / "main.typ").write_text(
             compose_main(body, title=title, subtitle=subtitle, org=org, date=date, paper=paper),

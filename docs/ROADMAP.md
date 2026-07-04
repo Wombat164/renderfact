@@ -275,10 +275,14 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
   read the same fields. **Remaining:** wire the OOXML/`reference.docx` path to consume the same
   descriptor (the DOCX side is template-parsed today, `docstyle/ooxml_theme.py`), which fully proves
   engine-agnosticism. 12 tests.
-- **H3 - First-class semantic blocks (#33).** `[build]` fenced-div blocks rendered by the active theme:
-  `::: signatures` (roster -> hyphenation-safe card grid with signature + date space), `::: attendance`
-  (present / proxy / quorum), `::: statement` (typed ledger rows, right-aligned amounts, rule lines).
-  Domain-generic across minutes + financial reports.
+- **H3 - First-class semantic blocks (#33).** `[build]` **DONE:** `pdf/filters/semantic-blocks.lua`
+  maps the fenced divs `::: signatures` / `::: attendance` / `::: statement` (each a plain bullet list
+  of pipe-delimited fields) to typst function calls, rendered by `pdf/theme/blocks.typ`: a
+  hyphenation-safe signature card grid (bold name, muted role, reserved signature + date space), a
+  present/proxy/quorum attendance callout, and a typed ledger (heading/item/subtotal/total/balance/rule
+  rows, right-aligned amounts). Styling derives from the palette + theme roles, so a brand/variant
+  restyles the blocks with everything else. The filter is a no-op for documents that use none. 10
+  tests (wiring + per-block filter output + full-render integration).
 - **H4 - Data-bound statement tables (#34).** `[build]` let the statement/ledger block source rows from
   data (CSV/YAML/sheet) and COMPUTE subtotals/totals/balances, with a reconciliation check that fails
   the render when a stated total diverges from the sum of its items. Removes the silent-transcription
