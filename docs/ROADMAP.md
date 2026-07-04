@@ -266,15 +266,18 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
   generator (shared palette/fonts with every other engine); consumers override via `--theme` /
   `--brand`. Tools (pandoc + typst) are already probed by `render doctor`; missing either fails with an
   actionable message. 13 tests (unit + skipif-guarded real-compile).
-- **H2 - Engine-agnostic theme descriptor (#32).** `[build]` **DONE (typst consumer):** the chrome +
-  component layer (page margins, header/footer slots, heading/title/rule colour ROLES) is now declared
-  in `brand.yaml`'s `theme` section, with `base` + inheritable `variants` (a built-in `financial`
-  restyles headings). `tokens/gen/theme_tokens.py` emits `chrome.typ` from it; `pdf/theme/default.typ`
-  is refactored to LAYOUT LOGIC that consumes `chrome.*` (roles resolved to colours at render time),
-  and `render pdf --variant <name>` selects one. Role-based + engine-neutral so an OOXML consumer can
-  read the same fields. **Remaining:** wire the OOXML/`reference.docx` path to consume the same
-  descriptor (the DOCX side is template-parsed today, `docstyle/ooxml_theme.py`), which fully proves
-  engine-agnosticism. 12 tests.
+- **H2 - Engine-agnostic theme descriptor (#32).** `[build]` **DONE:** the chrome + component layer
+  (page margins, header/footer slots, heading/title/rule colour ROLES) is declared in `brand.yaml`'s
+  `theme` section, with `base` + inheritable `variants` (a built-in `financial` restyles headings).
+  `tokens/gen/theme_tokens.py` emits `chrome.typ` for the typst path; `pdf/theme/default.typ` is LAYOUT
+  LOGIC that consumes `chrome.*` (roles resolved to colours at render time), selected by
+  `render pdf --variant <name>`. **OOXML consumer:** `tokens/gen/pandoc_template_profile.py` now emits
+  the FLAT `template-profile.yaml` that `docstyle/style_postprocess.apply_template_profile` actually
+  consumes (font / accent / body / margin_cm / page_*_cm), sourced from the SAME descriptor + variant --
+  so a variant recolours the DOCX headings + table headers exactly as it does the typst chrome. This
+  also fixed a latent bug: the old generator emitted a nested shape the post-processor's flat-key reader
+  ignored, so the generated DOCX profile was dead config. A round-trip test drives the generated profile
+  through `apply_template_profile` and asserts the resolved colour. One descriptor, both engines. 14 tests.
 - **H3 - First-class semantic blocks (#33).** `[build]` **DONE:** `pdf/filters/semantic-blocks.lua`
   maps the fenced divs `::: signatures` / `::: attendance` / `::: statement` (each a plain bullet list
   of pipe-delimited fields) to typst function calls, rendered by `pdf/theme/blocks.typ`: a

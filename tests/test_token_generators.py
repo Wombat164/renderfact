@@ -77,12 +77,34 @@ def test_marp_css_carries_all_data_colours():
     assert tokens["colour"]["brand"]["primary"] in css
 
 
-def test_pandoc_template_profile_has_required_keys():
+def test_pandoc_template_profile_flat_schema_from_descriptor():
+    # #32: FLAT keys consumed by docstyle/style_postprocess, sourced from the
+    # theme descriptor. base heading_role = accent; financial = primary.
     tokens = load_tokens()
     profile = pandoc_template_profile.render_template_profile(tokens)
-    assert profile["colour"]["accent"] == tokens["colour"]["brand"]["accent"]
-    assert profile["font"]["body"] == tokens["type"]["print_font"]
-    assert profile["geometry"]["page"] == tokens["geometry"]["page"]
+    assert profile["accent"] == tokens["colour"]["brand"]["accent"]
+    assert profile["font"] == tokens["type"]["print_font"]
+    assert profile["body"] == tokens["colour"]["brand"]["ink"]
+    assert profile["margin_cm"] == 2.2 and profile["page_width_cm"] == 21.0
+    fin = pandoc_template_profile.render_template_profile(tokens, "financial")
+    assert fin["accent"] == tokens["colour"]["brand"]["primary"]
+
+
+def test_docx_post_processor_consumes_the_descriptor_profile(tmp_path):
+    # #32 engine-agnostic proof: the SAME descriptor the typst chrome uses feeds
+    # the DOCX house-style post-processor. A financial variant recolours DOCX
+    # headings/table-headers to the primary role, exactly as it does in typst.
+    import yaml
+
+    from docstyle import style_postprocess as sp
+
+    tokens = load_tokens()
+    profile = pandoc_template_profile.render_template_profile(tokens, "financial")
+    p = tmp_path / "template-profile.yaml"
+    p.write_text(yaml.safe_dump(profile), encoding="utf-8")
+    sp.apply_template_profile(str(p))
+    assert sp.NAVY == sp._rgb(tokens["colour"]["brand"]["primary"])
+    assert sp.FONT_NAME == tokens["type"]["print_font"]
 
 
 def test_typst_tokens_no_leftover_branding():
