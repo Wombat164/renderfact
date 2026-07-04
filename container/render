@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Run the containerized render toolchain, optionally against a source tree.
+#   render pandoc --version
+#   SOURCE_ROOT=/path render bash lint-and-render.sh ...
+# When SOURCE_ROOT is set (VAULT_ROOT accepted as a legacy alias), that tree is
+# mounted read-write at its real path; $PWD is always mounted at /work. Without
+# it, only $PWD is mounted (fine for tool invocations and repo-local renders).
+set -euo pipefail
+IMG="${RENDER_IMG:-localhost/renderfact:latest}"
+SRC="${SOURCE_ROOT:-${VAULT_ROOT:-}}"
+TTY=""; [ -t 0 ] && TTY="-it"
+MOUNTS=(-v "$PWD":/work:z)
+ENVS=(-e SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1700000000}")
+if [ -n "$SRC" ]; then
+  MOUNTS+=(-v "$SRC":"$SRC":z)
+  ENVS+=(-e SOURCE_ROOT="$SRC")
+fi
+exec sudo podman run --rm $TTY "${MOUNTS[@]}" -w /work "${ENVS[@]}" "$IMG" "$@"

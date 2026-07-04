@@ -1,0 +1,7 @@
+# sdist contents (the wheel is governed by [tool.setuptools] in pyproject.toml).
+# The PyPI-facing readme is README-pypi.md; the repo README (auto-included by
+# setuptools otherwise) and the test suite (which depends on repo-only fixtures
+# and the private-phase hygiene gate) stay out of the distribution.
+exclude README.md
+prune tests
+prune renders

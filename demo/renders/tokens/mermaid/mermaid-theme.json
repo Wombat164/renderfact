@@ -1,0 +1,17 @@
+{
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#E2EBE3",
+    "primaryTextColor": "#20241F",
+    "primaryBorderColor": "#1F4A38",
+    "secondaryColor": "#F7F6F1",
+    "tertiaryColor": "#E8A33D",
+    "lineColor": "#1F4A38",
+    "textColor": "#20241F",
+    "fontFamily": "Public Sans",
+    "fontSize": "14px",
+    "errorBkgColor": "#C62828",
+    "errorTextColor": "#FFFFFF"
+  },
+  "_note": "Mermaid's theme system does not expose a categorical/data-series palette variable (unlike D2/Typst). Wong-8 colours from tokens/brand.yaml must be applied per-diagram via explicit classDef/style directives in the .mmd source, not globally via this theme file. status.ok/warn/info similarly have no first-class theme variable -- use classDef for those too."
+}

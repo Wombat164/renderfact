@@ -1,0 +1,59 @@
+# pyproject.toml -- Python dependency manifest + dev-mode packaging (plan P2.1 / F4).
+#
+# Scope, honestly stated: `pip install -e .` (editable) is the SUPPORTED install mode.
+# render.py dispatches to lint/, tokens/gen/, and container/ via repo-relative paths,
+# so a non-editable wheel would install a broken entry point -- full wheel packaging
+# (packaging lint/tokens as real packages, data-files for container/) is the rest of
+# F4, tracked in docs/2026-07-03-forward-plan.md P2.1. This file exists so a fresh
+# clone can resolve dependencies at all (before it, no manifest of any kind existed).
+#
+# tools.lock remains the separate, authoritative lock for the RENDER ENGINES
+# (pandoc/typst/mmdc/d2/marp/...); this file covers only the Python layer.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "renderfact"
+version = "0.1.0"
+description = "Governed docs-as-code render framework: one full-candor source, governed audience projections rendered to DOCX and diagrams (decks/posters/archival-PDF on the roadmap)."
+readme = "README-pypi.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Wombat164" }]
+keywords = ["docs-as-code", "render", "docx", "projection", "clearance", "provenance", "pandoc", "governed-documents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Office/Business",
+]
+
+dependencies = [
+    # imported by tokens/gen, contracts/copy_paste, roundtrip/source_uid
+    "PyYAML>=6.0",
+    # imported by roundtrip/provenance (DOCX/XLSX/PPTX core-properties access)
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Wombat164/renderfact"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+render = "render:main"
+
+[tool.setuptools]
+py-modules = ["render"]
+packages = ["contracts", "roundtrip", "projection", "docstyle", "api"]

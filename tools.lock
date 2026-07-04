@@ -1,0 +1,38 @@
+# tools.lock -- pinned engine versions for the render-toolchain container (V4, 2026-06-26)
+#
+# Single source of truth for the Containerfile pins. Bumped after the 2026-06-26
+# tool-currency research (KEEP / UPGRADE per primary-source version facts).
+# Why pin at all: a silent engine upgrade (e.g. mmdc) changes rendered output
+# (kerning, layout, theme defaults); a visual regression is invisible without
+# version provenance. verify-pins.sh asserts the running image matches this file.
+#
+# Format: <tool>: <version>   # KEEP|UPGRADE|PIN provenance
+
+base-image:   debian:bookworm-slim
+python:       3.11            # container base (was wrongly noted 3.14 host-side)
+pandoc:       3.10            # UPGRADE from 3.5 (latest 2026-06-04; adds --typst-input)
+typst:        0.15.0          # UPGRADE from 0.12.0 (latest 2026-06-15; tagged-PDF/UA + full PDF/A matrix + multi-standard export)
+mmdc:         11.15.0         # KEEP -- at head (npm latest 2026-05-13)
+d2:           0.7.1           # KEEP -- at head (GitHub latest 2025-08-19)
+marp-cli:     4.4.0           # PIN (was unpinned `latest` -> non-reproducible)
+cairosvg:     2.9.0           # KEEP (SVG->PDF; alternatives unresolved by research -- see openQ)
+chromium:     149             # apt (bookworm) -- headless engine for marp/mmdc; KEEP (currency unresolved)
+libreoffice:  7.4             # apt (bookworm); DEFERRED upgrade to 25.8.x Still -- needs official tarball, not in bookworm apt. Secondary path (typst is primary tagged-PDF route). TODO.
+python-docx:  installed       # pip (unpinned); KEEP -- still best-in-class for programmatic DOCX
+openpyxl:     installed       # pip (unpinned); ADDED 2026-07-03 -- D11 provenance (chunk 4.1) needs XLSX core-properties access; same unpinned-pure-Python-lib treatment as python-docx (no visual-regression risk, unlike pandoc/typst/mmdc)
+python-pptx:  installed       # pip (unpinned); ADDED 2026-07-03 -- D11 provenance (chunk 4.1) needs PPTX core-properties access; same treatment as python-docx
+docxcompose:  2.2.0           # PIN -- Word-COM-free DOCX merge (bundle-annex-linux.py)
+pypdf:        6.14.2          # bump from 6.13 (latest 2026-06-23); PDF merge
+drawio-desktop: BROKEN        # install currently FAILS in image (n/a); research UNRESOLVED whether headless drawio is still right. Non-fatal layer; mermaid+d2+graphviz cover diagrams. TODO: resolve or drop.
+fonts:        Inter, Palanquin, Roboto
+likec4:       1.58.0          # ADDED 2026-07-02 -- architecture-diagrams skill's LikeC4 DSL -> PNG (closes the A4 diagram-skill-reconciliation gap; Playwright-managed chromium, --with-deps)
+
+
+# Deferred / open (from 2026-06-26 research openQuestions):
+#  - LibreOffice 7.4 -> 25.8.x Still (DOCX->PDF fidelity); needs tarball install.
+#  - cairosvg vs resvg/rsvg-convert/inkscape for SVG->PDF (fidelity bench).
+#  - Marp vs Slidev vs Typst-touying for decks (touying 0.7.4 may let us drop Chromium-Marp).
+#  - Chromium 149 CVE/currency; upgrading typst removes some Chromium-dependent steps.
+#  - drawio-desktop: resolve headless install or drop. OWNED BY ROADMAP C8 (editable-diagram round-trip) since 2026-07-04.
+
+# verify-pins.sh (in container/) asserts the running image matches these.

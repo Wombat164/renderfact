@@ -1,0 +1,52 @@
+# template-profile-example.yaml: config-driven house-style profile for
+# docstyle/style_postprocess.py (pass with --template-profile) and
+# docstyle/heading_numbering.py (pass with --profile).
+#
+# These values match the built-in neutral defaults, so passing this file
+# unchanged changes nothing: it just proves the engine is config-driven. To
+# re-skin a document, copy this file and edit the values (or generate one from
+# a corporate Word template via a template-analysis stage).
+#
+# Colours are 6-hex, no leading '#'. Unknown keys are ignored.
+
+font: Arial            # body + heading + table font
+
+accent: "1F3864"       # headings, table header-row fill, cover version line
+body: "262626"         # reference-profile body text (near-black, reader-friendly)
+body_muted: "595959"   # subtitle / compact-profile body / figure captions
+table_body: "333333"   # table cell text
+zebra: "F2F4F7"        # alternate-row shading (reference profile)
+
+page_width_cm: 21.0    # A4
+page_height_cm: 29.7
+margin_cm: 2.0         # uniform top/bottom/left/right
+
+# Optional marking behaviour (all rules default to empty = no marking edits).
+# Each *_replacements entry is a mapping {find: [str, ...], replace: str}: when
+# any find-string is present in a header/footer paragraph and the replace-string
+# is not already present, the find-string is replaced.
+#
+# classification:
+#   # Applied on the standard (compact) header/footer path.
+#   header_footer_replacements:
+#     - find: ["INTERNAL USE ONLY"]
+#       replace: "INTERNAL USE ONLY (POLICY-REF)"
+#   # Applied on the brief/external (reference-profile) path, per-run so the
+#   # PAGE field in the footer survives the swap.
+#   brief_replacements:
+#     - find: ["INTERNAL USE ONLY (POLICY-REF)"]
+#       replace: "GENERAL DISTRIBUTION (POLICY-REF)"
+#   # Cover cleanup: front-matter paragraphs starting with one of these prefixes
+#   # (or containing one of these substrings) are removed from the cover page;
+#   # page markings belong in the header/footer, not the cover body.
+#   strip_cover_banner_prefixes: ["Classification:", "Distribution:"]
+#   strip_cover_banner_contains: []
+
+# Cover behaviour (reference profile); the values below are the defaults.
+cover:
+  part_heading_prefix: "Part"                  # H1 prefix that marks the document body start
+  version_label: "Version {version} - {date}"  # cover line; segments with a missing value are dropped
+
+# House punctuation normalization (unicode dashes/quotes/NBSP to ASCII) applied
+# to body text and headers/footers. Set false to leave punctuation untouched.
+normalize_punctuation: true

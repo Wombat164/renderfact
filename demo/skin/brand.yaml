@@ -1,0 +1,35 @@
+# demo/skin/brand.yaml: the demo skin for "Meridian Rail Infrastructure" (fictional).
+#
+# Same schema as tokens/brand.yaml (the neutral default token source). This file
+# is a consumer OVERRIDE: generators deep-merge it over the defaults (consumer
+# values win; anything not set here falls through), then emit per-engine themes.
+# See tokens/gen/_common.py for the merge and tokens/gen/ for the generators.
+#
+# Run: python render.py tokens --brand demo/skin/brand.yaml --output-dir demo/renders/tokens
+
+meta:
+  name: "Meridian Rail Infrastructure (demo skin)"
+  note: "Fictional railway-operator brand for the public demo. Not a real organisation."
+
+# --- colour ---
+colour:
+  brand:
+    primary:    "#1F4A38"   # Meridian deep rail green (livery base)
+    accent:     "#E8A33D"   # signal amber (highlights, calls to action)
+    background: "#F7F6F1"   # warm paper
+    ink:        "#20241F"   # near-black, green-tinted ink
+    fill:       "#E2EBE3"   # pale green panel fill
+  status:
+    warn: "#C97F1A"         # warning tone aligned with the amber accent family
+  # colour.data (the Wong categorical palette) is intentionally NOT overridden:
+  # it is colour-blind-safe and brand-neutral by design.
+
+# --- typography ---
+type:
+  body_font:  "Public Sans"
+  print_font: "Public Sans"
+  # mono_font, body_min_px, and the heading scale inherit the defaults
+
+# --- geometry ---
+geometry:
+  density: "base"           # inherit A4 page, 2.0 cm margins, A2 poster

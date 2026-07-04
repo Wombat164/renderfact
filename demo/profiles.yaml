@@ -1,0 +1,44 @@
+# demo/profiles.yaml: ladders + profiles for the Meridian Rail Infrastructure demo.
+#
+# Same schema as projection/profiles-example.yaml. Everything here is FICTIONAL
+# demo configuration: a consumer defines its own ordered ladders (rank = list
+# position; leftmost = lowest clearance / narrowest distribution) and its own
+# profiles, then passes this file via `render project --profiles <file>`.
+
+ladders:
+  # sensitivity of content: a profile may only read blocks at or below its ceiling
+  clearance: [public, commercial-confidential, internal]
+  # how far a render travels: a block must be releasable at least that far to survive
+  distribution: [team, organisation, bidders, public]
+
+profiles:
+  # The programme team's full-candor working copy: highest ceiling, narrowest
+  # travel, full disclosure (deep detail kept, abstract variants dropped).
+  internal-full:
+    clearance_ceiling: internal
+    releasable_to: team
+    lang: en
+    audience: programme-team
+    disclosure: full
+
+  # The pack issued to registered bidders: commercial-confidential ceiling
+  # (indicative budget envelope survives), bidder distribution, contextual
+  # disclosure (soft-spots kept for planning honesty, deep detail dropped,
+  # abstract variants shown in its place).
+  bidder-pack:
+    clearance_ceiling: commercial-confidential
+    releasable_to: bidders
+    lang: en
+    audience: bidder
+    disclosure: contextual
+
+  # The published tender notice: lowest ceiling, widest travel, minimal
+  # disclosure, and no projected-header stamp (an external artifact should not
+  # advertise its gate parameters or how many blocks were withheld).
+  public-tender:
+    clearance_ceiling: public
+    releasable_to: public
+    lang: en
+    audience: general
+    disclosure: minimal
+    stamp_header: false

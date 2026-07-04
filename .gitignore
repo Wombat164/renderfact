@@ -1,0 +1,19 @@
+renders/
+*.png
+*.pdf
+*.docx
+*.svg
+__pycache__/
+.pytest_cache/
+.fonts/
+node_modules/
+*.log
+.renderfact-copy-paste-prompt.txt
+*.egg-info/
+
+# demo exemplars are deliberately committed (the showcase must be visible without a local build)
+!demo/renders/
+!demo/renders/**
+dist/
+*.egg-info/
+build/

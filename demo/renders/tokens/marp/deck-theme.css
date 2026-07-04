@@ -1,0 +1,53 @@
+/* GENERATED from tokens/brand.yaml -- do not edit by hand. */
+/* Regenerate: python tokens/gen/marp_theme.py */
+
+/*
+@theme brand-deck
+@auto-scaling true
+*/
+
+:root {
+  --brand-primary: #1F4A38;
+  --brand-accent: #E8A33D;
+  --brand-background: #F7F6F1;
+  --brand-ink: #20241F;
+  --brand-fill: #E2EBE3;
+  --status-ok: #2E7D32;
+  --status-warn: #C97F1A;
+  --status-risk: #C62828;
+  --status-info: #3E7CB1;
+  --data-0: #000000;
+  --data-1: #E69F00;
+  --data-2: #56B4E9;
+  --data-3: #009E73;
+  --data-4: #F0E442;
+  --data-5: #0072B2;
+  --data-6: #D55E00;
+  --data-7: #CC79A7;
+  --font-body: "Public Sans", sans-serif;
+  --font-mono: "Roboto Mono", monospace;
+}
+
+section {
+  background-color: var(--brand-background);
+  color: var(--brand-ink);
+  font-family: var(--font-body);
+  font-size: 18px;
+}
+
+h1, h2, h3, h4 {
+  color: var(--brand-primary);
+}
+
+a {
+  color: var(--brand-accent);
+}
+
+code, pre {
+  font-family: var(--font-mono);
+}
+
+.status-ok { color: var(--status-ok); }
+.status-warn { color: var(--status-warn); }
+.status-risk { color: var(--status-risk); }
+.status-info { color: var(--status-info); }

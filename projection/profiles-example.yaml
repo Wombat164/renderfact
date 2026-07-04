@@ -1,0 +1,41 @@
+# profiles-example.yaml -- neutral example config for the projection engine (F1).
+#
+# The engine has NO built-in classification vocabulary: both ladders below are
+# consumer-defined, ORDERED lists (rank = position; leftmost = lowest/narrowest).
+# A consumer's real ladder values + profiles are private-skin config that lives in
+# their own tree and is passed via `render project --profiles <their file>`.
+
+ladders:
+  # sensitivity of content: a profile may only read blocks at or below its ceiling
+  clearance: [public, internal, confidential, secret]
+  # how far a render travels: a block must be releasable at least that far to survive
+  distribution: [team, organisation, partners, public]
+
+profiles:
+  # full-candor internal working copy: everything survives
+  internal-full:
+    clearance_ceiling: secret
+    releasable_to: team
+    lang: en
+    audience: maintainer
+    disclosure: full
+
+  # partner-facing brief: confidential ceiling, partner distribution, contextual
+  # disclosure (soft-spots kept, deep detail dropped, abstract variants shown)
+  partner-brief:
+    clearance_ceiling: confidential
+    releasable_to: partners
+    lang: en
+    audience: reviewer
+    disclosure: contextual
+
+  # public release: lowest ceiling, widest travel, minimal disclosure -- and no
+  # projected-header stamp (D14 audience-awareness: an external artifact should not
+  # advertise its gate parameters or how many blocks were withheld)
+  public-release:
+    clearance_ceiling: public
+    releasable_to: public
+    lang: en
+    audience: general
+    disclosure: minimal
+    stamp_header: false

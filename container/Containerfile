@@ -1,0 +1,123 @@
+# renderfact render toolchain: structured DOCX + diagrams + posters/decks + PDF/UA
+# Versions pinned to this repo's tools.lock where applicable.
+# Build: sudo podman build -t localhost/renderfact:latest -f Containerfile .
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    CHROME_PATH=/usr/bin/chromium \
+    SOURCE_DATE_EPOCH=1700000000
+
+# 1. Base: python + cairo/pango (cairosvg), graphviz, chromium, fonts, fetch tools, xvfb (drawio)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl wget xz-utils gnupg \
+      python3 python3-pip python3-venv \
+      libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev \
+      graphviz \
+      chromium \
+      fontconfig fonts-roboto fonts-dejavu-core fonts-liberation \
+      xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Node 20 + global CLIs (mmdc + marp BOTH pinned per tools.lock)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @mermaid-js/mermaid-cli@11.15.0 @marp-team/marp-cli@4.4.0 \
+    && npm cache clean --force \
+    && rm -rf /var/lib/apt/lists/*
+
+# 3. pandoc 3.10 (Debian bookworm ships 2.17; we want current 3.x; 3.10 adds --typst-input)
+RUN wget -q https://github.com/jgm/pandoc/releases/download/3.10/pandoc-3.10-1-amd64.deb -O /tmp/pandoc.deb \
+    && dpkg -i /tmp/pandoc.deb \
+    && rm -f /tmp/pandoc.deb
+
+# 4. typst 0.15.0 (binary release) -- tagged-PDF/UA + full PDF/A matrix + multi-standard export
+RUN wget -q https://github.com/typst/typst/releases/download/v0.15.0/typst-x86_64-unknown-linux-musl.tar.xz -O /tmp/typst.tar.xz \
+    && tar -xf /tmp/typst.tar.xz -C /tmp \
+    && mv /tmp/typst-x86_64-unknown-linux-musl/typst /usr/local/bin/typst \
+    && chmod +x /usr/local/bin/typst \
+    && rm -rf /tmp/typst*
+
+# 5. d2 v0.7.1 (per tools.lock)
+RUN wget -q https://github.com/terrastruct/d2/releases/download/v0.7.1/d2-v0.7.1-linux-amd64.tar.gz -O /tmp/d2.tar.gz \
+    && tar -xf /tmp/d2.tar.gz -C /tmp \
+    && mv /tmp/d2-v0.7.1/bin/d2 /usr/local/bin/d2 \
+    && chmod +x /usr/local/bin/d2 \
+    && rm -rf /tmp/d2*
+
+# 6. Python render libs (cairosvg pinned per tools.lock). openpyxl + python-pptx
+#    added 2026-07-03 for D11 provenance (chunk 4.1) -- XLSX/PPTX core-properties access.
+RUN pip3 install --no-cache-dir --break-system-packages \
+      cairosvg==2.9.0 pyyaml python-docx openpyxl python-pptx
+
+# 7. Deterministic fonts: Inter + Palanquin (Google Fonts); Roboto already via apt
+RUN mkdir -p /usr/share/fonts/truetype/palanquin /usr/share/fonts/truetype/inter \
+    && for w in Regular Medium SemiBold Bold; do \
+         wget -q "https://github.com/google/fonts/raw/main/ofl/palanquin/Palanquin-$w.ttf" \
+           -O "/usr/share/fonts/truetype/palanquin/Palanquin-$w.ttf" || true; \
+       done \
+    && wget -q "https://github.com/rsms/inter/raw/master/docs/font-files/Inter-Regular.otf" \
+         -O "/usr/share/fonts/truetype/inter/Inter-Regular.otf" || true \
+    && wget -q "https://github.com/rsms/inter/raw/master/docs/font-files/Inter-Bold.otf" \
+         -O "/usr/share/fonts/truetype/inter/Inter-Bold.otf" || true \
+    && fc-cache -f
+
+# 8. puppeteer config so mmdc/marp drive chromium headless + no-sandbox inside the container
+COPY puppeteer-config.json /etc/puppeteer-config.json
+ENV PUPPETEER_CONFIG=/etc/puppeteer-config.json
+
+# 9. drawio-desktop (Electron; headless via xvfb). Riskiest layer -> tolerant, non-fatal.
+RUN bash -c 'wget -q https://github.com/jgraph/drawio-desktop/releases/download/v24.7.17/drawio-amd64-24.7.17.deb -O /tmp/drawio.deb \
+      && apt-get update \
+      && apt-get install -y --no-install-recommends /tmp/drawio.deb \
+      && rm -rf /var/lib/apt/lists/* /tmp/drawio.deb \
+      || echo "WARN: drawio-desktop install failed (non-fatal; mermaid + d2 + graphviz still available)"'
+
+# 10. chromium wrapper: force --no-sandbox (root inside container) so mmdc/marp/
+#     puppeteer drive Chromium headless without a runtime hack. Late ENV overrides
+#     the earlier one and only invalidates this layer (heavy layers stay cached).
+#     Also fix Inter family name (corrected Google Fonts variable-font URL).
+RUN printf '#!/bin/sh\nexec /usr/bin/chromium --no-sandbox --disable-gpu --disable-dev-shm-usage "$@"\n' \
+      > /usr/local/bin/chromium-nosandbox \
+    && chmod +x /usr/local/bin/chromium-nosandbox \
+    && wget -q "https://github.com/google/fonts/raw/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf" \
+         -O /usr/share/fonts/truetype/inter/Inter-variable.ttf \
+    && fc-cache -f \
+    || echo "WARN: Inter variable-font fetch failed (non-fatal)"
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chromium-nosandbox \
+    CHROME_PATH=/usr/local/bin/chromium-nosandbox
+
+# 11. LibreOffice headless -- DOCX -> PDF for `render-doc.sh --pdf` on Linux/macOS
+#     (Word COM is Windows-only). Faithful PDF of the styled DOCX (cover, zebra,
+#     heading numbering). Late layer so the heavy stack above stays cached.
+#     default-jre-headless: LibreOffice needs a JRE for some filters (and silences
+#     the "failed to launch javaldx" warning); keeps DOCX->PDF fidelity stable.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       libreoffice-writer libreoffice-core default-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
+
+# 12. Document bundle + preview deps (no more host workarounds):
+#     - poppler-utils: pdftoppm/pdftocairo (PDF -> PNG preview), pdfunite (PDF merge),
+#       pdftotext (text verification). Fixes the missing PDF rasteriser/merger.
+#     - docxcompose: the cross-platform analog of a Word-COM InsertFile bundler
+#       (append DOCX parts preserving each section's headers/footers) for the Linux bundle.
+#     - pypdf: programmatic PDF merge (cover.pdf + body.pdf -> full document PDF).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --no-cache-dir --break-system-packages \
+       docxcompose==2.2.0 pypdf==6.14.2
+
+# 13. LikeC4 (pinned per tools.lock) -- architecture-as-code diagrams (LikeC4 DSL ->
+#     PNG). Reuses the Node 20 install from step 2. LikeC4's PNG exporter drives its
+#     own Playwright-managed Chromium (separate from the puppeteer/chromium-nosandbox
+#     path used by mmdc/marp) -- install it explicitly with --with-deps so it works
+#     headless as root inside the container. `export png` defaults chromium-sandbox
+#     to false, so no extra no-sandbox wrapper is needed here (unlike step 10).
+RUN npm install -g likec4@1.58.0     && npm cache clean --force     && node "$(npm root -g)/likec4/node_modules/playwright/cli.js" install --with-deps chromium
+
+WORKDIR /work
+CMD ["bash"]

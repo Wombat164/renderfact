@@ -1,0 +1,54 @@
+# brand.yaml -- the ONE token source (mechanism + NEUTRAL DEFAULTS).
+#
+# This file is domain-neutral. A consumer (e.g. a vault) supplies its own brand.yaml that
+# OVERRIDES these values; generators read the merged result and emit per-engine themes
+# (mermaid JSON, deck/marp CSS, pandoc DOCX theme, typst tokens). Never hand-type a palette
+# into a per-engine theme file -- change it here and regenerate. (Golden Rule: one token source.)
+#
+# Generators (A1, done 2026-07-02): tokens/gen/*.py read this -> write the engine themes.
+# Run: python render.py tokens   (or  python tokens/gen/generate_all.py  directly)
+
+meta:
+  name: "render-toolchain default brand"
+  note: "Neutral defaults. Override with your private brand.yaml."
+
+# --- colour ---
+colour:
+  brand:                      # organisational identity (neutral grey-blue defaults)
+    primary:   "#2B4A6F"
+    accent:    "#3E7CB1"
+    background: "#F5F5F2"
+    ink:       "#1F2328"
+    fill:      "#E4ECF3"
+  status:                     # semantic, consistent across every surface
+    ok:    "#2E7D32"
+    warn:  "#ED9B00"
+    risk:  "#C62828"
+    info:  "#3E7CB1"
+  data:                       # Wong 8-colour categorical (colour-blind-safe)
+    - "#000000"
+    - "#E69F00"
+    - "#56B4E9"
+    - "#009E73"
+    - "#F0E442"
+    - "#0072B2"
+    - "#D55E00"
+    - "#CC79A7"
+
+# --- typography ---
+type:
+  body_font:    "Inter"       # screen/web + DOCX body
+  print_font:   "Inter"       # print substrate (override e.g. IBM Plex)
+  mono_font:    "Roboto Mono"
+  body_min_px:  14            # readability floor (Render Contract rule 2)
+  scale:        [22, 16, 13, 11]   # h1..h4 pt (paginated doc)
+
+# --- geometry ---
+geometry:
+  page:         "A4"
+  margin_cm:    2.0
+  poster:       "A2"
+  density:      "base"        # tight | base | loose (whitespace as a feature)
+
+# --- icon tokens (rendered as SVG at build, never literal emoji) ---
+icons: [decision, risk, ok, warn, info, action, gate, data, role, time]
