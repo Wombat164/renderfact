@@ -52,6 +52,8 @@ Repository = "https://github.com/Wombat164/renderfact"
 dev = ["pytest>=8"]
 # optional: text previews of foreign embedded objects during re-ingestion
 embedded-preview = ["markitdown>=0.1"]
+# optional: the Visio adapter of the editable-diagram round-trip (C8.2)
+vsdx = ["vsdx>=0.6.1"]
 
 [project.scripts]
 render = "render:main"
