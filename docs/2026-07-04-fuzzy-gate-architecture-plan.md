@@ -84,7 +84,7 @@ prompt context. Scope:
 - tests: confidence over each verdict combination; the "clean metrics -> deterministic OK entry, no
   LLM" path; the "BLOCK -> escalate" path.
 
-### G2 -- gate telemetry + calibration log.
+### G2 -- gate telemetry + calibration log. DONE.
 Enables evidence-based thresholds and catches the anti-patterns before they become incidents.
 - a JSONL sink (append-only) recording per decision: step, sub-signals, score, threshold, decision,
   channel, and (when later known) outcome-correct. Location + schema are the design work.

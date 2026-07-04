@@ -96,6 +96,7 @@ bound, in which case provenance is stripped.
 | | Editable-diagram round-trip, Visio adapter (NameU anchors; OPC provenance; optional `vsdx` lib) | `render vsdx` |
 | | Diagram-edit decision capture (deterministic first; LLM only past a confidence gate) | `render decision-capture` |
 | | Vision-review with a D16 gate (deterministic svg-metrics verdict first; LLM only past a threshold) | `render copy-paste vision-review` |
+| | D16 gate telemetry: escalation-rate stats + storm detection from an opt-in decision log | `render gate-stats` |
 | **Gate + verify** | Fail-closed QA chain: Vale, lychee (offline), veraPDF (PDF/A + PDF/UA), duplicate-uid detection | `render gate` |
 | | Post-render QA: leak probes, table geometry, paragraph weight | `render qa` |
 | | Host-vs-lock drift report (never fails: that is the container's job) | `render doctor` |

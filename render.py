@@ -238,9 +238,13 @@ def run_copy_paste(args: list[str]) -> int:
     # zero tokens. Only steps that declare a gate participate; others (no
     # confidence/gate) run the LLM unconditionally, as before.
     if not parsed.force_review and hasattr(module, "gate") and hasattr(module, "deterministic_entry"):
+        from contracts import gate_telemetry
         decision, score = module.gate(input_obj, parsed.threshold)
         print(f"[D16 gate] confidence {score} vs threshold {parsed.threshold} -> {decision}",
               file=sys.stderr)
+        gate_telemetry.log_decision(
+            parsed.step, score, parsed.threshold, decision,
+            channel="deterministic" if decision == "accept" else "copy-paste")
         if decision == "accept":
             entry = module.deterministic_entry(input_obj)
             ok, errors = module.validate_output(entry)
@@ -334,6 +338,15 @@ def run_drawio(args: list[str]) -> int:
     return drawio.main(args)
 
 
+def run_gate_stats(args: list[str]) -> int:
+    """Dispatch to contracts/gate_telemetry.py: report D16 gate escalation rates
+    and storm detection from the append-only gate log (Track G, G2)."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from contracts import gate_telemetry
+
+    return gate_telemetry.main(args)
+
+
 def run_decision_capture(args: list[str]) -> int:
     """Dispatch to roundtrip/decision_capture.py: the editable-diagram
     round-trip decision-capture step (C8.3). Turns a reingest's semantic diff
@@ -376,6 +389,7 @@ MODES = {
     "drawio": run_drawio,
     "vsdx": run_vsdx,
     "decision-capture": run_decision_capture,
+    "gate-stats": run_gate_stats,
     "import-template": run_import_template,
     "project": run_project,
     "qa": run_qa,

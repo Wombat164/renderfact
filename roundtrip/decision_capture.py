@@ -334,6 +334,14 @@ def main(argv: list[str] | None = None) -> int:
         decision, score = gate(input_obj, args.threshold)
 
         needs_review = False
+        channel = ("deterministic" if decision == "accept"
+                   else ("copy-paste" if args.escalate == "copy-paste" else "needs-review"))
+        try:
+            from contracts import gate_telemetry
+            gate_telemetry.log_decision("decision-capture", score, args.threshold, decision, channel)
+        except ImportError:
+            pass
+
         if decision == "escalate" and args.escalate == "copy-paste":
             from contracts import copy_paste
             entry = copy_paste.run_copy_paste_step(
