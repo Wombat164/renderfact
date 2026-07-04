@@ -68,7 +68,7 @@ Dependency-ordered, PR-sized. Each item is independently shippable and testable.
 decision-capture is the reference implementation; the red-team's one correctness bug and two
 consistency debts are fixed. Everything below copies this shape.
 
-### G1 -- vision-review retrofit. NEXT; highest value.
+### G1 -- vision-review retrofit. DONE.
 The step D16 names by name, and its deterministic inputs already exist and are already wired as
 prompt context. Scope:
 - `lint/vision_review_contract.py`: add `confidence(deterministic_metrics)` keyed on the EXISTING
