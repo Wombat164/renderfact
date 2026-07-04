@@ -55,6 +55,40 @@
 # Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
 set -euo pipefail
 
+# ---- help (before any tool resolution, so it works without pandoc/python) ----
+usage() {
+  cat <<'EOF'
+render-doc.sh: annotated-markdown -> styled DOCX (+ optional PDF).
+
+Usage: render-doc.sh <source.md> [--name <p>] [--profile reference|compact]
+         [--project <profile>] [--template-profile <yaml>] [DRAFT|REVIEW|FINAL]
+         [--pdf] [--qc] [--lint] [--number-headings] [--scheme <scheme>]
+         [--page-check]
+
+Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
+
+Options:
+  --name <p>            output basename prefix (default: source stem)
+  --profile <p>         style profile: reference (default) | compact
+  --project <profile>   apply a projection profile before rendering
+  --template-profile    yaml consumed by the house-style post-processor
+  --scheme <scheme>     numbering/style scheme (default: modern)
+  DRAFT|REVIEW|FINAL    document lifecycle suffix (default: DRAFT)
+  --pdf                 also convert to PDF (Word-COM on Windows, else soffice)
+  --qc                  run the pre-render QC script (needs QC_SCRIPT)
+  --lint                run the consumer lint bundle (needs NLQA_DIR)
+  --number-headings     apply field-based heading numbering
+  --page-check          run the page-economy analyzer
+  -h, --help            show this help and exit
+
+Consumer skin + tool configuration is via environment variables; see the
+header of this script (SKIN_DIR, TEMPLATE_DOCX, FILTERS_DIR, PANDOC, ...).
+EOF
+}
+for _arg in "$@"; do
+  case "$_arg" in -h|--help) usage; exit 0 ;; esac
+done
+
 # ---- OS detection -----------------------------------------------------------
 case "$(uname -s 2>/dev/null || echo unknown)" in
   MINGW*|MSYS*|CYGWIN*) OS=windows ;;
@@ -102,42 +136,11 @@ PROJECTION_CONFIG="${PROJECTION_CONFIG:-$REPO_ROOT/projection/profiles-example.y
 PROJECTOR="$REPO_ROOT/projection/projector.py"
 OUTPUT_DIR="${OUTPUT_DIR:-./renders}"
 
-usage() {
-  cat <<'EOF'
-render-doc.sh: annotated-markdown -> styled DOCX (+ optional PDF).
-
-Usage: render-doc.sh <source.md> [--name <p>] [--profile reference|compact]
-         [--project <profile>] [--template-profile <yaml>] [DRAFT|REVIEW|FINAL]
-         [--pdf] [--qc] [--lint] [--number-headings] [--scheme <scheme>]
-         [--page-check]
-
-Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
-
-Options:
-  --name <p>            output basename prefix (default: source stem)
-  --profile <p>         style profile: reference (default) | compact
-  --project <profile>   apply a projection profile before rendering
-  --template-profile    yaml consumed by the house-style post-processor
-  --scheme <scheme>     numbering/style scheme (default: modern)
-  DRAFT|REVIEW|FINAL    document lifecycle suffix (default: DRAFT)
-  --pdf                 also convert to PDF (Word-COM on Windows, else soffice)
-  --qc                  run the pre-render QC script (needs QC_SCRIPT)
-  --lint                run the consumer lint bundle (needs NLQA_DIR)
-  --number-headings     apply field-based heading numbering
-  --page-check          run the page-economy analyzer
-  -h, --help            show this help and exit
-
-Consumer skin + tool configuration is via environment variables; see the
-header of this script (SKIN_DIR, TEMPLATE_DOCX, FILTERS_DIR, PANDOC, ...).
-EOF
-}
-
 SOURCE=""; NAME=""; PROFILE="reference"; SUFFIX="DRAFT"
 DO_PDF=0; DO_QC=0; DO_LINT=0; DO_NUMBER=0; DO_PAGECHECK=0
 SCHEME="modern"; PROJECT_PROFILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    -h|--help)          usage; exit 0 ;;
     --name)             NAME="$2"; shift 2 ;;
     --profile)          PROFILE="$2"; shift 2 ;;
     --project)          PROJECT_PROFILE="$2"; shift 2 ;;
