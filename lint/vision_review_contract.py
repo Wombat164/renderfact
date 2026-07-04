@@ -20,9 +20,14 @@ same schema.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from contracts.schema_utils import FieldSpec, validate
+
+# D16 fuzzy-gate: run the deterministic metrics FIRST, escalate the vision LLM
+# only past a confidence threshold (see docs/DECISIONS.md D16 + the Track G plan).
+DEFAULT_THRESHOLD = 0.6
 
 TASK_INTENT = (
     "Assess this rendered diagram for subjective layout quality that "
@@ -73,8 +78,10 @@ OUTPUT_SCHEMA: list[FieldSpec] = [
               description="Per-criterion findings.",
               item_schema=_FINDING_SCHEMA),
     FieldSpec("summary", str, required=True, description="One-paragraph human-readable verdict."),
-    FieldSpec("reviewer_mode", str, required=True, allowed_values=("harness", "copy-paste"),
-              description="Which D8 mode produced this output -- provenance, not a quality signal."),
+    FieldSpec("reviewer_mode", str, required=True,
+              allowed_values=("harness", "copy-paste", "deterministic"),
+              description="Which mode produced this output -- provenance, not a quality signal. "
+                          "'deterministic' = the D16 gate accepted the metrics-only verdict, no LLM."),
 ]
 
 
@@ -94,6 +101,109 @@ def assemble_input(rendered_image_path: Path | str, tier: str, deterministic_met
 
 
 def validate_output(obj: dict) -> tuple[bool, list[str]]:
-    """Validate a vision-review result -- from EITHER mode -- against the fixed output schema."""
+    """Validate a vision-review result -- from ANY mode -- against the fixed output schema."""
     errors = validate(obj, OUTPUT_SCHEMA)
     return len(errors) == 0, errors
+
+
+# --------------------------------------------------------- D16 fuzzy-gate --
+
+def assemble_metrics(svg_path: Path | str, tier: str) -> dict:
+    """Run the deterministic layer (svg_metrics.check_thresholds +
+    visual_quality_check) on one SVG and return the CANONICAL metrics dict the
+    gate reads and the LLM prompt receives as context. The single defined
+    source, so `confidence()` never has to guess at a free-form operator dict."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import visual_quality  # pure text/regex, no optional deps
+
+    path = Path(svg_path)
+    # svg_metrics needs the optional svgpathtools/svgelements; when absent it
+    # sys.exit(3)s. The gate must DEGRADE, not crash: a missing geometry signal
+    # simply leaves the verdict to visual_quality (which governs on its own).
+    # (Exception, SystemExit) covers both a bad SVG and the missing-dependency
+    # sys.exit -- SystemExit is not an Exception subclass.
+    try:
+        import svg_metrics
+        m = svg_metrics.parse_svg(path)
+        severity, messages = svg_metrics.check_thresholds(m, tier)
+        svg_block = {"severity": severity, "messages": messages}
+    except (Exception, SystemExit) as e:
+        svg_block = {"severity": None, "messages": [f"svg_metrics unavailable: {e}"]}
+    vq = visual_quality.visual_quality_check(path)
+    return {"svg_metrics": svg_block, "visual_quality": vq}
+
+
+def _governing_verdict(deterministic_metrics: dict) -> str | None:
+    """The WORST of the two deterministic signals: BLOCK > WARN > OK. None when
+    neither signal is present (metrics absent, or a non-SVG ERROR/SKIP) -- in
+    which case the deterministic layer has nothing to stand on and must defer."""
+    ranks = []
+    sev = (deterministic_metrics.get("svg_metrics") or {}).get("severity")
+    if isinstance(sev, int):
+        ranks.append(sev)  # 0 pass / 1 WARN / 2 BLOCK
+    vq_status = (deterministic_metrics.get("visual_quality") or {}).get("status")
+    if vq_status in ("OK", "WARN", "BLOCK"):
+        ranks.append({"OK": 0, "WARN": 1, "BLOCK": 2}[vq_status])
+    if not ranks:
+        return None
+    return {0: "OK", 1: "WARN", 2: "BLOCK"}[max(ranks)]
+
+
+# Confidence is U-shaped in the deterministic verdict, which is the
+# tokenomics-right operating point: a CONFIDENT pass (clean geometry/a11y) and a
+# CONFIDENT fail (hard BLOCK) both stand on the metrics alone; the vision LLM is
+# spent only on the UNCERTAIN middle (WARN) and on missing signal, where the eye
+# adds the most decision value. BLOCK sits ABOVE OK so a strict operator can
+# raise the threshold to escalate clean diagrams for composition coverage while
+# a hard-failing diagram (which will be regenerated) never wastes an LLM call.
+_CONFIDENCE = {"BLOCK": 1.0, "OK": 0.85, "WARN": 0.4}
+
+
+def confidence(deterministic_metrics: dict) -> float:
+    """Fuzzy score in [0, 1]: how sufficient the deterministic verdict is on its
+    own. None signal -> 0.0 (must escalate: nothing to stand on)."""
+    verdict = _governing_verdict(deterministic_metrics)
+    if verdict is None:
+        return 0.0
+    return _CONFIDENCE[verdict]
+
+
+def gate(input_obj: dict, threshold: float = DEFAULT_THRESHOLD) -> tuple[str, float]:
+    """The D16 escalation gate: 'accept' the metrics-only verdict at/above the
+    threshold (zero LLM tokens), else 'escalate' to the vision LLM."""
+    score = confidence(input_obj.get("deterministic_metrics", {}))
+    return ("accept" if score >= threshold else "escalate"), score
+
+
+def deterministic_entry(input_obj: dict) -> dict:
+    """Synthesize an OUTPUT_SCHEMA-shaped review from the metrics alone, for the
+    accept path (no LLM). Called only when gate() accepted, i.e. a CONFIDENT OK
+    or BLOCK verdict; reviewer_mode='deterministic'."""
+    m = input_obj.get("deterministic_metrics", {})
+    tier = input_obj.get("tier", "")
+    verdict = _governing_verdict(m)
+    svg = m.get("svg_metrics") or {}
+    vq = m.get("visual_quality") or {}
+
+    if verdict == "BLOCK":
+        msgs = [x for x in svg.get("messages", []) if x.startswith("BLOCK")]
+        msgs += vq.get("hard_violations", [])
+        findings = [{"criterion": "deterministic-metric", "severity": "block", "comment": x}
+                    for x in msgs] or [
+            {"criterion": "deterministic-metric", "severity": "block",
+             "comment": "hard threshold breach in the deterministic layer"}]
+        summary = (
+            f"Hard geometry/palette/contrast/a11y violations at tier '{tier}'. The "
+            "deterministic layer already identifies the defects; no subjective judgment is "
+            "spent on a diagram that will be reworked and regenerated.")
+        status = "BLOCK"
+    else:  # clean OK (WARN/None escalate and never reach here)
+        findings = [{"criterion": "deterministic-metrics", "severity": "info",
+                     "comment": f"geometry, palette, contrast and a11y within tier '{tier}' thresholds"}]
+        summary = (
+            f"All deterministic metrics within tier '{tier}' thresholds; no defect the numbers can "
+            "see. Subjective composition (hierarchy/legend/flow) was NOT reviewed -- deterministic "
+            "capture. Lower the threshold to escalate clean diagrams for compositional coverage.")
+        status = "OK"
+    return {"status": status, "findings": findings, "summary": summary,
+            "reviewer_mode": "deterministic"}

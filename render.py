@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -182,6 +183,17 @@ def run_copy_paste(args: list[str]) -> int:
         help="deterministic metrics as a literal JSON object, or a path to a JSON file",
     )
     parser.add_argument("--max-retries", type=int, default=3)
+    parser.add_argument(
+        "--threshold", type=float,
+        default=float(os.environ.get("RENDERFACT_VISION_THRESHOLD", 0.6)),
+        help="D16 gate: accept the deterministic metrics-only verdict at/above this confidence "
+             "(zero LLM tokens); escalate below. Env RENDERFACT_VISION_THRESHOLD. Default 0.6.",
+    )
+    parser.add_argument(
+        "--force-review", action="store_true",
+        help="bypass the D16 gate and always run the LLM review (e.g. for compositional coverage "
+             "of a clean diagram the gate would otherwise accept).",
+    )
     parsed = parser.parse_args(args)
 
     module = steps[parsed.step]
@@ -198,18 +210,45 @@ def run_copy_paste(args: list[str]) -> int:
 
     tier = parsed.tier or input(f"tier ({'/'.join(module.VALID_TIERS)}): ").strip()
     image = parsed.image or input("rendered image path: ").strip()
-    metrics_raw = parsed.metrics_json or input(
-        "deterministic metrics (JSON object, or a path to a JSON file): "
-    ).strip()
 
-    metrics_path = Path(metrics_raw)
-    deterministic_metrics = (
-        json.loads(metrics_path.read_text(encoding="utf-8"))
-        if metrics_path.exists()
-        else json.loads(metrics_raw)
-    )
+    # Metrics: an explicit --metrics-json wins; otherwise, if the step can
+    # assemble them from the image itself (vision-review over an SVG), do that so
+    # the D16 gate has a canonical source instead of a hand-supplied dict.
+    metrics_raw = parsed.metrics_json
+    if metrics_raw:
+        metrics_path = Path(metrics_raw)
+        deterministic_metrics = (
+            json.loads(metrics_path.read_text(encoding="utf-8"))
+            if metrics_path.exists() else json.loads(metrics_raw)
+        )
+    elif hasattr(module, "assemble_metrics") and image.lower().endswith(".svg"):
+        deterministic_metrics = module.assemble_metrics(Path(image), tier)
+    else:
+        metrics_raw = input("deterministic metrics (JSON object, or a path to a JSON file): ").strip()
+        metrics_path = Path(metrics_raw)
+        deterministic_metrics = (
+            json.loads(metrics_path.read_text(encoding="utf-8"))
+            if metrics_path.exists() else json.loads(metrics_raw)
+        )
 
     input_obj = module.assemble_input(image, tier, deterministic_metrics)
+
+    # D16 gate: run the deterministic verdict FIRST and escalate to the LLM only
+    # past the threshold. Gate BEFORE prompt assembly so the accept path spends
+    # zero tokens. Only steps that declare a gate participate; others (no
+    # confidence/gate) run the LLM unconditionally, as before.
+    if not parsed.force_review and hasattr(module, "gate") and hasattr(module, "deterministic_entry"):
+        decision, score = module.gate(input_obj, parsed.threshold)
+        print(f"[D16 gate] confidence {score} vs threshold {parsed.threshold} -> {decision}",
+              file=sys.stderr)
+        if decision == "accept":
+            entry = module.deterministic_entry(input_obj)
+            ok, errors = module.validate_output(entry)
+            if not ok:
+                print(f"ERROR: deterministic entry failed validation: {errors}", file=sys.stderr)
+                return 1
+            print(json.dumps(entry, indent=2))
+            return 0
 
     try:
         result = copy_paste.run_copy_paste_step(

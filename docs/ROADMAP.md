@@ -210,9 +210,12 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
 
 - **G0 - worked example + hardening.** `[build]` **DONE (#14, #15):** decision-capture (C8.3) is the
   reference shape; its one correctness bug + two consistency debts fixed.
-- **G1 - vision-review retrofit.** `[build]` **NEXT, highest value:** the step D16 names by name.
-  Gate the vision LLM on the EXISTING svg_metrics/visual_quality verdict (already wired as prompt
-  context); synthesize a deterministic entry on clean metrics; gate BEFORE prompt assembly.
+- **G1 - vision-review retrofit.** `[build]` **DONE:** gate the vision LLM on the deterministic
+  svg_metrics/visual_quality verdict. U-shaped confidence (confident PASS 0.85 and confident BLOCK
+  1.0 both accept metrics-only; the uncertain WARN band 0.4 and missing-signal 0.0 escalate), a
+  canonical `assemble_metrics()` source, a `deterministic_entry()` synthesizing the review on the
+  accept path (reviewer_mode='deterministic'), gate wired into `run_copy_paste` BEFORE prompt
+  assembly with `--threshold`/`RENDERFACT_VISION_THRESHOLD` + `--force-review`. 19 tests.
 - **G2 - gate telemetry + calibration log.** `[build]` append-only `(score, sub-signals, decision,
   outcome)` log; per-step escalation-rate report; escalation-storm detection + backpressure.
 - **G3 - confidence sub-signal refactor.** `[build]` with two consumers, make `confidence()` return
