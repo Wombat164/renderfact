@@ -37,6 +37,7 @@ Usage:
     render reingest <edited.docx> --source <md> [--apply]   # D11 mechanical re-ingestion (4.4)
     render drawio generate|reingest ...        # C8 editable-diagram round-trip, drawio adapter
     render vsdx generate|reingest ...          # C8.2 editable-diagram round-trip, Visio adapter
+    render decision-capture --source <g> --reingest <j>  # C8.3 capture edit intent (deterministic+gate)
 
 Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
@@ -185,6 +186,15 @@ def run_copy_paste(args: list[str]) -> int:
 
     module = steps[parsed.step]
 
+    # This CLI assembles the vision-review-shaped input (tier/image/metrics).
+    # A step with its own richer command (e.g. decision-capture, whose
+    # deterministic-first gate lives in `render decision-capture`) is not driven
+    # from here; point the user at its own door rather than mis-prompting.
+    if not hasattr(module, "VALID_TIERS"):
+        print(f"'{parsed.step}' has its own command with a deterministic-first gate -- "
+              f"use: render {parsed.step} --escalate copy-paste", file=sys.stderr)
+        return 2
+
     tier = parsed.tier or input(f"tier ({'/'.join(module.VALID_TIERS)}): ").strip()
     image = parsed.image or input("rendered image path: ").strip()
     metrics_raw = parsed.metrics_json or input(
@@ -284,6 +294,17 @@ def run_drawio(args: list[str]) -> int:
     return drawio.main(args)
 
 
+def run_decision_capture(args: list[str]) -> int:
+    """Dispatch to roundtrip/decision_capture.py: the editable-diagram
+    round-trip decision-capture step (C8.3). Turns a reingest's semantic diff
+    into a decision-log entry -- deterministic first, escalating to an LLM (D8
+    copy-paste) only when confidence misses the threshold (the D16 fuzzy gate)."""
+    sys.path.insert(0, str(REPO_ROOT / 'roundtrip'))
+    import decision_capture
+
+    return decision_capture.main(args)
+
+
 def run_vsdx(args: list[str]) -> int:
     """Dispatch to roundtrip/visio.py: the editable-diagram round-trip, Visio
     adapter (C8.2): generate a .vsdx with NameU anchors + OPC provenance from a
@@ -314,6 +335,7 @@ MODES = {
     "reingest": run_reingest,
     "drawio": run_drawio,
     "vsdx": run_vsdx,
+    "decision-capture": run_decision_capture,
     "import-template": run_import_template,
     "project": run_project,
     "qa": run_qa,

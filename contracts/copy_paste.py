@@ -181,7 +181,10 @@ def run_copy_paste_step(
         # is a fact about which code path ran, not something the pasted text can
         # accurately self-report. Force it rather than trusting/defaulting it, so
         # an LLM that echoed the wrong mode doesn't produce mislabeled provenance.
-        result["reviewer_mode"] = "copy-paste"
+        # The FIELD is module-declared (MODE_FIELD), so the driver stays generic
+        # across step contracts: vision-review calls it reviewer_mode,
+        # decision-capture calls it capture_mode.
+        result[getattr(module, "MODE_FIELD", "reviewer_mode")] = "copy-paste"
 
         ok, errors = module.validate_output(result)
         if ok:

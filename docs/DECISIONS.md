@@ -278,3 +278,34 @@ rebinding.
 Additionally, before any path writes LLM free-text into decision-log entries and git commit messages:
 define the write-path validation (length caps, control-character stripping, human-confirm before
 commit). Schema validation only protects enumerated fields, not free text.
+
+## D16 - Fuzzy-gate before handoff: deterministic first, LLM only past a confidence threshold
+
+Every LLM-touching step defined under D8 (harness or copy-paste) is an escalation, not a default.
+D8 made the two LLM modes interchangeable and gave each step a deterministic fallback; D16 makes the
+deterministic path the FIRST-CLASS path and the LLM path conditional on a measured confidence gate.
+Motivated by tokenomics: most invocations of these steps do not need a model, and paying for one is
+waste plus latency plus a data-egress surface.
+
+**Rule.** An LLM-touching step must:
+1. produce a deterministic result first (template / rules / structured transform), and
+2. compute a confidence score in [0, 1] for whether that deterministic result is sufficient, and
+3. gate on a configurable threshold: at or above -> the deterministic result stands (zero tokens);
+   below -> escalate to the LLM via the D8 contract. If no escalation channel is available, the
+   deterministic result is still emitted, flagged `needs_review`, so a result is never lost -- only
+   sometimes less rich.
+
+The confidence heuristic is per step and lives in code (not the LLM): it keys on how far the input
+sits from what the deterministic path handles well. Worked example (C8.3 decision-capture): score
+falls as diagram edits shift from descriptive changes the template states fully (relabels) toward
+intent-bearing changes it can describe but not justify (added/removed/rewired nodes), scaled by edit
+volume and a DIVERGED verdict; default threshold 0.6, env/flag overridable.
+
+**Scope: this is architecture-wide, not one step.** Existing and future LLM-touching or
+could-be-deterministic steps are expected to adopt the same shape (deterministic result + confidence
++ gate): vision-review (deterministic svg_metrics/visual_quality already exist -- the vision LLM
+should be gated on their verdict, not run unconditionally), Track D 4.5 contextualize (the same
+diff-to-narrative shape as C8.3), and any later generative step. The gate primitive is kept inline
+per step until a second consumer justifies extracting a shared `contracts/gate.py` (trigger-gated,
+per this repo's build-when-needed discipline). The consistency sweep that maps every current step
+onto this doctrine and sequences the retrofits is its own workstream (see the augmented roadmap).
