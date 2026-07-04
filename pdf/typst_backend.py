@@ -109,6 +109,20 @@ def _project_markdown(source: Path, profile_name: str, profiles_path: "str | Pat
     return text
 
 
+def _compile_cmd(typst: str, work: Path, main_typ: Path, out_target: Path,
+                 fmt: str, ppi: int, font_paths: "list | None") -> list:
+    """Build the `typst compile` argv. Each font path becomes a `--font-path`, so a
+    brand can ship its own font and have typst use it even when it is not installed
+    on the host (otherwise the theme's fallback chain applies)."""
+    cmd = [typst, "compile", "--root", str(work)]
+    for fp in font_paths or []:
+        cmd += ["--font-path", str(fp)]
+    if fmt == "png":
+        cmd += ["--format", "png", "--ppi", str(ppi)]
+    cmd += [str(main_typ), str(out_target)]
+    return cmd
+
+
 def stage_images(body: str, source_dir: Path, work: Path, image_root: "Path | None" = None) -> str:
     """typst resolves image() paths relative to the compiled .typ (the build dir),
     not the markdown source -- so copy every referenced image the source dir can
@@ -241,6 +255,7 @@ def render_pdf(
     ppi: int = 144,
     page: int = 1,
     page_count: "list | None" = None,
+    font_paths: "list | None" = None,
     data_root: "Path | None" = None,
     typst: "str | None" = None,
     pandoc: "str | None" = None,
@@ -319,12 +334,8 @@ def render_pdf(
         # root = work; referenced images were staged into work/_img above. For a
         # PNG preview, typst writes one file per page to a zero-padded template; we
         # return the first page (the preview). For PDF, a single file.
-        if fmt == "png":
-            page_tmpl = work / "_page-{0p}.png"
-            cmd = [typst, "compile", "--format", "png", "--ppi", str(ppi),
-                   "--root", str(work), str(work / "main.typ"), str(page_tmpl)]
-        else:
-            cmd = [typst, "compile", "--root", str(work), str(work / "main.typ"), str(output)]
+        out_target = (work / "_page-{0p}.png") if fmt == "png" else output
+        cmd = _compile_cmd(typst, work, work / "main.typ", out_target, fmt, ppi, font_paths)
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
         if result.returncode != 0:
             raise TypstBackendError(f"typst compile failed:\n{result.stderr.strip()}")
@@ -361,6 +372,9 @@ def main(argv: "list[str] | None" = None) -> int:
                     help="project the source through this audience profile before rendering (Track F)")
     ap.add_argument("--profiles", default=None, metavar="CONFIG",
                     help="ladders+profiles yaml for --project")
+    ap.add_argument("--font-path", action="append", default=None, metavar="DIR", dest="font_path",
+                    help="a directory of brand fonts for typst to use (repeatable); "
+                         "env RENDERFACT_FONT_PATH ("+os.pathsep+"-separated) is a default")
     ap.add_argument("--title", default=None, help="document title (default: the source stem)")
     ap.add_argument("--subtitle", default=None)
     ap.add_argument("--org", default=None, help="organisation shown in the page header")
@@ -368,12 +382,17 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--paper", default="a4")
     args = ap.parse_args(argv)
 
+    font_paths = list(args.font_path or [])
+    env_fonts = os.environ.get("RENDERFACT_FONT_PATH")
+    if env_fonts:
+        font_paths += [p for p in env_fonts.split(os.pathsep) if p]
+
     try:
         out = render_pdf(
             args.source, args.output, theme=args.theme, brand=args.brand,
             title=args.title, subtitle=args.subtitle, org=args.org, date=args.date,
             paper=args.paper, variant=args.variant, locale=args.locale,
-            project=args.project, profiles=args.profiles,
+            project=args.project, profiles=args.profiles, font_paths=font_paths or None,
         )
     except TypstBackendError as e:
         print(f"ERROR: {e}", file=sys.stderr)

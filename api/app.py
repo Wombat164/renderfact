@@ -351,6 +351,11 @@ class RenderfactApi:
         opts["project"] = body.get("project")
         opts["profiles"] = str(self._jail(body["profiles"], "profiles")) if body.get("profiles") else None
         brand = str(self._jail(body["brand"], "brand")) if body.get("brand") else None
+        font_paths = body.get("font_paths")
+        if font_paths is not None:
+            if not isinstance(font_paths, list):
+                raise ApiError(400, "'font_paths' must be a list of paths under the server root")
+            font_paths = [str(self._jail(p, "font-path")) for p in font_paths]
 
         import tempfile
 
@@ -377,7 +382,7 @@ class RenderfactApi:
             counts: list = []
             try:
                 typst_backend.render_pdf(src, out, brand=brand, fmt=fmt, data_root=data_root,
-                                         page=page, page_count=counts, **opts)
+                                         page=page, page_count=counts, font_paths=font_paths, **opts)
             except typst_backend.TypstBackendError as e:
                 raise ApiError(400, str(e)) from None
             data = out.read_bytes()

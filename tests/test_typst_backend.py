@@ -94,6 +94,33 @@ def test_render_pdf_missing_theme(tmp_path):
                       typst="typst", pandoc="pandoc")
 
 
+# ------------------------------------------------------------- font paths --
+
+def test_compile_cmd_font_paths():
+    from pathlib import Path as P
+    cmd = tb._compile_cmd("typst", P("/w"), P("/w/main.typ"), P("/w/out.pdf"),
+                          "pdf", 144, ["/fonts/a", "/fonts/b"])
+    assert cmd.count("--font-path") == 2
+    assert "/fonts/a" in cmd and "/fonts/b" in cmd
+
+
+def test_compile_cmd_png_no_fonts():
+    from pathlib import Path as P
+    cmd = tb._compile_cmd("typst", P("/w"), P("/w/main.typ"), P("/w/p-{0p}.png"),
+                          "png", 200, None)
+    assert "--font-path" not in cmd
+    assert "--format" in cmd and "png" in cmd and "200" in cmd
+
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_render_with_font_path_compiles(tmp_path):
+    (tmp_path / "fonts").mkdir()
+    (tmp_path / "doc.md").write_text("# Hi\n\nText.\n", encoding="utf-8")
+    out = tb.render_pdf(tmp_path / "doc.md", tmp_path / "doc.pdf", title="Hi",
+                        font_paths=[str(tmp_path / "fonts")])
+    assert out.read_bytes()[:5] == b"%PDF-"
+
+
 # --------------------------------------------------------------- images --
 
 _PNG = (
