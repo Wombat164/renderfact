@@ -61,6 +61,17 @@ def test_docx_mode_dispatches_to_render_doc_sh():
     assert "bash not found" not in out
 
 
+def test_docx_mode_help_shows_render_doc_sh_usage():
+    # Issue #26: -h/--help must be intercepted by render-doc.sh BEFORE the
+    # source-existence check. Previously '--help' was taken as the source path
+    # and dead-ended with "ERROR: source not found: --help" (rc 2).
+    result = run_render("docx", "--help")
+    assert result.returncode == 0, result.stderr
+    out = result.stdout + result.stderr
+    assert "Usage: render-doc.sh" in out
+    assert "source not found" not in out
+
+
 def test_diagram_mode_dispatches_to_lint_render():
     # No input files -> lint/render.py's own "no input files found" error,
     # proving the dispatch reached it in-process.
