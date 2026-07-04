@@ -54,6 +54,7 @@ render pdf minutes.md --org "VME Voorbeeld" --title "Algemene Vergadering 2025" 
 | `--variant <name>` | A theme variant from `brand.yaml [theme.variants]` (default: `base`). |
 | `--locale <code>` | Project locale (`nl-BE` / `fr-BE` / `en` / ...): number separators, hyphenation, and long-date formatting. |
 | `--project <profile>` `--profiles <config>` | Project the source through an audience/clearance profile (Track F) before rendering, so one governed source yields one branded PDF per profile. |
+| `--font-path <dir>` | A directory of brand fonts for typst to use (repeatable); env `RENDERFACT_FONT_PATH` (os-pathsep-separated) is a default. Lets a brand ship its font instead of relying on host install. |
 | `--title` / `--subtitle` / `--org` / `--date` | Document metadata for the title block, header, and footer. A `--date` given as ISO `YYYY-MM-DD` is rendered as a localized long date under `--locale`. |
 | `--paper <a4\|...>` | Paper size (default `a4`). |
 
@@ -157,6 +158,7 @@ rows:
 | `RENDERFACT_CONTEXTUALIZE_THRESHOLD` | contextualize | D16 gate confidence threshold (default 0.6). |
 | `RENDERFACT_GATE_LOG` | all gated steps | Path to the append-only gate decision log (opt-in). |
 | `RENDERFACT_MODELS_CONFIG` | direct-API channel | Path to the `[models]` TOML (default `./renderfact-models.toml`). |
+| `RENDERFACT_FONT_PATH` | render pdf | Default brand-font directories (os-pathsep-separated) passed to typst as `--font-path`. |
 | `RENDERFACT_LLM_API_KEY` / `RENDERFACT_VLM_API_KEY` | direct-API channel | Bearer token for the text / vision endpoint. **Env-only, never read from the TOML.** |
 | `RENDERFACT_LLM_BASE_URL` / `_MODEL` / `_VISION` | direct-API channel | Env overrides for the `[llm]` endpoint. |
 | `RENDERFACT_VLM_BASE_URL` / `_MODEL` / `_VISION` | direct-API channel | Env overrides for the `[vlm]` endpoint. |

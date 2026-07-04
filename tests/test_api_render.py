@@ -87,6 +87,20 @@ def test_brand_path_jail(tmp_path):
     assert code == 403 and "escapes" in _err(data)
 
 
+def test_font_paths_must_be_list(tmp_path):
+    api = api_app.RenderfactApi(root=tmp_path)
+    code, _, data = call_raw(api, "POST", "/render/pdf",
+                             {"markdown": "# x", "font_paths": "not-a-list"})
+    assert code == 400 and "font_paths" in _err(data)
+
+
+def test_font_path_jailed(tmp_path):
+    api = api_app.RenderfactApi(root=tmp_path)
+    code, _, data = call_raw(api, "POST", "/render/pdf",
+                             {"markdown": "# x", "font_paths": ["../../etc/fonts"]})
+    assert code == 403 and "escapes" in _err(data)
+
+
 def test_cross_origin_render_rejected(tmp_path):
     api = api_app.RenderfactApi(root=tmp_path)
     code, _, data = call_raw(api, "POST", "/render/pdf", {"markdown": "# x"},
