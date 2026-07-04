@@ -135,3 +135,23 @@ def test_render_without_blocks_still_compiles(tmp_path):
     md.write_text("# Hi\n\nJust text.\n", encoding="utf-8")
     out = tb.render_pdf(md, tmp_path / "p.pdf", title="Hi")
     assert out.read_bytes()[:5] == b"%PDF-"
+
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_signature_labels_follow_locale(tmp_path):
+    md = tmp_path / "s.md"
+    md.write_text("::: signatures\n- A. Name | Chair\n:::\n", encoding="utf-8")
+    en = tb.render_pdf(md, tmp_path / "en.pdf", title="T", locale="en")
+    nl = tb.render_pdf(md, tmp_path / "nl.pdf", title="T", locale="nl-BE")
+    assert en.read_bytes() != nl.read_bytes()  # Signature/Date vs Handtekening/Datum
+
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_demo_agm_showcase_renders(tmp_path):
+    src = REPO_ROOT / "demo" / "source" / "agm-minutes.md"
+    brand = REPO_ROOT / "demo" / "skin" / "brand.yaml"
+    if not (src.is_file() and brand.is_file()):
+        pytest.skip("demo fixtures absent")
+    out = tb.render_pdf(src, tmp_path / "agm.pdf", brand=str(brand), variant="financial",
+                        locale="en", title="AGM", org="Meridian Rail Infrastructure")
+    assert out.read_bytes()[:5] == b"%PDF-"

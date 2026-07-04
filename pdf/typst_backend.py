@@ -319,6 +319,14 @@ def render_pdf(
         generate_tokens_typ(work, Path(brand) if brand else None, variant)
         (work / "theme.typ").write_text(theme_src.read_text(encoding="utf-8"), encoding="utf-8")
         (work / "blocks.typ").write_text(BLOCKS_TYP.read_text(encoding="utf-8"), encoding="utf-8")
+        # localized UI strings for the blocks (signature/date labels), from the locale
+        lbls = locale_fmt.labels(locale_cfg)
+
+        def _q(s):
+            return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
+        (work / "strings.typ").write_text(
+            f"#let strings = (signature: {_q(lbls['signature'])}, date: {_q(lbls['date'])})\n",
+            encoding="utf-8")
 
         md_text = source.read_text(encoding="utf-8")
         # Optional projection: emit the audience/clearance-projected markdown first

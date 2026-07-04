@@ -49,6 +49,32 @@ context and the full technical baseline; the bidder pack keeps the budget envelo
 site visits, and the honest schedule risk; the public tender keeps only what may travel,
 carries the abstract baseline instead of the detailed one, and has no projection stamp.
 
+## Branded PDF: a governance + financial deliverable
+
+Step 4 renders a second showcase, `source/agm-minutes.md` -- Meridian's Annual General
+Meeting minutes -- to a layout-native branded A4 PDF (`render pdf`, needs typst + pandoc).
+One source exercises the full Track H feature set:
+
+- the **`::: attendance`** callout (present / represented-by-proxy / quorum),
+- a **data-bound `::: statement`** whose rows come from `source/afrekening.yaml` and whose
+  subtotals + operating result are **computed and reconciled** (change a line item and a
+  stated total that no longer matches fails the render),
+- the **`::: signatures`** card grid (with locale-aware labels),
+- rendered with the **Meridian skin** (`--brand`), the **`financial` theme variant**, and
+  the **`en` locale** (number formatting + hyphenation + block labels).
+
+```sh
+python render.py pdf demo/source/agm-minutes.md \
+  --brand demo/skin/brand.yaml --variant financial --locale en \
+  --org "Meridian Rail Infrastructure" --title "AGM Minutes 2026" --date 2026-03-18 \
+  -o demo/renders/agm-minutes.pdf
+```
+
+Swap `--locale en` for `nl-BE` to see the same document formatted in Belgian Dutch
+(`EUR 1.234,56`, `18 maart 2026`, "Handtekening / Datum"); drop `--variant financial` for
+the base theme. Add `--project <profile> --profiles demo/profiles.yaml` to render an
+audience-projected branded PDF, or `--project all` for one per profile.
+
 ## Adapt it into your own skin
 
 Copy the pattern, not the fiction: write your own ladders + profiles (start from

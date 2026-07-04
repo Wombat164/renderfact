@@ -1,25 +1,10 @@
 # GENERATED from tokens/brand.yaml -- do not edit by hand.
 # Regenerate: python tokens/gen/pandoc_template_profile.py
-_generated_from: tokens/brand.yaml (do not edit by hand -- regenerate)
-colour:
-  accent: '#E8A33D'
-  primary: '#1F4A38'
-  ink: '#20241F'
-  fill: '#E2EBE3'
-  background: '#F7F6F1'
-  status_ok: '#2E7D32'
-  status_warn: '#C97F1A'
-  status_risk: '#C62828'
-  status_info: '#3E7CB1'
-font:
-  body: Public Sans
-  mono: Roboto Mono
-  body_min_pt: 14
-  heading_scale_pt:
-  - 22
-  - 16
-  - 13
-  - 11
-geometry:
-  page: A4
-  margin_cm: 2.0
+_generated_from: tokens/brand.yaml [theme] -- do not edit by hand; regenerate
+_variant: base
+font: Public Sans
+accent: '#E8A33D'
+body: '#20241F'
+margin_cm: 2.2
+page_width_cm: 21.0
+page_height_cm: 29.7
