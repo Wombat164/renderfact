@@ -1,14 +1,20 @@
 // renderfact default PDF theme (generic core, D3).
 //
-// A clean, brand-token-driven A4 layout so `render pdf` works with ZERO skin
-// configuration. Consumers override this whole file via --theme <file.typ> /
-// THEME_TYP and their palette via --brand (through the tokens.typ generator).
-// Everything visual here is derived from tokens.typ -- no hard-coded colours.
+// The LAYOUT LOGIC. All *values* (margins, colour roles, header/footer slots)
+// come from the generated chrome.typ descriptor (tokens/brand.yaml [theme] -> #32),
+// so the house-style is declarative and engine-neutral; this file only turns those
+// values into a typst page. Consumers override the whole layout via --theme, their
+// palette via --brand, and the chrome/component values + variants in brand.yaml.
 
 #import "tokens.typ": *
+#import "chrome.typ": chrome
 
-// conf() is applied as a show rule over the whole document; the pandoc-produced
-// body flows through `doc`. Metadata (title/org/date) is passed by the backend.
+// Resolve a colour ROLE (a key in `brand`) to its rgb; fall back to ink.
+#let _role(name) = brand.at(name, default: brand.ink)
+
+// Resolve a header/footer slot key to its content, from the document metadata.
+#let _slot(key, meta) = if key == none { [] } else { meta.at(key, default: []) }
+
 #let conf(
   title: none,
   subtitle: none,
@@ -19,31 +25,39 @@
 ) = {
   set document(title: if title != none { title } else { "" })
 
+  let meta = (
+    org: if org != none { org } else { [] },
+    title: if title != none { title } else { [] },
+    date: if date != none { date } else { [] },
+    pagenumber: context {
+      let here-page = counter(page).at(here()).first()
+      let total = counter(page).final().first()
+      [#here-page / #total]
+    },
+  )
+  let rule-colour = _role(chrome.rule-role)
+
   set page(
     paper: paper,
-    margin: (x: 2.2cm, top: 2.6cm, bottom: 2.4cm),
+    margin: chrome.margin,
     header: {
       set text(size: 8pt, fill: brand.ink)
       grid(
         columns: (1fr, auto),
-        align(left, if org != none { org } else { [] }),
-        align(right, if title != none { title } else { [] }),
+        align(left, _slot(chrome.header.left, meta)),
+        align(right, _slot(chrome.header.right, meta)),
       )
       v(-0.55em)
-      line(length: 100%, stroke: 0.5pt + brand.primary)
+      line(length: 100%, stroke: 0.5pt + rule-colour)
     },
     footer: {
-      line(length: 100%, stroke: 0.5pt + brand.primary)
+      line(length: 100%, stroke: 0.5pt + rule-colour)
       v(0.2em)
       set text(size: 8pt, fill: brand.ink)
       grid(
         columns: (1fr, auto),
-        align(left, if date != none { date } else { [] }),
-        align(right, context {
-          let here-page = counter(page).at(here()).first()
-          let total = counter(page).final().first()
-          [#here-page / #total]
-        }),
+        align(left, _slot(chrome.footer.left, meta)),
+        align(right, _slot(chrome.footer.right, meta)),
       )
     },
   )
@@ -52,25 +66,25 @@
   // the brand font still renders predictably (a brand ships its own font).
   set text(
     font: (brand-font, "Liberation Sans", "Arial", "DejaVu Sans"),
-    size: 10.5pt, fill: brand.ink, lang: "en",
+    size: chrome.body-pt * 1pt, fill: brand.ink, lang: "en",
   )
-  set par(justify: true, leading: 0.65em)
+  set par(justify: chrome.justify, leading: 0.65em)
 
-  // Headings in the brand accent; a numbered feel without full chips (#33 later).
+  // Headings in the theme's heading role.
   show heading: it => block(above: 1.1em, below: 0.55em, {
-    set text(fill: brand.accent, weight: "bold")
+    set text(fill: _role(chrome.heading-role), weight: "bold")
     it
   })
 
   // Title block, only when a title is supplied.
   if title != none {
-    text(size: 20pt, weight: "bold", fill: brand.primary, title)
+    text(size: 20pt, weight: "bold", fill: _role(chrome.title-role), title)
     if subtitle != none {
       linebreak()
       text(size: 12pt, fill: brand.ink, subtitle)
     }
     v(0.5em)
-    line(length: 100%, stroke: 1pt + brand.primary)
+    line(length: 100%, stroke: 1pt + rule-colour)
     v(1.0em)
   }
 

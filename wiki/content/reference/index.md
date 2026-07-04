@@ -49,15 +49,27 @@ render pdf minutes.md --org "VME Voorbeeld" --title "Algemene Vergadering 2025" 
 |---|---|
 | `--engine typst` | Layout engine (only `typst` today; the flag reserves the peer slot). |
 | `-o, --output <path>` | Output PDF path (default: `renders/<stem>.pdf`; `OUTPUT_DIR` overrides the dir). |
-| `--theme <file.typ>` | A typst theme file (default: the built-in `pdf/theme/default.typ`). |
-| `--brand <brand.yaml>` | A consumer palette/fonts file, consumed through the `tokens.typ` generator. |
+| `--theme <file.typ>` | A typst layout file (default: the built-in `pdf/theme/default.typ`). |
+| `--brand <brand.yaml>` | A consumer palette/fonts/theme file, consumed through the token generators. |
+| `--variant <name>` | A theme variant from `brand.yaml [theme.variants]` (default: `base`). |
 | `--title` / `--subtitle` / `--org` / `--date` | Document metadata for the title block, header, and footer. |
 | `--paper <a4\|...>` | Paper size (default `a4`). |
 
 **Toolchain:** pandoc (>=3, has a typst writer) and typst -- both reported by `render doctor`.
 Missing either fails with an actionable message, never a traceback. Overridable via `PANDOC` /
 `TYPST` env vars. **Generic core (D3):** the default theme needs no configuration; a consumer
-overrides the whole theme via `--theme` and its palette via `--brand`.
+overrides the whole layout via `--theme` and its palette + house-style via `--brand`.
+
+### Theme descriptor (engine-agnostic house-style)
+
+The chrome + component layer -- page margins, header/footer slots, and heading/title/rule colour
+**roles** -- is declared in `brand.yaml`'s `theme` section, not hard-coded in the layout. The typst
+backend generates a `chrome.typ` from it (the same generated-values / static-logic split as
+`tokens.typ`), so the house-style is declarative and role-based (fields name a role in
+`colour.brand`, resolved to RGB by the engine -- never a raw hex). **Variants** inherit `theme.base`
+and override only the keys they name; e.g. the built-in `financial` variant restyles headings to the
+primary role. Role-based and engine-neutral by design so an OOXML consumer can read the same
+descriptor (Golden Rule -- one source -- extended from palette to house-style).
 
 ## Environment variables
 

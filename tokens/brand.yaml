@@ -52,3 +52,26 @@ geometry:
 
 # --- icon tokens (rendered as SVG at build, never literal emoji) ---
 icons: [decision, risk, ok, warn, info, action, gate, data, role, time]
+
+# --- theme (engine-agnostic house-style: page chrome + component styling) ---
+# The chrome/component layer above the raw palette+fonts tokens. Consumed by the
+# typst PDF backend through a generated theme.typ (pdf/theme/default.typ reads it,
+# same generated-values / static-logic split as tokens.typ). Designed ROLE-BASED
+# and engine-neutral so an OOXML consumer can read the same descriptor later (#32).
+# Colour fields name a ROLE in colour.brand (primary/accent/ink/fill/background),
+# resolved to an RGB by the engine -- never a raw hex here. Header/footer slots map
+# a position to a metadata key (org/title/date/pagenumber) or `none`.
+theme:
+  base:
+    margin_cm:    { x: 2.2, top: 2.6, bottom: 2.4 }
+    body_pt:      10.5
+    justify:      true
+    heading_role: accent       # heading text colour role
+    title_role:   primary      # title-block colour role
+    rule_role:    primary      # header/footer/title rule colour role
+    header:       { left: org,  right: title }
+    footer:       { left: date, right: pagenumber }
+  variants:
+    # each variant inherits `base` and overrides only the keys it names
+    financial:
+      heading_role: primary    # restrained headings for financial documents
