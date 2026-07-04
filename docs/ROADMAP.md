@@ -283,10 +283,14 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
   rows, right-aligned amounts). Styling derives from the palette + theme roles, so a brand/variant
   restyles the blocks with everything else. The filter is a no-op for documents that use none. 10
   tests (wiring + per-block filter output + full-render integration).
-- **H4 - Data-bound statement tables (#34).** `[build]` let the statement/ledger block source rows from
-  data (CSV/YAML/sheet) and COMPUTE subtotals/totals/balances, with a reconciliation check that fails
-  the render when a stated total diverges from the sum of its items. Removes the silent-transcription
-  error class from financial docs.
+- **H4 - Data-bound statement tables (#34).** `[build]` **DONE:** `pdf/statement_data.py` lets a
+  `::: {.statement data="finance.yaml"}` block source its rows from YAML or CSV and COMPUTE its
+  subtotals (section sums), totals/balances (a safe `+ - * /` formula over subtotal ids, or the running
+  sum of all items). A computed row may also STATE an amount; if it disagrees with the computed value to
+  the cent, the render FAILS with a reconciliation error -- removing the silent-transcription error
+  class. `expand_markdown` turns the data-bound block into a plain #33 `::: statement` with computed,
+  formatted amounts before pandoc, so the entire render path is reused; all computation lives in tested
+  Python. 30 tests. (Amount formatting is data-stated here; H5 makes it a project `locale`.)
 - **H5 - Locale-driven formatting (#35).** `[build]` a project-level `locale` (e.g. `nl-BE`) driving
   number/currency formatting (`EUR 1.510,53`), localized long dates, and hyphenation language, so
   amounts/dates are supplied as raw values and rendered per locale. Pairs with H4.

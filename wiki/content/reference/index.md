@@ -102,7 +102,41 @@ fields, so the source stays markdown; a pandoc Lua filter maps them to typst fun
 |---|---|---|
 | `signatures` | `Name \| Role` | A card grid: bold name, muted role, reserved signature whitespace, a `Handtekening / Datum` rule. Hyphenation-safe (a long role never breaks the name). |
 | `attendance` | `kind \| text` (kind = `present` / `proxy` / `quorum`) | A callout box (accent left border): present-in-person and represented-by-proxy sections, plus an emphasized quorum line. |
-| `statement` | `kind \| label \| amount` (kind = `heading` / `item` / `subtotal` / `total` / `balance` / `rule`) | A ledger: section headings, right-aligned amounts, bold totals, `rule` hairlines. (Amounts are given here; #34 will compute + reconcile them from data.) |
+| `statement` | `kind \| label \| amount` (kind = `heading` / `item` / `subtotal` / `total` / `balance` / `rule`) | A ledger: section headings, right-aligned amounts, bold totals, `rule` hairlines. Amounts may be hand-typed, or **computed from data** (below). |
+
+#### Data-bound statements (compute + reconcile)
+
+Instead of hand-typing amounts, a statement can source its rows from a data file and **compute** its
+subtotals / totals / balances -- and if the data also *states* a total, the computed and stated values
+must **reconcile** or the render fails. This removes the silent-transcription error class from
+financial documents.
+
+```markdown
+::: {.statement data="finance.yaml"}
+:::
+```
+
+```yaml
+# finance.yaml
+format: { currency: EUR, thousands: ".", decimal: "," }   # #35 will make this a project locale
+rows:
+  - { kind: heading,  label: Ontvangsten }
+  - { kind: item,     label: Bijdragen leden, amount: 8000.00 }
+  - { kind: item,     label: Interesten,      amount: 45.77 }
+  - { kind: subtotal, id: ontvangsten, label: Totaal ontvangsten, amount: 8045.77 }  # amount = optional check
+  - { kind: heading,  label: Uitgaven }
+  - { kind: item,     label: Onderhoud, amount: 6535.24 }
+  - { kind: subtotal, id: uitgaven, label: Totaal uitgaven }
+  - { kind: rule }
+  - { kind: total,    label: Saldo boekjaar, formula: "ontvangsten - uitgaven" }
+```
+
+- A `subtotal` computes the sum of its section's `item` rows; a `heading` starts a new section.
+- A `total` / `balance` evaluates a `formula` over subtotal `id`s (`+ - * /`, safe -- never `eval`), or,
+  with no formula, sums every item so far.
+- Any computed row may also carry a stated `amount`; if it does not match the computed value to the
+  cent, the render **fails** with a clear reconciliation error.
+- Data is YAML (structured, with `format` + `formula`) or CSV (flat `kind,label,amount,id,formula`).
 
 ## Environment variables
 

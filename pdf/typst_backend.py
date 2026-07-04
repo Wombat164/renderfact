@@ -83,14 +83,17 @@ def find_typst() -> str:
 
 # ------------------------------------------------------------- build helpers --
 
-def md_to_typst(md_path: Path, pandoc: str) -> str:
+def md_to_typst(md_path: Path, pandoc: str, resource_path: "Path | None" = None) -> str:
     """Translate a markdown source to a typst FRAGMENT (no --standalone: we supply
     the template ourselves via the theme). The semantic-blocks Lua filter maps
     renderfact's fenced-div blocks (#33) to typst function calls; it is a no-op
-    for documents that use none."""
+    for documents that use none. resource_path (the original source dir) keeps
+    relative image lookups working when md_path is an expanded temp file."""
     cmd = [pandoc, str(md_path), "-t", "typst"]
     if SEMANTIC_FILTER.is_file():
         cmd += ["--lua-filter", str(SEMANTIC_FILTER)]
+    if resource_path is not None:
+        cmd += ["--resource-path", str(resource_path)]
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     if result.returncode != 0:
         raise TypstBackendError(f"pandoc markdown->typst failed:\n{result.stderr.strip()}")
@@ -193,7 +196,20 @@ def render_pdf(
         generate_tokens_typ(work, Path(brand) if brand else None, variant)
         (work / "theme.typ").write_text(theme_src.read_text(encoding="utf-8"), encoding="utf-8")
         (work / "blocks.typ").write_text(BLOCKS_TYP.read_text(encoding="utf-8"), encoding="utf-8")
-        body = md_to_typst(source, pandoc)
+
+        # #34: expand data-bound statement blocks (compute + reconcile) before
+        # pandoc; a reconciliation failure fails the render. Untouched otherwise.
+        import statement_data
+        raw = source.read_text(encoding="utf-8")
+        try:
+            expanded = statement_data.expand_markdown(raw, source.parent)
+        except statement_data.StatementError as e:
+            raise TypstBackendError(str(e)) from None
+        md_for_pandoc = source
+        if expanded != raw:
+            md_for_pandoc = work / source.name
+            md_for_pandoc.write_text(expanded, encoding="utf-8")
+        body = md_to_typst(md_for_pandoc, pandoc, resource_path=source.parent)
         (work / "main.typ").write_text(
             compose_main(body, title=title, subtitle=subtitle, org=org, date=date, paper=paper),
             encoding="utf-8",
