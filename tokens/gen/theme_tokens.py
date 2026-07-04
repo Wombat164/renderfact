@@ -69,6 +69,8 @@ def render_theme(tokens: dict, variant: str = "base") -> str:
     margin = t.get("margin_cm", {}) or {}
     header = t.get("header", {}) or {}
     footer = t.get("footer", {}) or {}
+    callout = t.get("callout", {}) or {}
+    statement = t.get("statement", {}) or {}
 
     def cm(key, default):
         return f'{margin.get(key, default)}cm'
@@ -86,6 +88,10 @@ def render_theme(tokens: dict, variant: str = "base") -> str:
         f'  rule-role: {_typ_str(t.get("rule_role", "primary"))},',
         f'  header: (left: {_slot(header.get("left"))}, right: {_slot(header.get("right"))}),',
         f'  footer: (left: {_slot(footer.get("left"))}, right: {_slot(footer.get("right"))}),',
+        f'  callout: (fill-role: {_typ_str(callout.get("fill_role", "fill"))}, '
+        f'border-role: {_typ_str(callout.get("border_role", "accent"))}),',
+        f'  statement: (rule-role: {_typ_str(statement.get("rule_role", "primary"))}, '
+        f'heading-role: {_typ_str(statement.get("heading_role", "accent"))}),',
         ")",
         "",
     ]

@@ -22,7 +22,7 @@
       width: 100%,
       inset: 9pt,
       radius: 2pt,
-      stroke: 0.5pt + _role("primary"),
+      stroke: 0.5pt + _role(chrome.rule-role),
       {
         set par(justify: false)
         {
@@ -65,8 +65,8 @@
   block(
     width: 100%,
     inset: 10pt,
-    fill: brand.fill,
-    stroke: (left: 2pt + _role("accent")),
+    fill: _role(chrome.callout.fill-role),
+    stroke: (left: 2pt + _role(chrome.callout.border-role)),
     {
       let section(label, items) = if items.len() > 0 {
         text(weight: "bold", label)
@@ -76,7 +76,7 @@
       section(proxy-label, of("proxy"))
       for q in of("quorum") {
         v(4pt)
-        text(weight: "bold", fill: _role("accent"), q.text)
+        text(weight: "bold", fill: _role(chrome.callout.border-role), q.text)
       }
     },
   )
@@ -92,10 +92,10 @@
   for r in rows {
     let kind = r.at("kind", default: "item")
     if kind == "rule" {
-      cells.push(table.hline(stroke: 0.6pt + _role("primary")))
+      cells.push(table.hline(stroke: 0.6pt + _role(chrome.statement.rule-role)))
     } else if kind == "heading" {
       cells.push(table.cell(colspan: 2,
-        text(weight: "bold", fill: _role("accent"), r.at("label", default: ""))))
+        text(weight: "bold", fill: _role(chrome.statement.heading-role), r.at("label", default: ""))))
     } else {
       let is-bold = bold-kinds.contains(kind)
       let label = r.at("label", default: "")
