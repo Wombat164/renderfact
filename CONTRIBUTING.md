@@ -52,3 +52,13 @@ shipped in the container image; the container path is verified by `verify-pins.s
 Every PR runs the test suite (across the container-pinned and dev-host interpreters, on Linux and
 Windows) plus the repo's hygiene gates. A PR does not merge with a red CI. If a hygiene gate fails,
 fix the underlying issue rather than bypassing the gate.
+
+## Keep the docs site in sync
+
+The documentation site lives in [`wiki/`](wiki/) (Quartz, Diataxis-structured). It is not optional
+decoration: **a new `render` command must be added to the wiki command reference in the same PR.** CI
+enforces this deterministically -- `scripts/check_wiki_sync.py` (in the hygiene job) fails if any
+command in `render.py`'s dispatch is missing from `wiki/content/reference/index.md`. If a command
+genuinely needs no reference entry, add it to that script's `ALLOW_UNDOCUMENTED` with a reason rather
+than skipping the check. New capabilities should also gain a how-to recipe and, when they introduce a
+concept, an explanation entry.

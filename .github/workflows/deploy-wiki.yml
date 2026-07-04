@@ -1,0 +1,98 @@
+# Deploy the renderfact docs site (Quartz v4) to GitHub Pages.
+#
+# Verified against the official Quartz v4 GitHub Pages recipe:
+#   https://github.com/jackyzha0/quartz/blob/v4/docs/hosting.md   (action versions, permissions,
+#   concurrency, node 22, build command, upload/deploy actions)
+#
+# This repo holds ONLY our config + content under wiki/ -- the Quartz framework is NOT vendored
+# (see wiki/README.md). So this workflow differs from the vanilla recipe in one way: instead of
+# building the repo as-is, it FETCHES Quartz v4 (pinned to a commit SHA), overlays
+# wiki/quartz.config.ts + wiki/quartz.layout.ts + wiki/content/, then builds. The verified parts
+# (action versions, permissions, concurrency, the upload-pages-artifact -> deploy-pages handoff)
+# are kept exactly as the official recipe specifies.
+#
+# PREREQUISITE: enable Pages first -- repo Settings > Pages > Source = "GitHub Actions". Until then the
+# deploy job fails by design. To deploy automatically on wiki changes, enable Pages and uncomment the
+# push trigger below.
+
+name: Deploy wiki to GitHub Pages
+
+on:
+  # Manual-only until GitHub Pages is enabled (Settings > Pages > Source = "GitHub Actions").
+  # Once enabled, run this workflow once from the Actions tab to publish, then UNCOMMENT the push
+  # trigger below to auto-deploy on wiki changes. Kept manual by default so a fresh repo (Pages not
+  # yet enabled) does not show a failing deploy job.
+  # push:
+  #   branches: [main]
+  #   paths: ["wiki/**", ".github/workflows/deploy-wiki.yml"]
+  workflow_dispatch: {} # manual trigger
+
+# Least-privilege default for the whole workflow; the deploy job widens its own scope below.
+permissions:
+  contents: read
+
+# Allow one in-flight Pages deployment; do not cancel a running one.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout this repo (config + content)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 0 # full history so CreatedModifiedDate can use git dates
+
+      # --- overlay adaptation (framework is fetched, not vendored) ---
+      - name: Fetch Quartz v4 framework (pinned commit)
+        run: |
+          set -euo pipefail
+          # Pinned to the v4 branch HEAD at 2026-04-20 for reproducible builds. Bump deliberately.
+          QUARTZ_SHA=d25a6eabf96751ffca56f8a8139272def7a65041  # v4 @ 2026-04-20
+          git init .quartz-build
+          git -C .quartz-build remote add origin https://github.com/jackyzha0/quartz.git
+          git -C .quartz-build fetch --depth 1 origin "$QUARTZ_SHA"
+          git -C .quartz-build checkout "$QUARTZ_SHA"
+
+      - name: Overlay our config + content into Quartz
+        run: |
+          cp wiki/quartz.config.ts .quartz-build/quartz.config.ts
+          cp wiki/quartz.layout.ts .quartz-build/quartz.layout.ts
+          rm -rf .quartz-build/content
+          cp -r wiki/content .quartz-build/content
+      # --- end overlay adaptation; below mirrors the verified vanilla recipe ---
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: .quartz-build
+        run: npm ci
+
+      - name: Build Quartz
+        working-directory: .quartz-build
+        run: npx quartz build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3.0.1
+        with:
+          path: .quartz-build/public
+
+  deploy:
+    needs: build
+    # Only the deploy job needs the Pages-deploy privileges.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e  # v4.0.5
