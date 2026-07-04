@@ -228,6 +228,10 @@ with a Host/Origin guard, a filesystem path jail, and a rate limit. Machine-read
 | `POST /steps/{name}/validate-output` | Validate a candidate step output against its contract. |
 | `POST /project` | Project a source through one audience profile. |
 | `POST /render/pdf` | Render markdown to a PDF (or first-page PNG preview) via the typst backend. |
+| `POST /statement/check` | Compute + reconcile a statement spec (YAML string / object / jailed path) without rendering. |
+| `GET /doctor` | Tool availability + whether the PDF backend (typst + pandoc) is ready. |
+| `GET /locales` | Supported locales, each with a sample formatted number + date. |
+| `GET /theme/variants` | Theme variants from `brand.yaml [theme.variants]` (+ base). |
 | `GET /ui` | The reference studio (only with `--enable-ui`). |
 
 `POST /render/pdf` takes exactly one of `markdown` (inline, <=512 KB) or `source` (a path under the

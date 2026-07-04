@@ -321,8 +321,18 @@ UI into an authoring surface. Filed as issues #42-#46.
   same-origin) + variant/locale controls + PDF download -- over the whole Track H pipeline. Still one
   self-contained page, vanilla JS, no build. (Remaining #45/#46 polish: block-scaffold buttons, a live
   statement-reconciliation panel over a future `POST /statement/check`, a doctor status badge.)
-- **I3 - `POST /statement/check` (#43).** `[plan]` reconcile statement data over HTTP without a render.
-- **I4 - Capability-discovery endpoints (#44).** `[plan]` `GET /doctor` / `/locales` / `/theme/variants`.
+- **I3 - `POST /statement/check` (#43).** `[build]` **DONE:** reconcile a statement spec (a YAML/JSON
+  `data` string, a `spec` object, or a jailed `source` path) over HTTP with no render -- computed rows
+  out, or a 400 with the reconciliation error. An optional `locale` supplies default formatting. Lets
+  CI gate financial correctness without typst.
+- **I4 - Capability-discovery endpoints (#44).** `[build]` **DONE:** `GET /doctor` (tool availability +
+  `render_pdf_ready`), `GET /locales` (codes + sample number/date), `GET /theme/variants` (from
+  `brand.yaml`). The studio data-drives its variant/locale dropdowns and a backend-readiness badge off
+  these.
+- **I5 - Studio polish (#46).** `[build]` **DONE:** block-scaffold buttons (insert `::: attendance` /
+  `statement` / `signatures` at the cursor), a live statement-reconciliation panel over
+  `/statement/check`, a PDF-backend-ready badge, and data-driven variant/locale selects. 12 service +
+  9 render API tests.
 
 ---
 
