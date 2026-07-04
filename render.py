@@ -234,25 +234,30 @@ def run_copy_paste(args: list[str]) -> int:
     input_obj = module.assemble_input(image, tier, deterministic_metrics)
 
     # D16 gate: run the deterministic verdict FIRST and escalate to the LLM only
-    # past the threshold. Gate BEFORE prompt assembly so the accept path spends
-    # zero tokens. Only steps that declare a gate participate; others (no
-    # confidence/gate) run the LLM unconditionally, as before.
+    # past the threshold, via the shared confidence_gate.resolve() primitive.
+    # Gate BEFORE prompt assembly so the accept path spends zero tokens. Only
+    # steps that declare a gate participate; others (and --force-review) fall
+    # through to the unconditional LLM run below, as before.
     if not parsed.force_review and hasattr(module, "gate") and hasattr(module, "deterministic_entry"):
-        from contracts import gate_telemetry
-        decision, score = module.gate(input_obj, parsed.threshold)
-        print(f"[D16 gate] confidence {score} vs threshold {parsed.threshold} -> {decision}",
-              file=sys.stderr)
-        gate_telemetry.log_decision(
-            parsed.step, score, parsed.threshold, decision,
-            channel="deterministic" if decision == "accept" else "copy-paste")
-        if decision == "accept":
-            entry = module.deterministic_entry(input_obj)
-            ok, errors = module.validate_output(entry)
-            if not ok:
-                print(f"ERROR: deterministic entry failed validation: {errors}", file=sys.stderr)
-                return 1
-            print(json.dumps(entry, indent=2))
-            return 0
+        from contracts import confidence_gate
+
+        def escalate():
+            return copy_paste.run_copy_paste_step(
+                parsed.step, module, input_obj, scratch_dir=REPO_ROOT, max_retries=parsed.max_retries)
+
+        def announce(decision, score):  # before any interactive paste prompt
+            print(f"[D16 gate] confidence {score} vs threshold {parsed.threshold} -> {decision}",
+                  file=sys.stderr)
+
+        try:
+            entry, meta = confidence_gate.resolve(
+                parsed.step, module, input_obj, parsed.threshold, escalate=escalate,
+                on_decision=announce)
+        except (copy_paste.CopyPasteValidationError, confidence_gate.GateError) as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+        print(json.dumps(entry, indent=2))
+        return 0
 
     try:
         result = copy_paste.run_copy_paste_step(

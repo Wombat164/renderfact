@@ -223,9 +223,12 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   recent-window storm detection, and the ~10-15% healthy-band note. Telemetry never breaks the gate.
 - **G3 - confidence sub-signal refactor.** `[build]` with two consumers, make `confidence()` return
   named sub-signals (coverage/specificity/ambiguity/novelty/volume/verdict), not a bare float.
-- **G4 - extract the thin gate primitive.** `[build]` trigger-gated (after G1's second consumer):
-  extract only the `gate(score, threshold)` comparison to `contracts/confidence_gate.py` (NOT
-  `gate.py` -- name triple-booked); per-step heuristics stay local.
+- **G4 - extract the thin gate primitive.** `[build]` **DONE:** `contracts/confidence_gate.py` with
+  `decide(score, threshold)` (each step's `gate()` uses it) + `resolve(...)` (the shared
+  gate->telemetry->accept/escalate/needs-review orchestration both CLIs were duplicating, with an
+  `on_decision` hook so the verdict prints before an interactive prompt). Per-step `confidence()`
+  heuristics stay local. decision-capture + vision-review both refactored onto it; adversarially
+  subagent-reviewed for behavior-preservation.
 - **G5 - model-config + optional direct-API channel (D17).** `[build]` sequenced last (touches the
   D8 trust boundary, off by default): `[models] llm/vlm` with VLM->LLM fallback, modality routing, a
   fourth D8 escalation channel behind the same contract.

@@ -226,6 +226,24 @@ def test_cli_escalate_path_runs_the_llm(tmp_path):
     assert result["status"] == "WARN"
 
 
+def test_cli_escalate_gate_line_precedes_paste_prompt(tmp_path):
+    """The '[D16 gate] -> escalate' diagnostic must reach the operator BEFORE the
+    paste prompt (regression guard for the resolve() refactor). Merge the streams
+    to observe interleaving order."""
+    warn_metrics = json.dumps(_metrics(1, "OK"))
+    pasted = json.dumps({"status": "WARN", "findings": [], "summary": "x",
+                         "reviewer_mode": "harness"})
+    r = subprocess.run(
+        [sys.executable, str(RENDER_PY), "copy-paste", "vision-review",
+         "--tier", TIER, "--image", "d.png", "--metrics-json", warn_metrics],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+        cwd=str(REPO_ROOT), input=pasted + "\nEND\n")
+    merged = r.stdout
+    assert "-> escalate" in merged and "Paste the LLM" in merged
+    assert merged.index("-> escalate") < merged.index("Paste the LLM"), \
+        "the gate verdict must print before the interactive paste prompt"
+
+
 def test_cli_force_review_bypasses_gate(tmp_path):
     svg = tmp_path / "clean.svg"
     svg.write_text(_CLEAN_SVG, encoding="utf-8")
