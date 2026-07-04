@@ -200,6 +200,35 @@ public audience.
 
 ---
 
+## Track G - Fuzzy-gate consistency (deterministic-first, LLM only past a confidence gate)
+
+Apply the D16 doctrine CONSISTENTLY to every LLM-touching step: run a deterministic result first,
+score confidence, escalate only past a threshold. Motivated by tokenomics (most invocations need no
+model) and by a prior-art sweep (FrugalGPT cascade, RouteLLM operating-point, oasdiff
+deterministic-diff-authoritative, conformal-prediction calibration). Full sequenced plan, red-team
+findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.md`](2026-07-04-fuzzy-gate-architecture-plan.md).
+
+- **G0 - worked example + hardening.** `[build]` **DONE (#14, #15):** decision-capture (C8.3) is the
+  reference shape; its one correctness bug + two consistency debts fixed.
+- **G1 - vision-review retrofit.** `[build]` **NEXT, highest value:** the step D16 names by name.
+  Gate the vision LLM on the EXISTING svg_metrics/visual_quality verdict (already wired as prompt
+  context); synthesize a deterministic entry on clean metrics; gate BEFORE prompt assembly.
+- **G2 - gate telemetry + calibration log.** `[build]` append-only `(score, sub-signals, decision,
+  outcome)` log; per-step escalation-rate report; escalation-storm detection + backpressure.
+- **G3 - confidence sub-signal refactor.** `[build]` with two consumers, make `confidence()` return
+  named sub-signals (coverage/specificity/ambiguity/novelty/volume/verdict), not a bare float.
+- **G4 - extract the thin gate primitive.** `[build]` trigger-gated (after G1's second consumer):
+  extract only the `gate(score, threshold)` comparison to `contracts/confidence_gate.py` (NOT
+  `gate.py` -- name triple-booked); per-step heuristics stay local.
+- **G5 - model-config + optional direct-API channel (D17).** `[build]` sequenced last (touches the
+  D8 trust boundary, off by default): `[models] llm/vlm` with VLM->LLM fallback, modality routing, a
+  fourth D8 escalation channel behind the same contract.
+- **G6 - Track D 4.5 contextualize on this shape.** `[build]` reuse decision-capture's
+  `confidence()`/`gate()` over reingest's already-deterministic `manual` list; do not invent a new
+  heuristic.
+
+---
+
 ## Open questions carried forward
 
 - **OQ1 - schema-driven gate chain vs bespoke Python.** Should the gate chain move to a formally
