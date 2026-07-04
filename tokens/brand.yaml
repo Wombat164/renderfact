@@ -71,7 +71,10 @@ theme:
     rule_role:    primary      # header/footer/title rule colour role
     header:       { left: org,  right: title }
     footer:       { left: date, right: pagenumber }
+    callout:      { fill_role: fill, border_role: accent }        # ::: attendance box
+    statement:    { rule_role: primary, heading_role: accent }    # ::: statement ledger
   variants:
     # each variant inherits `base` and overrides only the keys it names
     financial:
       heading_role: primary    # restrained headings for financial documents
+      statement:   { heading_role: primary }   # ledger section headings match

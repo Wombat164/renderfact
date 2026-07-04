@@ -70,14 +70,16 @@ a server file into the PDF.
 
 ### Theme descriptor (engine-agnostic house-style)
 
-The chrome + component layer -- page margins, header/footer slots, and heading/title/rule colour
-**roles** -- is declared in `brand.yaml`'s `theme` section, not hard-coded in the layout. The typst
-backend generates a `chrome.typ` from it (the same generated-values / static-logic split as
-`tokens.typ`), so the house-style is declarative and role-based (fields name a role in
-`colour.brand`, resolved to RGB by the engine -- never a raw hex). **Variants** inherit `theme.base`
-and override only the keys they name; e.g. the built-in `financial` variant restyles headings to the
-primary role. Role-based and engine-neutral by design so an OOXML consumer can read the same
-descriptor (Golden Rule -- one source -- extended from palette to house-style).
+The chrome + component layer -- page margins, header/footer slots, heading/title/rule colour **roles**,
+and the semantic-block styling (`callout` fill/border roles, `statement` rule/heading roles) -- is
+declared in `brand.yaml`'s `theme` section, not hard-coded in the layout. The typst backend generates a
+`chrome.typ` from it (the same generated-values / static-logic split as `tokens.typ`), so the
+house-style is declarative and role-based (fields name a role in `colour.brand`, resolved to RGB by the
+engine -- never a raw hex). **Variants** inherit `theme.base` (deep-merged, so nested `callout` /
+`statement` overrides work) and override only the keys they name; e.g. the built-in `financial` variant
+restyles headings and the ledger section headings to the primary role. Role-based and engine-neutral by
+design so an OOXML consumer can read the same descriptor (Golden Rule -- one source -- extended from
+palette to house-style).
 
 ### Semantic blocks (governance + financial documents)
 

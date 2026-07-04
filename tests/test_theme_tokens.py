@@ -69,8 +69,22 @@ def test_render_theme_shape():
     assert "body-pt: 10.5" in typ and "justify: true" in typ
 
 
+def test_render_theme_component_roles():
+    typ = tt.render_theme(_tokens(), "base")
+    assert 'callout: (fill-role: "fill", border-role: "accent")' in typ
+    assert 'statement: (rule-role: "primary", heading-role: "accent")' in typ
+
+
 def test_render_theme_financial_differs():
     assert 'heading-role: "primary"' in tt.render_theme(_tokens(), "financial")
+
+
+def test_variant_overrides_statement_heading_keeps_rule():
+    fin = tt.resolve_theme(_tokens(), "financial")
+    assert fin["statement"]["heading_role"] == "primary"   # overridden
+    assert fin["statement"]["rule_role"] == "primary"       # inherited from base
+    # base callout is inherited untouched
+    assert fin["callout"] == tt.resolve_theme(_tokens(), "base")["callout"]
 
 
 def test_slot_none_renders_none():
@@ -98,6 +112,19 @@ def test_backend_variant_changes_pdf(tmp_path):
     fin = tb.render_pdf(md, tmp_path / "fin.pdf", title="T", variant="financial")
     assert base.is_file() and fin.is_file()
     # different heading colour -> different compiled bytes
+    assert base.read_bytes() != fin.read_bytes()
+
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_variant_restyles_statement_block(tmp_path):
+    import typst_backend as tb
+
+    md = tmp_path / "d.md"
+    md.write_text("::: statement\n- heading | Income\n- item | Dues | 10\n- total | Total | 10\n:::\n",
+                  encoding="utf-8")
+    base = tb.render_pdf(md, tmp_path / "b.pdf", title="T", variant="base")
+    fin = tb.render_pdf(md, tmp_path / "f.pdf", title="T", variant="financial")
+    # financial restyles the ledger section headings -> different bytes
     assert base.read_bytes() != fin.read_bytes()
 
 
