@@ -38,6 +38,7 @@ Usage:
     render drawio generate|reingest ...        # C8 editable-diagram round-trip, drawio adapter
     render vsdx generate|reingest ...          # C8.2 editable-diagram round-trip, Visio adapter
     render decision-capture --source <g> --reingest <j>  # C8.3 capture edit intent (deterministic+gate)
+    render contextualize --source <md> --reingest <j>    # 4.5 capture document-edit intent (deterministic+gate)
 
 Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
@@ -352,6 +353,16 @@ def run_gate_stats(args: list[str]) -> int:
     return gate_telemetry.main(args)
 
 
+def run_contextualize(args: list[str]) -> int:
+    """Dispatch to roundtrip/contextualize.py: the document round-trip
+    contextualize step (Track D 4.5). Turns a `render reingest` manual diff into
+    a decision-log entry -- deterministic first, LLM only past the D16 gate."""
+    sys.path.insert(0, str(REPO_ROOT / 'roundtrip'))
+    import contextualize
+
+    return contextualize.main(args)
+
+
 def run_decision_capture(args: list[str]) -> int:
     """Dispatch to roundtrip/decision_capture.py: the editable-diagram
     round-trip decision-capture step (C8.3). Turns a reingest's semantic diff
@@ -394,6 +405,7 @@ MODES = {
     "drawio": run_drawio,
     "vsdx": run_vsdx,
     "decision-capture": run_decision_capture,
+    "contextualize": run_contextualize,
     "gate-stats": run_gate_stats,
     "import-template": run_import_template,
     "project": run_project,

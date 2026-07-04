@@ -92,6 +92,7 @@ bound, in which case provenance is stripped.
 | | Genre template pack (executive summary, briefs, pitches, purchase request) with rendered exemplars | [`templates/`](templates/) |
 | **Round-trip** | Hidden provenance across DOCX/XLSX/PPTX | `render provenance` |
 | | Mechanical DOCX re-ingestion: verdicts, reviewer-edit report, fast-forward apply, embedded-doc triage | `render reingest` |
+| | Document-edit decision capture (contextualize a reingest diff; deterministic first, LLM past a gate) | `render contextualize` |
 | | Editable-diagram round-trip (draw.io lead adapter; stable IDs; semantic/style/layout routing) | `render drawio` |
 | | Editable-diagram round-trip, Visio adapter (NameU anchors; OPC provenance; optional `vsdx` lib) | `render vsdx` |
 | | Diagram-edit decision capture (deterministic first; LLM only past a confidence gate) | `render decision-capture` |

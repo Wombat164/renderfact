@@ -235,9 +235,11 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
 - **G5 - model-config + optional direct-API channel (D17).** `[build]` sequenced last (touches the
   D8 trust boundary, off by default): `[models] llm/vlm` with VLM->LLM fallback, modality routing, a
   fourth D8 escalation channel behind the same contract.
-- **G6 - Track D 4.5 contextualize on this shape.** `[build]` reuse decision-capture's
-  `confidence()`/`gate()` over reingest's already-deterministic `manual` list; do not invent a new
-  heuristic.
+- **G6 - Track D 4.5 contextualize on this shape.** `[build]` **DONE:** `roundtrip/contextualize.py`
+  + `render contextualize`, mirroring decision-capture over reingest's `manual` diff. A `classify()`
+  maps each reingest tuple (no `kind` field) to reword (descriptive) vs add/delete/replace/heading
+  (intent-bearing) via reingest's now-exported sentinel constants; the confidence formula, gate,
+  sink, and CLI are decision-capture's. Registered for harness exposure. 25 tests.
 
 ---
 

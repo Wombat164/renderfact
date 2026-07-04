@@ -21,7 +21,8 @@ title: Reference
 | `render reingest <edited.docx> --source <md>` | Mechanical re-ingestion of an edited document. |
 | `render drawio generate\|reingest` | Editable-diagram round-trip, draw.io adapter (C8.1). |
 | `render vsdx generate\|reingest` | Editable-diagram round-trip, Visio adapter (C8.2; needs `vsdx`). |
-| `render decision-capture --source <g> --reingest <j>` | Capture edit intent; deterministic first, LLM past the gate (C8.3). |
+| `render decision-capture --source <g> --reingest <j>` | Capture diagram-edit intent; deterministic first, LLM past the gate (C8.3). |
+| `render contextualize --source <md> --reingest <j>` | Capture document-edit intent from a reingest diff; deterministic first, LLM past the gate (Track D 4.5). |
 | `render copy-paste vision-review --image <svg>` | Gated visual-quality review of a diagram. |
 | `render gate-stats` | D16 gate escalation-rate stats + storm detection. |
 | `render init-ai [--assistant ...]` | Install renderfact-aware instruction files into your assistant. |
