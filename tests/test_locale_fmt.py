@@ -40,6 +40,12 @@ def test_number_format_and_lang():
     assert lf.lang(nl) == "nl" and lf.lang(None) == "en"
 
 
+def test_block_labels():
+    assert lf.labels(lf.resolve("nl-BE")) == {"signature": "Handtekening", "date": "Datum"}
+    assert lf.labels(lf.resolve("en")) == {"signature": "Signature", "date": "Date"}
+    assert lf.labels(None) == {"signature": "Signature", "date": "Date"}  # default
+
+
 # --------------------------------------------------------------- dates --
 
 @pytest.mark.parametrize("loc,expected", [

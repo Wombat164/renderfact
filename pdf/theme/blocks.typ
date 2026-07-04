@@ -8,6 +8,7 @@
 
 #import "tokens.typ": *
 #import "chrome.typ": chrome
+#import "strings.typ": strings
 
 #let _role(name) = brand.at(name, default: brand.ink)
 #let _muted = brand.ink.lighten(35%)
@@ -15,7 +16,7 @@
 // ---- signatures: a card grid, reserved signature space, hyphenation-safe ----
 // A long role label must never force the NAME to hyphenate mid-word (a real bug
 // when this was hand-built): names disable hyphenation; the role wraps freely.
-#let signatures(roster, columns: 2, sign-label: "Handtekening", date-label: "Datum") = {
+#let signatures(roster, columns: 2, sign-label: strings.signature, date-label: strings.date) = {
   let card(entry) = {
     let (name, role) = entry
     block(

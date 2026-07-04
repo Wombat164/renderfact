@@ -76,6 +76,19 @@ def lang(locale_cfg: "dict | None", default: str = "en") -> str:
     return locale_cfg["lang"] if locale_cfg else default
 
 
+# Localized UI strings for the semantic blocks (signature/date labels). No locale
+# -> English defaults.
+_LABELS = {
+    "nl": {"signature": "Handtekening", "date": "Datum"},
+    "fr": {"signature": "Signature", "date": "Date"},
+    "en": {"signature": "Signature", "date": "Date"},
+}
+
+
+def labels(locale_cfg: "dict | None") -> dict:
+    return _LABELS.get(lang(locale_cfg), _LABELS["en"])
+
+
 def format_date(value: "str | None", locale_cfg: "dict | None") -> "str | None":
     """Format an ISO date (YYYY-MM-DD) as a localized long date; pass anything
     else (an already-written date, or no locale) through unchanged."""

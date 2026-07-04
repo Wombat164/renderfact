@@ -1,0 +1,17 @@
+# afrekening.yaml: the AGM financial statement for Meridian Rail Infrastructure
+# (fictional). Data-bound statement source (#34): the totals are COMPUTED and the
+# stated amounts are RECONCILED against them -- change a line item and a stated
+# total that no longer matches fails the render. Separators/currency come from
+# the render `--locale` (this file states only the currency).
+format: { currency: EUR }
+rows:
+  - { kind: heading,  label: Income }
+  - { kind: item,     label: Access-charge revenue, amount: 184500.00 }
+  - { kind: item,     label: Maintenance grants,    amount: 42000.00 }
+  - { kind: subtotal, id: income, label: Total income, amount: 226500.00 }   # = sum of the two items
+  - { kind: heading,  label: Expenditure }
+  - { kind: item,     label: Track maintenance,  amount: 148200.00 }
+  - { kind: item,     label: Signalling upkeep,  amount: 51300.00 }
+  - { kind: subtotal, id: expenditure, label: Total expenditure, amount: 199500.00 }
+  - { kind: rule }
+  - { kind: total,    label: Operating result, formula: "income - expenditure" }   # computed = 27,000.00

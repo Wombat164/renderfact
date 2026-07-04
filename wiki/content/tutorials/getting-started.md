@@ -31,16 +31,43 @@ report, not a gate.
 
 ## Render the demo
 
-The repository ships a fictional railway-infrastructure operator's procurement dossier under `demo/`:
-one full-candor source, three audience profiles, a demo brand skin. Render it:
+The repository ships a fictional railway-infrastructure operator ("Meridian Rail Infrastructure")
+under `demo/`: a full-candor procurement dossier with three audience profiles, a governance/financial
+document, and a demo brand skin. Run the whole thing:
 
 ```bash
-render docx demo/source/meridian-rail-signalling.md --profile public-tender
+bash demo/render-demo.sh
 ```
 
-You get a styled, numbered DOCX with the public-tender profile's disclosure rules applied. Try the
-other profiles (`bidder-confidential`, `internal-evaluation`) to see the same source projected
-differently.
+That projects one source into three governed renders, generates the Meridian brand tokens, renders the
+public-tender projection to DOCX (if pandoc is present), and renders the branded PDF (if typst + pandoc
+are present). Or run the steps by hand -- project one profile:
+
+```bash
+render project demo/source/signalling-it-refresh.md \
+  --profiles demo/profiles.yaml --profile public-tender
+```
+
+Try the other profiles (`internal-full`, `bidder-pack`) to see the same source projected differently:
+the internal render keeps full candor; the public tender keeps only what may travel and carries the
+abstract baseline.
+
+## Render a branded governance/financial PDF
+
+The second demo source, `demo/source/agm-minutes.md`, is Meridian's Annual General Meeting minutes. It
+exercises the layout-native PDF backend and its semantic blocks -- an attendance callout, a **data-bound
+statement** whose totals are computed and reconciled from `demo/source/afrekening.yaml`, and a signature
+grid -- rendered with the Meridian skin, the `financial` theme variant, and a locale:
+
+```bash
+render pdf demo/source/agm-minutes.md \
+  --brand demo/skin/brand.yaml --variant financial --locale en \
+  --org "Meridian Rail Infrastructure" --title "AGM Minutes 2026" --date 2026-03-18
+```
+
+Change `--locale en` to `nl-BE` to reformat the amounts, date, and block labels in Belgian Dutch;
+add `--project public-tender --profiles demo/profiles.yaml` to render an audience-projected branded PDF
+(or `--project all` for one PDF per profile). Needs `typst` and `pandoc` (`render doctor` tells you).
 
 ## Gate a document
 
