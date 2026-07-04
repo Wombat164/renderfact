@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -142,6 +143,14 @@ class RenderfactApi:
             return HtmlResponse(UI_HTML)
         if method == "GET" and path == "/steps":
             return {"steps": sorted(self.steps)}
+        if method == "GET" and path == "/doctor":
+            return self._doctor()
+        if method == "GET" and path == "/locales":
+            return self._locales()
+        if method == "GET" and path == "/theme/variants":
+            return self._theme_variants()
+        if method == "POST" and path == "/statement/check":
+            return self._statement_check(body)
         m = re.match(r"^/steps/([a-z0-9-]+)$", path)
         if method == "GET" and m:
             return self._step_schema(m.group(1))
@@ -170,7 +179,8 @@ class RenderfactApi:
                 "GET /", "GET /session", "GET /openapi.json", "GET /docs",
                 "GET /steps", "GET /steps/{name}",
                 "POST /steps/{name}/validate-output", "POST /project",
-                "POST /render/pdf",
+                "POST /render/pdf", "POST /statement/check",
+                "GET /doctor", "GET /locales", "GET /theme/variants",
             ] + (["GET /ui"] if self.enable_ui else []),
         }
 
@@ -225,6 +235,99 @@ class RenderfactApi:
             raise ApiError(400, str(e)) from None
         return {"profile": body["profile"], "blocks_dropped": dropped, "text": text}
 
+    # ---- #44 capability discovery ----
+
+    def _doctor(self):
+        """Tool availability (wraps doctor.check), plus whether the PDF backend is
+        ready -- so a client knows what it can call before hitting /render/pdf."""
+        import dataclasses  # noqa: PLC0415
+
+        sys.path.insert(0, str(REPO_ROOT))
+        import doctor  # noqa: PLC0415
+
+        try:
+            results = [dataclasses.asdict(r) for r in doctor.check(doctor.parse_lock())]
+        except OSError:
+            results = []
+        backends = {t: shutil.which(t) is not None for t in ("typst", "pandoc")}
+        return {"tools": results, "backends": backends,
+                "render_pdf_ready": all(backends.values())}
+
+    def _locales(self):
+        """The locale table with a sample formatted number + date each (#35)."""
+        sys.path.insert(0, str(REPO_ROOT / "pdf"))
+        import locale_fmt  # noqa: PLC0415
+        import statement_data  # noqa: PLC0415
+
+        out = []
+        for code, cfg in sorted(locale_fmt.LOCALES.items()):
+            fmt = {**locale_fmt.number_format(cfg), "currency": "EUR"}
+            out.append({
+                "code": code, "lang": cfg["lang"],
+                "sample_number": statement_data.format_amount(1234567.89, fmt),
+                "sample_date": locale_fmt.format_date("2025-02-15", cfg),
+            })
+        return {"locales": out}
+
+    def _theme_variants(self):
+        """The theme variants defined in brand.yaml [theme.variants], plus base (#32)."""
+        sys.path.insert(0, str(REPO_ROOT / "tokens" / "gen"))
+        from _common import load_tokens  # noqa: PLC0415
+
+        theme = load_tokens(None).get("theme") or {}
+        return {"variants": ["base"] + sorted((theme.get("variants") or {}).keys())}
+
+    # ---- #43 statement reconciliation (no render) ----
+
+    def _statement_check(self, body: dict | None):
+        """Compute + reconcile a statement spec without rendering: rows out, or a
+        400 with the reconciliation/validation error. Input is exactly one of
+        `data` (a YAML/JSON string), `spec` (a JSON object), or `source` (a jailed
+        path); an optional `locale` supplies default number formatting."""
+        if not isinstance(body, dict):
+            raise ApiError(400, "request body must be a JSON object")
+        provided = [k for k in ("data", "spec", "source") if body.get(k) is not None]
+        if len(provided) != 1:
+            raise ApiError(400, "provide exactly one of 'data' (string), 'spec' (object), 'source' (path)")
+
+        sys.path.insert(0, str(REPO_ROOT / "pdf"))
+        import statement_data  # noqa: PLC0415
+
+        key = provided[0]
+        if key == "source":
+            path = self._jail(body["source"], "source")
+            if not path.exists():
+                raise ApiError(404, f"source not found: {body['source']}")
+            try:
+                spec = statement_data.load_spec(path)
+            except statement_data.StatementError as e:
+                raise ApiError(400, str(e)) from None
+        elif key == "spec":
+            spec = body["spec"]
+            if not isinstance(spec, dict) or "rows" not in spec:
+                raise ApiError(400, "'spec' must be an object with a 'rows' list")
+        else:
+            import yaml  # noqa: PLC0415
+            try:
+                spec = yaml.safe_load(body["data"])
+            except yaml.YAMLError:
+                raise ApiError(400, "'data' is not valid YAML/JSON") from None
+            if not isinstance(spec, dict) or "rows" not in spec:
+                raise ApiError(400, "'data' must parse to a mapping with a 'rows' list")
+
+        default_format = None
+        if body.get("locale"):
+            import locale_fmt  # noqa: PLC0415
+            try:
+                default_format = locale_fmt.number_format(locale_fmt.resolve(body["locale"]))
+            except locale_fmt.LocaleError as e:
+                raise ApiError(400, str(e)) from None
+
+        try:
+            rows = statement_data.compute_rows(spec, default_format)
+        except statement_data.StatementError as e:
+            raise ApiError(400, str(e)) from None
+        return {"reconciled": True, "rows": rows}
 
     MAX_INLINE_BYTES = 512 * 1024
 
@@ -393,6 +496,24 @@ def openapi_spec(api: RenderfactApi) -> dict:
                          "responses": {"200": {"description": "application/pdf or image/png bytes"},
                                        "400": {"description": "bad input or a render/reconciliation error"},
                                        "413": {"description": "inline markdown too large"}}}},
+            "/statement/check": {
+                "post": {"summary": "Compute + reconcile a statement spec without rendering",
+                         "requestBody": {"content": {"application/json": {"schema": {
+                             "type": "object",
+                             "description": "exactly one of data|spec|source, plus optional locale",
+                             "properties": {
+                                 "data": {"type": "string", "description": "YAML/JSON statement spec"},
+                                 "spec": {"type": "object", "description": "statement spec object"},
+                                 "source": {"type": "string", "description": "path under server root"},
+                                 "locale": {"type": "string"}}}}}},
+                         "responses": {"200": {"description": "reconciled rows"},
+                                       "400": {"description": "reconciliation or validation error"}}}},
+            "/doctor": {"get": {"summary": "Tool availability + whether the PDF backend is ready",
+                                "responses": {"200": {"description": "tools + backends"}}}},
+            "/locales": {"get": {"summary": "Supported locales with sample number/date",
+                                 "responses": {"200": {"description": "locales"}}}},
+            "/theme/variants": {"get": {"summary": "Theme variants from brand.yaml",
+                                        "responses": {"200": {"description": "variants"}}}},
         },
     }
 

@@ -27,7 +27,7 @@ UI_HTML = """<!doctype html>
   button { margin-top: .3rem; }
   .below { max-width: 64rem; }
 </style>
-<h1>renderfact studio</h1>
+<h1>renderfact studio <span id="doctor" class="hint"></span></h1>
 <p class="hint">Thin client of the local API. Docs: <a href="/docs">/docs</a>,
 machine-readable: <a href="/openapi.json">/openapi.json</a>.</p>
 
@@ -36,12 +36,15 @@ machine-readable: <a href="/openapi.json">/openapi.json</a>.</p>
   <input id="r-title" placeholder="title" value="Notulen Algemene Vergadering">
   <input id="r-org" placeholder="org (header)" value="VME Voorbeeld">
   <input id="r-date" placeholder="date / ISO" value="2025-02-15">
-  <select id="r-variant"><option value="base">base</option><option value="financial">financial</option></select>
-  <select id="r-locale">
-    <option value="">no locale</option><option value="nl-BE" selected>nl-BE</option>
-    <option value="fr-BE">fr-BE</option><option value="en">en</option>
-  </select>
+  <select id="r-variant"><option value="base">base</option></select>
+  <select id="r-locale"><option value="">no locale</option></select>
   <button onclick="doRender('pdf')">Download PDF</button>
+</div>
+<div class="controls">
+  <span class="hint">insert block:</span>
+  <button onclick="insertBlock('attendance')">attendance</button>
+  <button onclick="insertBlock('statement')">statement</button>
+  <button onclick="insertBlock('signatures')">signatures</button>
 </div>
 <div class="studio">
   <textarea id="md" oninput="schedulePreview()">## Aanwezigheid
@@ -75,6 +78,21 @@ machine-readable: <a href="/openapi.json">/openapi.json</a>.</p>
 </div>
 
 <div class="below">
+<h2>Statement reconciliation (no render)</h2>
+<p class="hint">Paste a statement data spec (YAML). Computes + reconciles via <code>/statement/check</code> -
+a stated total that disagrees with the sum of its items is an error, before you render.</p>
+<textarea id="stmt" style="width:100%;height:8rem">format: { currency: EUR }
+rows:
+  - { kind: heading, label: Ontvangsten }
+  - { kind: item, label: Bijdragen leden, amount: 8000.00 }
+  - { kind: item, label: Interesten, amount: 45.77 }
+  - { kind: subtotal, id: ontvangsten, label: Totaal ontvangsten, amount: 8045.77 }
+  - { kind: item, label: Onderhoud, amount: 6535.24 }
+  - { kind: subtotal, id: uitgaven, label: Totaal uitgaven }
+  - { kind: total, label: Saldo, formula: "ontvangsten - uitgaven" }</textarea>
+<button onclick="checkStatement()">Check</button>
+<pre id="stmt-out">(no result yet)</pre>
+
 <h2>Step contracts (D8)</h2>
 <select id="step"></select>
 <button onclick="showSchema()">Show schema</button>
@@ -127,6 +145,48 @@ function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeo
 ['r-title','r-org','r-date','r-variant','r-locale'].forEach(
   id => document.getElementById(id).addEventListener('change', () => doRender('png')));
 
+const BLOCKS = {
+  attendance: '\\n::: attendance\\n- present | Name\\n- proxy | Name, via X\\n- quorum | 3/5 present: quorum met\\n:::\\n',
+  statement: '\\n::: statement\\n- heading | Section\\n- item | Line item | EUR 0,00\\n- total | Total | EUR 0,00\\n:::\\n',
+  signatures: '\\n::: signatures\\n- Name | Role\\n- Name | Role\\n:::\\n',
+};
+function insertBlock(kind) {
+  const t = BLOCKS[kind], at = mdEl.selectionStart;
+  mdEl.value = mdEl.value.slice(0, at) + t + mdEl.value.slice(at);
+  mdEl.focus(); schedulePreview();
+}
+async function checkStatement() {
+  const out = document.getElementById('stmt-out');
+  const r = await fetch('/statement/check', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: document.getElementById('stmt').value, locale: val('r-locale') }) });
+  const d = await r.json();
+  if (r.ok) {
+    out.style.color = '';
+    out.textContent = d.rows.map(x => x.kind === 'rule' ? '----'
+      : (x.label || '') + (x.amount ? '\\t' + x.amount : '')).join('\\n');
+  } else { out.style.color = '#b00'; out.textContent = d.error; }
+}
+async function loadDoctor() {
+  const r = await jsonFetch('/doctor');
+  const el = document.getElementById('doctor');
+  const ok = r.data.render_pdf_ready;
+  el.textContent = ok ? '(PDF backend ready)' : '(PDF backend unavailable - need typst + pandoc)';
+  el.style.color = ok ? '#2E7D32' : '#b00';
+}
+async function loadVariants() {
+  const r = await jsonFetch('/theme/variants');
+  const sel = document.getElementById('r-variant'); sel.innerHTML = '';
+  (r.data.variants || ['base']).forEach(v => sel.add(new Option(v, v)));
+}
+async function loadLocales() {
+  const r = await jsonFetch('/locales');
+  const sel = document.getElementById('r-locale'); sel.innerHTML = '';
+  sel.add(new Option('no locale', ''));
+  (r.data.locales || []).forEach(l => sel.add(new Option(l.code, l.code)));
+  sel.value = 'nl-BE';
+}
+
 async function jsonFetch(url, opts) {
   const r = await fetch(url, opts);
   const text = await r.text();
@@ -164,6 +224,7 @@ async function project() {
                          : JSON.stringify(d, null, 2);
 }
 loadSteps();
-doRender('png');
+loadDoctor();
+Promise.all([loadVariants(), loadLocales()]).then(() => doRender('png'));
 </script>
 """
