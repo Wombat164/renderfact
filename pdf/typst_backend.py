@@ -85,6 +85,22 @@ def find_typst() -> str:
 
 # ------------------------------------------------------------- build helpers --
 
+def profile_names(profiles_path: "str | Path") -> list:
+    """Every profile name declared in a ladders+profiles config, sorted -- the set
+    `--project all` renders."""
+    profiles_path = Path(profiles_path)
+    if not profiles_path.is_file():
+        raise TypstBackendError(f"profiles config not found: {profiles_path}")
+    sys.path.insert(0, str(REPO_ROOT / "projection"))
+    import projector  # projection/projector.py
+
+    try:
+        _ladders, profiles = projector.load_config(profiles_path)
+    except projector.ProjectionError as e:
+        raise TypstBackendError(str(e)) from None
+    return sorted(profiles)
+
+
 def _project_markdown(source: Path, profile_name: str, profiles_path: "str | Path | None") -> str:
     """Run the Track F projection engine and return the projected markdown for one
     audience/clearance/disclosure profile, so a governed source can render one
@@ -387,13 +403,24 @@ def main(argv: "list[str] | None" = None) -> int:
     if env_fonts:
         font_paths += [p for p in env_fonts.split(os.pathsep) if p]
 
+    common = dict(theme=args.theme, brand=args.brand, title=args.title, subtitle=args.subtitle,
+                  org=args.org, date=args.date, paper=args.paper, variant=args.variant,
+                  locale=args.locale, font_paths=font_paths or None)
     try:
-        out = render_pdf(
-            args.source, args.output, theme=args.theme, brand=args.brand,
-            title=args.title, subtitle=args.subtitle, org=args.org, date=args.date,
-            paper=args.paper, variant=args.variant, locale=args.locale,
-            project=args.project, profiles=args.profiles, font_paths=font_paths or None,
-        )
+        if args.project == "all":
+            # Batch: one branded PDF per audience profile, named <stem>-<profile>.<fmt>.
+            if not args.profiles:
+                raise TypstBackendError("--project all requires --profiles <config>")
+            stem = Path(args.source).stem
+            out_dir = Path(args.output).parent if args.output else Path(os.environ.get("OUTPUT_DIR", "renders"))
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for name in profile_names(args.profiles):
+                out = render_pdf(args.source, out_dir / f"{stem}-{name}.pdf",
+                                 project=name, profiles=args.profiles, **common)
+                print(f"wrote {out}")
+            return 0
+        out = render_pdf(args.source, args.output, project=args.project, profiles=args.profiles,
+                         **common)
     except TypstBackendError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 3
