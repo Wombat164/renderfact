@@ -95,7 +95,7 @@ def test_typst_tokens_no_leftover_branding():
     assert "defence" not in typ.lower()
 
 
-def test_generate_all_runs_all_four_and_writes_files(tmp_path):
+def test_generate_all_runs_every_generator_and_writes_files(tmp_path):
     import generate_all
 
     old_argv = sys.argv
@@ -109,3 +109,4 @@ def test_generate_all_runs_all_four_and_writes_files(tmp_path):
     assert (tmp_path / "marp" / "deck-theme.css").exists()
     assert (tmp_path / "pandoc" / "template-profile.yaml").exists()
     assert (tmp_path / "typst" / "tokens.typ").exists()
+    assert (tmp_path / "typst" / "chrome.typ").exists()  # #32 theme descriptor

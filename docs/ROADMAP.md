@@ -266,11 +266,15 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
   generator (shared palette/fonts with every other engine); consumers override via `--theme` /
   `--brand`. Tools (pandoc + typst) are already probed by `render doctor`; missing either fails with an
   actionable message. 13 tests (unit + skipif-guarded real-compile).
-- **H2 - Engine-agnostic theme descriptor (#32).** `[design]` one declarative theme/skin (palette +
-  fonts + page chrome + component styles) that BOTH the OOXML path and the typst backend consume, with
-  inheritable variants (e.g. a "financial" skin). Extends the generic-core/private-skin philosophy from
-  candor-projection to visual styling. `pdf/theme/default.typ` + `docstyle/ooxml_theme.py` are the two
-  current per-engine ends to unify.
+- **H2 - Engine-agnostic theme descriptor (#32).** `[build]` **DONE (typst consumer):** the chrome +
+  component layer (page margins, header/footer slots, heading/title/rule colour ROLES) is now declared
+  in `brand.yaml`'s `theme` section, with `base` + inheritable `variants` (a built-in `financial`
+  restyles headings). `tokens/gen/theme_tokens.py` emits `chrome.typ` from it; `pdf/theme/default.typ`
+  is refactored to LAYOUT LOGIC that consumes `chrome.*` (roles resolved to colours at render time),
+  and `render pdf --variant <name>` selects one. Role-based + engine-neutral so an OOXML consumer can
+  read the same fields. **Remaining:** wire the OOXML/`reference.docx` path to consume the same
+  descriptor (the DOCX side is template-parsed today, `docstyle/ooxml_theme.py`), which fully proves
+  engine-agnosticism. 12 tests.
 - **H3 - First-class semantic blocks (#33).** `[build]` fenced-div blocks rendered by the active theme:
   `::: signatures` (roster -> hyphenation-safe card grid with signature + date space), `::: attendance`
   (present / proxy / quorum), `::: statement` (typed ledger rows, right-aligned amounts, rule lines).

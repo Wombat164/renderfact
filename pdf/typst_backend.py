@@ -93,16 +93,23 @@ def md_to_typst(md_path: Path, pandoc: str) -> str:
     return result.stdout
 
 
-def generate_tokens_typ(work_dir: Path, brand: "Path | None" = None) -> Path:
-    """Emit tokens.typ into work_dir using the existing brand-token generator, so
-    the PDF theme shares the exact palette/fonts of every other engine."""
+def generate_tokens_typ(work_dir: Path, brand: "Path | None" = None, variant: str = "base") -> Path:
+    """Emit tokens.typ (palette+fonts) and chrome.typ (the #32 engine-agnostic
+    theme descriptor for the given variant) into work_dir, both from the same
+    brand.yaml the other engines use. Returns the tokens.typ path."""
     sys.path.insert(0, str(REPO_ROOT / "tokens" / "gen"))
     import typst_tokens  # tokens/gen/typst_tokens.py
+    import theme_tokens  # tokens/gen/theme_tokens.py (#32)
     from _common import load_tokens  # tokens/gen/_common.py
 
     tokens = load_tokens(brand)
     out = work_dir / "tokens.typ"
     out.write_text(typst_tokens.render_typst(tokens), encoding="utf-8")
+    try:
+        chrome = theme_tokens.render_theme(tokens, variant)
+    except KeyError as e:
+        raise TypstBackendError(str(e).strip('"')) from None
+    (work_dir / "chrome.typ").write_text(chrome, encoding="utf-8")
     return out
 
 
@@ -152,6 +159,7 @@ def render_pdf(
     org: "str | None" = None,
     date: "str | None" = None,
     paper: str = "a4",
+    variant: str = "base",
     typst: "str | None" = None,
     pandoc: "str | None" = None,
 ) -> Path:
@@ -177,7 +185,7 @@ def render_pdf(
 
     with tempfile.TemporaryDirectory() as td:
         work = Path(td)
-        generate_tokens_typ(work, Path(brand) if brand else None)
+        generate_tokens_typ(work, Path(brand) if brand else None, variant)
         (work / "theme.typ").write_text(theme_src.read_text(encoding="utf-8"), encoding="utf-8")
         body = md_to_typst(source, pandoc)
         (work / "main.typ").write_text(
@@ -209,8 +217,10 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--engine", choices=("typst",), default="typst",
                     help="layout engine (only typst today; the flag reserves the peer slot)")
     ap.add_argument("-o", "--output", default=None, help="output PDF path (default: renders/<stem>.pdf)")
-    ap.add_argument("--theme", default=None, help="a typst theme file (default: the built-in theme)")
+    ap.add_argument("--theme", default=None, help="a typst layout file (default: the built-in theme)")
     ap.add_argument("--brand", default=None, help="a consumer brand.yaml (default: the built-in tokens)")
+    ap.add_argument("--variant", default="base",
+                    help="theme variant from brand.yaml [theme.variants] (default: base)")
     ap.add_argument("--title", default=None, help="document title (default: the source stem)")
     ap.add_argument("--subtitle", default=None)
     ap.add_argument("--org", default=None, help="organisation shown in the page header")
@@ -222,7 +232,7 @@ def main(argv: "list[str] | None" = None) -> int:
         out = render_pdf(
             args.source, args.output, theme=args.theme, brand=args.brand,
             title=args.title, subtitle=args.subtitle, org=args.org, date=args.date,
-            paper=args.paper,
+            paper=args.paper, variant=args.variant,
         )
     except TypstBackendError as e:
         print(f"ERROR: {e}", file=sys.stderr)

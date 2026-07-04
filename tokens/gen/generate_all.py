@@ -19,9 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import marp_theme  # noqa: E402
 import mermaid_theme  # noqa: E402
 import pandoc_template_profile  # noqa: E402
+import theme_tokens  # noqa: E402
 import typst_tokens  # noqa: E402
 
-GENERATORS = [mermaid_theme, marp_theme, pandoc_template_profile, typst_tokens]
+GENERATORS = [mermaid_theme, marp_theme, pandoc_template_profile, typst_tokens, theme_tokens]
 
 
 def main() -> int:
@@ -49,6 +50,7 @@ def main() -> int:
                 marp_theme: "marp",
                 pandoc_template_profile: "pandoc",
                 typst_tokens: "typst",
+                theme_tokens: "typst",
             }[gen]
             gen_argv += ["--output-dir", str(Path(args.output_dir) / subdir_name)]
         old_argv = sys.argv
