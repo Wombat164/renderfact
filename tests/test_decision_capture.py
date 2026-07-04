@@ -40,7 +40,8 @@ def _input(kinds, verdict="FAST_FORWARD"):
 # -------------------------------------------------------------- confidence --
 
 @pytest.mark.parametrize("kinds,verdict,expected", [
-    ([], "FAST_FORWARD", 1.0),                              # cosmetic only
+    ([], "FAST_FORWARD", 1.0),                              # cosmetic only, clean source
+    ([], "DIVERGED", 0.7),                                  # cosmetic BUT source moved -> not full
     (["relabel-node"], "FAST_FORWARD", 1.0),                # pure descriptive
     (["relabel-node"], "DIVERGED", 0.7),                    # descriptive, source moved
     (["add-node"], "FAST_FORWARD", 0.0),                    # pure intent
@@ -49,6 +50,19 @@ def _input(kinds, verdict="FAST_FORWARD"):
 ])
 def test_confidence_values(kinds, verdict, expected):
     assert dc.confidence(_input(kinds, verdict)) == pytest.approx(expected)
+
+
+def test_empty_diff_on_diverged_source_flags_reconciliation():
+    """Regression: a cosmetic-only edit on a source that moved since generation
+    must not silently score 1.0 -- it drops to the verdict factor AND the entry
+    carries the DIVERGED reconciliation note."""
+    obj = _input([], "DIVERGED")
+    assert dc.confidence(obj) == pytest.approx(0.7)
+    entry = dc.deterministic_entry(obj)
+    ok, errors = dc.validate_output(entry)
+    assert ok, errors
+    assert entry["changes"] == []
+    assert "DIVERGED" in entry["summary"]
 
 
 def test_gate_accepts_at_and_above_threshold():
@@ -232,9 +246,34 @@ def test_init_ai_exposes_decision_capture():
 
 def test_render_copy_paste_redirects_decision_capture(tmp_path):
     """The vision-shaped `render copy-paste` CLI must not mis-drive decision-capture;
-    it points the user at the step's own gated command."""
+    it points the user at the step's own gated command (via the declared
+    HAS_OWN_GATE flag, not a duck-typed proxy)."""
+    assert dc.HAS_OWN_GATE is True
     r = subprocess.run(
         [sys.executable, str(RENDER_PY), "copy-paste", "decision-capture"],
         capture_output=True, text=True, encoding="utf-8", cwd=str(REPO_ROOT), input="")
     assert r.returncode == 2
     assert "decision-capture --escalate copy-paste" in r.stderr
+
+
+def test_mode_field_is_a_required_declaration():
+    """The copy-paste driver must fail loudly on a step that forgets to declare
+    MODE_FIELD, rather than silently writing a wrong provenance key."""
+    import types
+    from contracts import copy_paste
+
+    # a full-enough step contract (prompt composition needs these) that simply
+    # forgets MODE_FIELD -- the driver must reach the force-provenance line and
+    # raise, not write a wrong key
+    broken = types.SimpleNamespace(
+        __name__="broken_contract",
+        TASK_INTENT="do a thing",
+        INPUT_SCHEMA=[],
+        OUTPUT_SCHEMA=[],
+        MODE_FIELD=None,
+        validate_output=lambda obj: (True, []),
+    )
+    with pytest.raises(copy_paste.CopyPasteValidationError, match="must declare MODE_FIELD"):
+        copy_paste.run_copy_paste_step(
+            "broken", broken, {}, lines_source=iter(['{"x": 1}', "END"]),
+            out=open(__import__("os").devnull, "w"))

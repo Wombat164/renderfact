@@ -34,6 +34,11 @@ TASK_INTENT = (
     "provided as context -- do not re-derive them, judge what they miss."
 )
 
+# The provenance field the D8 copy-paste driver forces (contracts/copy_paste.py
+# reads MODE_FIELD explicitly). Declared here so the driver's behaviour is a
+# stated contract, not a coincidental match with a hardcoded fallback literal.
+MODE_FIELD = "reviewer_mode"
+
 VALID_TIERS = (
     "executive-cover",
     "programme-planning",

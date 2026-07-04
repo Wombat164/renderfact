@@ -75,9 +75,14 @@ TASK_INTENT = (
 # intent-gap) vs kinds it can only describe, never justify (the reason lives in
 # the human's head): the split the confidence gate keys on.
 # The provenance field the D8 copy-paste driver forces (contracts/copy_paste.py
-# reads this so it stays generic across step contracts; vision-review defaults
-# to "reviewer_mode").
+# reads this so it stays generic across step contracts; vision-review uses
+# "reviewer_mode").
 MODE_FIELD = "capture_mode"
+
+# This step owns a richer CLI with its own D16 gate (`render decision-capture`),
+# so the vision-shaped `render copy-paste` CLI redirects rather than mis-driving
+# it. A DECLARED flag, not a duck-typed absence-of-VALID_TIERS proxy.
+HAS_OWN_GATE = True
 
 _DESCRIPTIVE_KINDS = {"relabel-node", "relabel-edge"}
 _INTENT_KINDS = {
@@ -182,12 +187,18 @@ def confidence(input_obj: dict) -> float:
     verdict accumulate. The gate (D16) escalates below the threshold."""
     changes = input_obj.get("semantic_changes", [])
     total = len(changes)
+    verdict_factor = _DIVERGED_FACTOR if input_obj.get("verdict") == "DIVERGED" else 1.0
     if total == 0:
-        return 1.0  # cosmetic-only edit: the template's "no model changes" IS complete
+        # Cosmetic-only edit: no model change to narrate. But a source that
+        # DIVERGED while the diagram was out still needs a human to notice and
+        # reconcile, so the verdict factor applies here too -- an empty diff on
+        # a moved source is NOT full confidence (bug fixed 2026-07-04: it used
+        # to short-circuit to 1.0 and silently skip both escalation and the
+        # DIVERGED note).
+        return round(1.0 * verdict_factor, 4)
     intent = sum(1 for c in changes if c.get("kind") in _INTENT_KINDS)
     intent_ratio = intent / total
     volume_factor = _SMALL_EDIT / max(_SMALL_EDIT, total)
-    verdict_factor = _DIVERGED_FACTOR if input_obj.get("verdict") == "DIVERGED" else 1.0
     return round((1.0 - intent_ratio) * volume_factor * verdict_factor, 4)
 
 
@@ -200,10 +211,15 @@ def deterministic_entry(input_obj: dict) -> dict:
     diverged = input_obj.get("verdict") == "DIVERGED"
 
     if not changes:
+        summary = ("A re-ingested edit changed only layout or styling; no model "
+                   "(node/edge) changes were made. No design decision to narrate.")
+        if diverged:
+            summary += (" NB: the source had evolved since this diagram was generated "
+                        "(DIVERGED) -- even though this edit is cosmetic, reconcile the "
+                        "diagram against the current source by hand.")
         return {
             "title": f"{title}: layout/style refinements only",
-            "summary": ("A re-ingested edit changed only layout or styling; no model "
-                        "(node/edge) changes were made. No design decision to narrate."),
+            "summary": summary,
             "changes": [],
             "capture_mode": "deterministic",
         }
