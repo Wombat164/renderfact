@@ -39,6 +39,7 @@ machine-readable: <a href="/openapi.json">/openapi.json</a>.</p>
   <select id="r-variant"><option value="base">base</option></select>
   <select id="r-locale"><option value="">no locale</option></select>
   <button onclick="doRender('pdf')">Download PDF</button>
+  <button onclick="downloadDocx()">Download DOCX</button>
 </div>
 <div class="controls">
   <span class="hint">insert block:</span>
@@ -154,6 +155,22 @@ async function doRender(fmt) {
 function changePage(delta) {
   const next = Math.min(Math.max(curPage + delta, 1), totalPages);
   if (next !== curPage) { curPage = next; doRender('png'); }
+}
+async function downloadDocx() {
+  errEl.textContent = 'rendering DOCX...';
+  const r = await fetch('/render/docx', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ markdown: mdEl.value }) });
+  if (!r.ok) {
+    let msg = 'render failed';
+    try { msg = (await r.json()).error; } catch (e) {}
+    errEl.textContent = msg;
+    return;
+  }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'render.docx'; a.click();
+  errEl.textContent = '';
 }
 let previewTimer;
 function schedulePreview() {

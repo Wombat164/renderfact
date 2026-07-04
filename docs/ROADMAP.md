@@ -324,6 +324,12 @@ UI into an authoring surface. Filed as issues #42-#46.
   same-origin) + variant/locale controls + PDF download -- over the whole Track H pipeline. Still one
   self-contained page, vanilla JS, no build. (Remaining #45/#46 polish: block-scaffold buttons, a live
   statement-reconciliation panel over a future `POST /statement/check`, a doctor status badge.)
+- **I2b - Render endpoint `POST /render/docx`.** `[build]` **DONE:** the DOCX peer of `/render/pdf`,
+  wrapping `container/render-doc.sh` via `docstyle/docx_pipeline.render_docx()`. Markdown (inline or a
+  jailed `source`) -> a styled DOCX with the generic house style; `profile` / `name` / `project` +
+  `profiles` options. The source is rendered from a temp COPY so the pipeline's provenance-uid embed
+  never mutates a server file (a test asserts the original is byte-identical); `RESOURCE_PATH` keeps
+  relative images resolving. Studio gains a Download DOCX button. 9 tests.
 - **I3 - `POST /statement/check` (#43).** `[build]` **DONE:** reconcile a statement spec (a YAML/JSON
   `data` string, a `spec` object, or a jailed `source` path) over HTTP with no render -- computed rows
   out, or a 400 with the reconciliation error. An optional `locale` supplies default formatting. Lets
