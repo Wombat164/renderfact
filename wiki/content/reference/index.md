@@ -52,7 +52,8 @@ render pdf minutes.md --org "VME Voorbeeld" --title "Algemene Vergadering 2025" 
 | `--theme <file.typ>` | A typst layout file (default: the built-in `pdf/theme/default.typ`). |
 | `--brand <brand.yaml>` | A consumer palette/fonts/theme file, consumed through the token generators. |
 | `--variant <name>` | A theme variant from `brand.yaml [theme.variants]` (default: `base`). |
-| `--title` / `--subtitle` / `--org` / `--date` | Document metadata for the title block, header, and footer. |
+| `--locale <code>` | Project locale (`nl-BE` / `fr-BE` / `en` / ...): number separators, hyphenation, and long-date formatting. |
+| `--title` / `--subtitle` / `--org` / `--date` | Document metadata for the title block, header, and footer. A `--date` given as ISO `YYYY-MM-DD` is rendered as a localized long date under `--locale`. |
 | `--paper <a4\|...>` | Paper size (default `a4`). |
 
 **Toolchain:** pandoc (>=3, has a typst writer) and typst -- both reported by `render doctor`.
@@ -137,6 +138,9 @@ rows:
 - Any computed row may also carry a stated `amount`; if it does not match the computed value to the
   cent, the render **fails** with a clear reconciliation error.
 - Data is YAML (structured, with `format` + `formula`) or CSV (flat `kind,label,amount,id,formula`).
+- With `--locale`, the separators + currency placement come from the locale, so the data file need only
+  state the `currency` (or nothing) -- amounts and dates are supplied as raw values and formatted per
+  locale. An explicit `format` key in the data still overrides the locale.
 
 ## Environment variables
 

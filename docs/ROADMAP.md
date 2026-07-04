@@ -291,9 +291,14 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
   class. `expand_markdown` turns the data-bound block into a plain #33 `::: statement` with computed,
   formatted amounts before pandoc, so the entire render path is reused; all computation lives in tested
   Python. 30 tests. (Amount formatting is data-stated here; H5 makes it a project `locale`.)
-- **H5 - Locale-driven formatting (#35).** `[build]` a project-level `locale` (e.g. `nl-BE`) driving
-  number/currency formatting (`EUR 1.510,53`), localized long dates, and hyphenation language, so
-  amounts/dates are supplied as raw values and rendered per locale. Pairs with H4.
+- **H5 - Locale-driven formatting (#35).** `[build]` **DONE:** `pdf/locale_fmt.py` + `render pdf
+  --locale <code>` (nl-BE / fr-BE / en / en-GB / en-US). A locale drives the statement number
+  separators + currency placement (so a data file need only state `currency`, or nothing), the typst
+  hyphenation language (`set text(lang: ...)`), and long-date formatting (a `--date` given as ISO
+  `YYYY-MM-DD` renders as e.g. `15 februari 2025` / `15 février 2025` / `15 February 2025`). Stdlib-only
+  and deterministic (month names tabled, not from the platform locale db); an unknown locale fails fast,
+  before any tool/render work; an explicit `format` key in statement data still overrides the locale.
+  15 tests. Completes the Track H financial-document surface.
 
 ---
 

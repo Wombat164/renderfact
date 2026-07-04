@@ -77,19 +77,22 @@ def _to_number(value, label: str) -> float:
 
 
 def format_amount(value: float, fmt: dict) -> str:
-    """Format a number per an explicit format block (currency + thousands/decimal
-    separators). Locale-driven formatting is #35; here the data states it, e.g.
-    {currency: EUR, thousands: '.', decimal: ','} -> 'EUR 8.045,77'."""
+    """Format a number per a format block: currency + thousands/decimal separators
+    + currency placement. The separators/placement usually come from the project
+    locale (#35, pdf/locale_fmt.py); the data file may still override any key.
+    e.g. {currency: EUR, thousands: '.', decimal: ',', currency_before: True} ->
+    'EUR 8.045,77'; currency_before False -> '1.510,53 EUR'."""
     currency = fmt.get("currency", "")
     thousands = fmt.get("thousands", "")
     decimal = fmt.get("decimal", ".")
+    before = fmt.get("currency_before", True)
     negative = value < 0
     cents = int(round(abs(value) * 100))
     int_part, frac = divmod(cents, 100)
     grouped = f"{int_part:,}".replace(",", thousands) if thousands else str(int_part)
     out = f"{grouped}{decimal}{frac:02d}"
     if currency:
-        out = f"{currency} {out}"
+        out = f"{currency} {out}" if before else f"{out} {currency}"
     if negative:
         out = f"-{out}"
     return out
@@ -122,12 +125,14 @@ def load_spec(path: Path) -> dict:
 
 # ------------------------------------------------------- compute + reconcile --
 
-def compute_rows(spec: dict) -> list:
+def compute_rows(spec: dict, default_format: "dict | None" = None) -> list:
     """Walk the spec rows computing subtotals (sum of a section's items), totals
     (a formula over subtotal ids, or the running sum of all items), and balances.
     A row that also STATES an amount must reconcile with the computed value to the
-    cent, else StatementError. Returns render rows: {kind, label?, amount?}."""
-    fmt = spec.get("format", {}) or {}
+    cent, else StatementError. Returns render rows: {kind, label?, amount?}.
+    `default_format` (typically the project locale's separators) supplies any
+    format key the spec's own `format` block omits -- the spec always wins."""
+    fmt = {**(default_format or {}), **(spec.get("format", {}) or {})}
     rows = spec.get("rows", []) or []
 
     env: dict = {}       # subtotal id -> computed value
@@ -209,12 +214,13 @@ def _data_attr(attrs: str) -> "str | None":
     return m.group(1) or m.group(2)
 
 
-def expand_markdown(md_text: str, base_dir: Path) -> str:
+def expand_markdown(md_text: str, base_dir: Path, default_format: "dict | None" = None) -> str:
     """Replace every `::: {.statement data="..."}` block with a plain
     `::: statement` block whose rows are computed + reconciled from the data file
     (paths resolved against base_dir). Blocks without a `data` attribute (hand-
-    typed rows) are left untouched. Raises StatementError on any reconciliation or
-    data failure -- which fails the render, by design."""
+    typed rows) are left untouched. `default_format` (the project locale's
+    separators) fills format keys a data file omits. Raises StatementError on any
+    reconciliation or data failure -- which fails the render, by design."""
     lines = md_text.split("\n")
     out: list = []
     i = 0
@@ -231,7 +237,7 @@ def expand_markdown(md_text: str, base_dir: Path) -> str:
             closing = lines[j] if j < len(lines) else ":::"
             if data:
                 spec = load_spec(Path(base_dir) / data)
-                rows = compute_rows(spec)
+                rows = compute_rows(spec, default_format)
                 out.append("::: statement")
                 out.append(to_block_markdown(rows))
                 out.append(":::")

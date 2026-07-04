@@ -21,6 +21,7 @@
   org: none,
   date: none,
   paper: "a4",
+  lang: "en",
   doc,
 ) = {
   set document(title: if title != none { title } else { "" })
@@ -66,7 +67,7 @@
   // the brand font still renders predictably (a brand ships its own font).
   set text(
     font: (brand-font, "Liberation Sans", "Arial", "DejaVu Sans"),
-    size: chrome.body-pt * 1pt, fill: brand.ink, lang: "en",
+    size: chrome.body-pt * 1pt, fill: brand.ink, lang: lang,
   )
   set par(justify: chrome.justify, leading: 0.65em)
 
