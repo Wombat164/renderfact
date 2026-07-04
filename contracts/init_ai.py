@@ -37,9 +37,14 @@ def step_contracts() -> list[tuple[str, object]]:
     Public: chunk 3.4's copy-paste CLI (render.py) reuses this as the single
     source of truth for "which steps exist" -- not just this module's own use."""
     sys.path.insert(0, str(LINT_DIR))
+    sys.path.insert(0, str(REPO_ROOT / "roundtrip"))
     import vision_review_contract  # lint/vision_review_contract.py
+    import decision_capture  # roundtrip/decision_capture.py (C8.3)
 
-    return [("vision-review", vision_review_contract)]
+    return [
+        ("vision-review", vision_review_contract),
+        ("decision-capture", decision_capture),
+    ]
 
 
 def _field_doc(spec: FieldSpec, indent: str = "") -> list[str]:

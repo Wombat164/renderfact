@@ -25,25 +25,27 @@ from contracts import init_ai  # noqa: E402
 
 def test_step_instructions_reflect_actual_schema():
     contracts = init_ai.step_contracts()
-    assert len(contracts) == 1
-    name, module = contracts[0]
-    assert name == "vision-review"
-    text = init_ai.render_step_instructions(name, module)
-    assert module.TASK_INTENT in text
-    for field in module.INPUT_SCHEMA:
-        assert f"`{field.name}`" in text
-    for field in module.OUTPUT_SCHEMA:
-        assert f"`{field.name}`" in text
-    assert '"harness"' in text
+    names = [n for n, _ in contracts]
+    assert "vision-review" in names  # the first, still present
+    assert "decision-capture" in names  # C8.3 added
+    # every registered step must render instructions from its own schema
+    for name, module in contracts:
+        text = init_ai.render_step_instructions(name, module)
+        assert module.TASK_INTENT in text
+        for field in module.INPUT_SCHEMA:
+            assert f"`{field.name}`" in text
+        for field in module.OUTPUT_SCHEMA:
+            assert f"`{field.name}`" in text
+        assert '"harness"' in text
 
 
 def test_step_instructions_expand_nested_list_item_schema():
     # findings has an item_schema (criterion/severity/comment) -- a harness reading
     # only "findings (list, required): Per-criterion findings." could not know the
     # required shape of each item without this expansion.
-    contracts = init_ai.step_contracts()
-    name, module = contracts[0]
-    text = init_ai.render_step_instructions(name, module)
+    contracts = dict(init_ai.step_contracts())
+    module = contracts["vision-review"]
+    text = init_ai.render_step_instructions("vision-review", module)
     findings_field = next(f for f in module.OUTPUT_SCHEMA if f.name == "findings")
     assert findings_field.item_schema is not None
     for nested in findings_field.item_schema:
