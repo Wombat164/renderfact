@@ -79,9 +79,10 @@ OUTPUT_SCHEMA: list[FieldSpec] = [
               item_schema=_FINDING_SCHEMA),
     FieldSpec("summary", str, required=True, description="One-paragraph human-readable verdict."),
     FieldSpec("reviewer_mode", str, required=True,
-              allowed_values=("harness", "copy-paste", "deterministic"),
+              allowed_values=("harness", "copy-paste", "api", "deterministic"),
               description="Which mode produced this output -- provenance, not a quality signal. "
-                          "'deterministic' = the D16 gate accepted the metrics-only verdict, no LLM."),
+                          "'deterministic' = the D16 gate accepted the metrics-only verdict, no LLM. "
+                          "'api' = the D17 direct-API channel ran the escalation."),
 ]
 
 
