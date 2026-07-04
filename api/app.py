@@ -161,6 +161,8 @@ class RenderfactApi:
             return self._project(body)
         if method == "POST" and path == "/render/pdf":
             return self._render_pdf(body)
+        if method == "POST" and path == "/render/docx":
+            return self._render_docx(body)
         raise ApiError(404, f"no route: {method} {path}")
 
     def _info(self):
@@ -179,7 +181,7 @@ class RenderfactApi:
                 "GET /", "GET /session", "GET /openapi.json", "GET /docs",
                 "GET /steps", "GET /steps/{name}",
                 "POST /steps/{name}/validate-output", "POST /project",
-                "POST /render/pdf", "POST /statement/check",
+                "POST /render/pdf", "POST /render/docx", "POST /statement/check",
                 "GET /doctor", "GET /locales", "GET /theme/variants",
             ] + (["GET /ui"] if self.enable_ui else []),
         }
@@ -392,6 +394,53 @@ class RenderfactApi:
         total = counts[0] if counts else 1
         return BinaryResponse(data, "image/png", extra_headers={"X-Total-Pages": str(total)})
 
+    DOCX_CTYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    def _render_docx(self, body: dict | None):
+        """D9 render-as-a-service, DOCX peer of /render/pdf: markdown (inline or a
+        jailed path) -> a styled DOCX via the render-doc.sh pipeline. The source is
+        rendered from a temp copy so the server's own files are never mutated by the
+        provenance-uid embed; images resolve via RESOURCE_PATH to the original dir."""
+        if not isinstance(body, dict):
+            raise ApiError(400, "request body must be a JSON object")
+        markdown, source = body.get("markdown"), body.get("source")
+        if bool(markdown) == bool(source):
+            raise ApiError(400, "provide exactly one of 'markdown' (inline) or 'source' (path under root)")
+        profile = body.get("profile", "reference")
+        name = body.get("name")
+        project = body.get("project")
+        profiles = str(self._jail(body["profiles"], "profiles")) if body.get("profiles") else None
+
+        import shutil
+        import tempfile
+
+        sys.path.insert(0, str(REPO_ROOT))
+        from docstyle import docx_pipeline  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            work_src = td / "input.md"
+            if markdown is not None:
+                if len(markdown.encode("utf-8")) > self.MAX_INLINE_BYTES:
+                    raise ApiError(413, "inline markdown exceeds the size limit")
+                work_src.write_text(markdown, encoding="utf-8")
+                resource_path = td
+            else:
+                original = self._jail(source, "source")
+                if not original.exists():
+                    raise ApiError(404, f"source not found: {source}")
+                shutil.copyfile(original, work_src)  # render a copy: never mutate the original
+                resource_path = original.parent
+            out_dir = td / "out"
+            try:
+                produced = docx_pipeline.render_docx(
+                    work_src, out_dir, name=name, profile=profile, project=project,
+                    profiles=profiles, resource_path=resource_path)
+            except docx_pipeline.DocxBackendError as e:
+                raise ApiError(400, str(e)) from None
+            data = produced.read_bytes()
+        return BinaryResponse(data, self.DOCX_CTYPE, filename="render.docx")
+
 
 class HtmlResponse:
     def __init__(self, html: str):
@@ -513,6 +562,21 @@ def openapi_spec(api: RenderfactApi) -> dict:
                                  "profiles": {"type": "string", "description": "ladders+profiles yaml path"}}}}}},
                          "responses": {"200": {"description": "application/pdf or image/png bytes"},
                                        "400": {"description": "bad input or a render/reconciliation error"},
+                                       "413": {"description": "inline markdown too large"}}}},
+            "/render/docx": {
+                "post": {"summary": "Render markdown to a styled DOCX via the render-doc.sh pipeline",
+                         "requestBody": {"content": {"application/json": {"schema": {
+                             "type": "object",
+                             "description": "exactly one of markdown|source, plus options",
+                             "properties": {
+                                 "markdown": {"type": "string", "description": "inline source (<=512 KB)"},
+                                 "source": {"type": "string", "description": "path under server root"},
+                                 "profile": {"type": "string", "enum": ["reference", "compact"]},
+                                 "name": {"type": "string"},
+                                 "project": {"type": "string", "description": "audience profile name"},
+                                 "profiles": {"type": "string", "description": "ladders+profiles yaml path"}}}}}},
+                         "responses": {"200": {"description": "application/vnd...wordprocessingml.document bytes"},
+                                       "400": {"description": "bad input or a render error (e.g. pandoc missing)"},
                                        "413": {"description": "inline markdown too large"}}}},
             "/statement/check": {
                 "post": {"summary": "Compute + reconcile a statement spec without rendering",

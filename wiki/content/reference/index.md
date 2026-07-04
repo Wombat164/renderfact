@@ -238,6 +238,7 @@ with a Host/Origin guard, a filesystem path jail, and a rate limit. Machine-read
 | `POST /steps/{name}/validate-output` | Validate a candidate step output against its contract. |
 | `POST /project` | Project a source through one audience profile. |
 | `POST /render/pdf` | Render markdown to a PDF (or a paged PNG preview) via the typst backend. |
+| `POST /render/docx` | Render markdown to a styled DOCX via the render-doc.sh pipeline (needs pandoc). |
 | `POST /statement/check` | Compute + reconcile a statement spec (YAML string / object / jailed path) without rendering. |
 | `GET /doctor` | Tool availability + whether the PDF backend (typst + pandoc) is ready. |
 | `GET /locales` | Supported locales, each with a sample formatted number + date. |
