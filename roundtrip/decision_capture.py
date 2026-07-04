@@ -244,9 +244,12 @@ def deterministic_entry(input_obj: dict) -> dict:
 
 def gate(input_obj: dict, threshold: float = DEFAULT_THRESHOLD) -> tuple[str, float]:
     """The D16 escalation gate: 'accept' the deterministic entry when the
-    confidence is at or above the threshold, else 'escalate' to an LLM."""
+    confidence is at or above the threshold, else 'escalate' to an LLM. The
+    accept/escalate comparison is the shared primitive; the score is per-step."""
+    from contracts import confidence_gate
+
     score = confidence(input_obj)
-    return ("accept" if score >= threshold else "escalate"), score
+    return confidence_gate.decide(score, threshold), score
 
 
 # --------------------------------------------------------------------- sink --
@@ -331,30 +334,21 @@ def main(argv: list[str] | None = None) -> int:
         source_version = drawio._content_version(args.source)
 
         input_obj = assemble_input(reingest, args.source.name, title)
-        decision, score = gate(input_obj, args.threshold)
 
-        needs_review = False
-        channel = ("deterministic" if decision == "accept"
-                   else ("copy-paste" if args.escalate == "copy-paste" else "needs-review"))
+        from contracts import confidence_gate, copy_paste
+        escalate = None
+        if args.escalate == "copy-paste":
+            def escalate():
+                return copy_paste.run_copy_paste_step(
+                    "decision-capture", sys.modules[__name__], input_obj, scratch_dir=Path("."))
         try:
-            from contracts import gate_telemetry
-            gate_telemetry.log_decision("decision-capture", score, args.threshold, decision, channel)
-        except ImportError:
-            pass
-
-        if decision == "escalate" and args.escalate == "copy-paste":
-            from contracts import copy_paste
-            entry = copy_paste.run_copy_paste_step(
-                "decision-capture", sys.modules[__name__], input_obj,
-                scratch_dir=Path("."),
-            )
-        else:
-            entry = deterministic_entry(input_obj)
-            needs_review = decision == "escalate"
-
-        ok, errors = validate_output(entry)
-        if not ok:
-            raise DecisionCaptureError(f"decision entry failed validation: {errors}")
+            entry, meta = confidence_gate.resolve(
+                "decision-capture", sys.modules[__name__], input_obj, args.threshold,
+                escalate=escalate)
+        except (confidence_gate.GateError, copy_paste.CopyPasteValidationError) as e:
+            # clean error (not a traceback) when an escalated paste fails validation
+            raise DecisionCaptureError(str(e))
+        decision, score, needs_review = meta["decision"], meta["score"], meta["needs_review"]
 
         entry_md = render_markdown(entry, input_obj, source_version=source_version,
                                    needs_review=needs_review, rendered_at=prov_mod.now_iso())

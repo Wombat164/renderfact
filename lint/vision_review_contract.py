@@ -170,9 +170,12 @@ def confidence(deterministic_metrics: dict) -> float:
 
 def gate(input_obj: dict, threshold: float = DEFAULT_THRESHOLD) -> tuple[str, float]:
     """The D16 escalation gate: 'accept' the metrics-only verdict at/above the
-    threshold (zero LLM tokens), else 'escalate' to the vision LLM."""
+    threshold (zero LLM tokens), else 'escalate' to the vision LLM. The
+    accept/escalate comparison is the shared primitive; the score is per-step."""
+    from contracts import confidence_gate
+
     score = confidence(input_obj.get("deterministic_metrics", {}))
-    return ("accept" if score >= threshold else "escalate"), score
+    return confidence_gate.decide(score, threshold), score
 
 
 def deterministic_entry(input_obj: dict) -> dict:

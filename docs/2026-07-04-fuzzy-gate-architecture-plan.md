@@ -98,7 +98,7 @@ sub-signal breakdown across both, not a bare float. This is the shared VOCABULAR
 stay per-step. Depends on G1 (needs the second instance to design the shared shape from two data
 points, not one).
 
-### G4 -- extract the thin shared gate primitive. Trigger: G1 done.
+### G4 -- extract the thin shared gate primitive. DONE. (Trigger: G1's second consumer.)
 Per this repo's trigger-gated-extraction discipline (only after a second real consumer), extract
 ONLY the two-line `gate(score, threshold)` comparison + the escalate-with-context +
 needs_review-flagging helper into `contracts/confidence_gate.py` (NOT `gate.py` -- the name is
