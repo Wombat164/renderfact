@@ -94,7 +94,58 @@ def test_render_pdf_missing_theme(tmp_path):
                       typst="typst", pandoc="pandoc")
 
 
+# --------------------------------------------------------------- images --
+
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06"
+    b"\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00"
+    b"\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def test_stage_images_rewrites_and_copies(tmp_path):
+    (tmp_path / "logo.png").write_bytes(_PNG)
+    work = tmp_path / "work"
+    work.mkdir()
+    body = 'a #figure(image("logo.png", alt: "l")) b'
+    out = tb.stage_images(body, tmp_path, work)
+    assert 'image("_img/1.png"' in out
+    assert (work / "_img" / "1.png").is_file()
+
+
+def test_stage_images_dedupes_repeated_ref(tmp_path):
+    (tmp_path / "logo.png").write_bytes(_PNG)
+    work = tmp_path / "work"; work.mkdir()
+    body = 'image("logo.png") ... image("logo.png")'
+    out = tb.stage_images(body, tmp_path, work)
+    assert out.count('image("_img/1.png"') == 2  # same staged file reused
+
+
+def test_stage_images_leaves_urls_and_missing(tmp_path):
+    work = tmp_path / "work"; work.mkdir()
+    body = 'image("https://x/y.png") image("gone.png")'
+    out = tb.stage_images(body, tmp_path, work)
+    assert 'image("https://x/y.png")' in out and 'image("gone.png")' in out
+
+
+def test_stage_images_jail_blocks_escape(tmp_path):
+    root = tmp_path / "root"; root.mkdir()
+    (tmp_path / "secret.png").write_bytes(_PNG)
+    work = tmp_path / "work"; work.mkdir()
+    body = 'image("../secret.png")'
+    out = tb.stage_images(body, root, work, image_root=root)
+    assert 'image("../secret.png")' in out  # not staged
+    assert not (work / "_img").exists()
+
+
 # ---------------------------------------------------------- integration (real) --
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_render_with_image_compiles(tmp_path):
+    (tmp_path / "logo.png").write_bytes(_PNG)
+    (tmp_path / "doc.md").write_text("# R\n\n![logo](logo.png)\n\nText.\n", encoding="utf-8")
+    out = tb.render_pdf(tmp_path / "doc.md", tmp_path / "doc.pdf", title="R")
+    assert out.read_bytes()[:5] == b"%PDF-"
 
 @pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
 def test_render_pdf_produces_valid_pdf(tmp_path):
