@@ -216,8 +216,11 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   canonical `assemble_metrics()` source, a `deterministic_entry()` synthesizing the review on the
   accept path (reviewer_mode='deterministic'), gate wired into `run_copy_paste` BEFORE prompt
   assembly with `--threshold`/`RENDERFACT_VISION_THRESHOLD` + `--force-review`. 19 tests.
-- **G2 - gate telemetry + calibration log.** `[build]` append-only `(score, sub-signals, decision,
-  outcome)` log; per-step escalation-rate report; escalation-storm detection + backpressure.
+- **G2 - gate telemetry + calibration log.** `[build]` **DONE:** `contracts/gate_telemetry.py` +
+  `render gate-stats`. Opt-in append-only JSONL (via `RENDERFACT_GATE_LOG`) recording every gate
+  decision (step / score / threshold / decision / channel / verdict); both gate consumers
+  (vision-review, decision-capture) log; `gate-stats` reports overall + per-step escalation rate,
+  recent-window storm detection, and the ~10-15% healthy-band note. Telemetry never breaks the gate.
 - **G3 - confidence sub-signal refactor.** `[build]` with two consumers, make `confidence()` return
   named sub-signals (coverage/specificity/ambiguity/novelty/volume/verdict), not a bare float.
 - **G4 - extract the thin gate primitive.** `[build]` trigger-gated (after G1's second consumer):
