@@ -233,7 +233,7 @@ with a Host/Origin guard, a filesystem path jail, and a rate limit. Machine-read
 | `GET /steps`, `GET /steps/{name}` | List / introspect D8 step contracts. |
 | `POST /steps/{name}/validate-output` | Validate a candidate step output against its contract. |
 | `POST /project` | Project a source through one audience profile. |
-| `POST /render/pdf` | Render markdown to a PDF (or first-page PNG preview) via the typst backend. |
+| `POST /render/pdf` | Render markdown to a PDF (or a paged PNG preview) via the typst backend. |
 | `POST /statement/check` | Compute + reconcile a statement spec (YAML string / object / jailed path) without rendering. |
 | `GET /doctor` | Tool availability + whether the PDF backend (typst + pandoc) is ready. |
 | `GET /locales` | Supported locales, each with a sample formatted number + date. |
@@ -242,10 +242,12 @@ with a Host/Origin guard, a filesystem path jail, and a rate limit. Machine-read
 
 `POST /render/pdf` takes exactly one of `markdown` (inline, <=512 KB) or `source` (a path under the
 server root), plus `format` (`pdf` | `png`), and the same options as `render pdf` (`title` / `subtitle`
-/ `org` / `date` / `variant` / `locale` / `paper` / `brand`). It returns `application/pdf` or
-`image/png` bytes; a bad input, a failed render, or a statement reconciliation failure returns a `4xx`
-with a JSON `error`. Statement `data=` paths are jailed under the server root (source mode) or the
-render temp dir (inline mode), so an untrusted document cannot read outside the sandbox.
+/ `org` / `date` / `variant` / `locale` / `paper` / `brand` / `project` + `profiles`). It returns
+`application/pdf` or `image/png` bytes; a bad input, a failed render, or a statement reconciliation
+failure returns a `4xx` with a JSON `error`. For `png`, a 1-indexed `page` (clamped) selects the page
+and the response carries an `X-Total-Pages` header. Statement `data=` and image paths are jailed under
+the server root (source mode) or the render temp dir (inline mode), so an untrusted document cannot
+read outside the sandbox.
 
 The **studio** (`/ui`, `--enable-ui`) is a thin client of this endpoint: edit markdown, get a live PNG
 preview (debounced), tweak variant/locale, download the PDF -- exercising the whole Track H pipeline.

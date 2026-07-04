@@ -72,6 +72,11 @@ machine-readable: <a href="/openapi.json">/openapi.json</a>.</p>
 - B. Peeters  | Secretaris
 :::</textarea>
   <div>
+    <div class="controls">
+      <button onclick="changePage(-1)">&#8592; prev</button>
+      <span id="pager" class="hint">page 1 / 1</span>
+      <button onclick="changePage(1)">next &#8594;</button>
+    </div>
     <div class="preview"><img id="preview" alt="(preview renders here)"></div>
     <div id="r-err" class="err"></div>
   </div>
@@ -119,9 +124,11 @@ const img = document.getElementById('preview');
 const errEl = document.getElementById('r-err');
 const val = id => document.getElementById(id).value;
 
+let curPage = 1, totalPages = 1;
 function renderBody(fmt) {
   const b = { markdown: mdEl.value, format: fmt, title: val('r-title'), org: val('r-org'),
               date: val('r-date'), variant: val('r-variant'), locale: val('r-locale') };
+  if (fmt === 'png') b.page = curPage;
   Object.keys(b).forEach(k => (b[k] === '' && k !== 'markdown') && delete b[k]);
   return JSON.stringify(b);
 }
@@ -137,11 +144,22 @@ async function doRender(fmt) {
   }
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
-  if (fmt === 'png') { img.src = url; errEl.textContent = ''; }
-  else { const a = document.createElement('a'); a.href = url; a.download = 'render.pdf'; a.click(); }
+  if (fmt === 'png') {
+    img.src = url; errEl.textContent = '';
+    totalPages = parseInt(r.headers.get('X-Total-Pages') || '1', 10) || 1;
+    if (curPage > totalPages) curPage = totalPages;
+    document.getElementById('pager').textContent = 'page ' + curPage + ' / ' + totalPages;
+  } else { const a = document.createElement('a'); a.href = url; a.download = 'render.pdf'; a.click(); }
+}
+function changePage(delta) {
+  const next = Math.min(Math.max(curPage + delta, 1), totalPages);
+  if (next !== curPage) { curPage = next; doRender('png'); }
 }
 let previewTimer;
-function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(() => doRender('png'), 600); }
+function schedulePreview() {
+  curPage = 1;  // edits can change pagination; go back to the first page
+  clearTimeout(previewTimer); previewTimer = setTimeout(() => doRender('png'), 600);
+}
 ['r-title','r-org','r-date','r-variant','r-locale'].forEach(
   id => document.getElementById(id).addEventListener('change', () => doRender('png')));
 
