@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "renderfact"
-version = "0.2.0"
+version = "0.3.0"
 description = "Governed docs-as-code render framework: one full-candor source, governed audience projections rendered to DOCX and diagrams (decks/posters/archival-PDF on the roadmap)."
 readme = "README-pypi.md"
 license = { text = "MIT" }
