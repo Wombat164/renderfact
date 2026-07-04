@@ -114,6 +114,15 @@ def run_diagram(args: list[str]) -> int:
         sys.argv = old_argv
 
 
+def run_pdf(args: list[str]) -> int:
+    """Dispatch to pdf/typst_backend.py -- the layout-native PDF backend (issue
+    #31): markdown -> typst -> PDF, a peer of the DOCX path (no LibreOffice)."""
+    sys.path.insert(0, str(REPO_ROOT / "pdf"))
+    import typst_backend  # pdf/typst_backend.py
+
+    return typst_backend.main(args)
+
+
 def run_container(args: list[str]) -> int:
     """Raw passthrough to container/render (the podman wrapper) -- unmodified."""
     script = CONTAINER_DIR / "render"
@@ -409,6 +418,7 @@ def run_gate(args: list[str]) -> int:
 
 MODES = {
     "docx": run_docx,
+    "pdf": run_pdf,
     "diagram": run_diagram,
     "tokens": run_tokens,
     "init-ai": run_init_ai,

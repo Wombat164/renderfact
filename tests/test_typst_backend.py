@@ -1,0 +1,133 @@
+"""
+Tests for pdf/typst_backend.py (issue #31): the layout-native PDF backend
+(markdown -> pandoc typst writer -> typst -> PDF), a peer of the DOCX path.
+
+Unit tests (no binaries) cover tool resolution, error mapping, and main.typ
+composition. An integration test actually compiles a PDF, skipped when typst or
+pandoc is absent (as on CI runners). A dispatch test proves `render pdf` routes.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "pdf"))
+
+import typst_backend as tb  # noqa: E402
+
+RENDER_PY = REPO_ROOT / "render.py"
+HAVE_TYPST = shutil.which("typst") is not None
+HAVE_PANDOC = shutil.which("pandoc") is not None
+
+
+# ----------------------------------------------------------- typst literals --
+
+def test_typ_str_none():
+    assert tb._typ_str(None) == "none"
+
+
+def test_typ_str_escapes():
+    assert tb._typ_str('a "b" \\c') == '"a \\"b\\" \\\\c"'
+
+
+def test_compose_main_shape():
+    main = tb.compose_main("= Body\n", title="T", subtitle=None, org="Org", date="2025", paper="a4")
+    assert '#import "theme.typ": conf' in main
+    assert "#show: conf.with(" in main
+    assert 'title: "T"' in main and 'org: "Org"' in main and 'subtitle: none' in main
+    assert 'paper: "a4"' in main
+    assert main.rstrip().endswith("= Body")
+
+
+# --------------------------------------------------------------- tool lookup --
+
+def test_resolve_env_override(monkeypatch):
+    monkeypatch.setenv("TYPST", "/custom/typst")
+    assert tb._resolve("typst", "TYPST") == "/custom/typst"
+
+
+def test_find_typst_missing_raises(monkeypatch):
+    monkeypatch.delenv("TYPST", raising=False)
+    monkeypatch.setattr(tb.shutil, "which", lambda _b: None)
+    monkeypatch.setattr(tb.sys, "platform", "linux")
+    with pytest.raises(tb.TypstBackendError, match="typst not found"):
+        tb.find_typst()
+
+
+def test_find_pandoc_missing_raises(monkeypatch):
+    monkeypatch.delenv("PANDOC", raising=False)
+    monkeypatch.setattr(tb.shutil, "which", lambda _b: None)
+    monkeypatch.setattr(tb.sys, "platform", "linux")
+    with pytest.raises(tb.TypstBackendError, match="pandoc not found"):
+        tb.find_pandoc()
+
+
+# --------------------------------------------------------------- error paths --
+
+def test_md_to_typst_error_maps(monkeypatch, tmp_path):
+    md = tmp_path / "x.md"
+    md.write_text("# hi\n", encoding="utf-8")
+
+    def _fail(*a, **k):
+        return subprocess.CompletedProcess(a, 1, stdout="", stderr="pandoc boom")
+    monkeypatch.setattr(tb.subprocess, "run", _fail)
+    with pytest.raises(tb.TypstBackendError, match="pandoc boom"):
+        tb.md_to_typst(md, "pandoc")
+
+
+def test_render_pdf_missing_source(tmp_path):
+    with pytest.raises(tb.TypstBackendError, match="source not found"):
+        tb.render_pdf(tmp_path / "nope.md", typst="typst", pandoc="pandoc")
+
+
+def test_render_pdf_missing_theme(tmp_path):
+    md = tmp_path / "x.md"
+    md.write_text("# hi\n", encoding="utf-8")
+    with pytest.raises(tb.TypstBackendError, match="theme not found"):
+        tb.render_pdf(md, tmp_path / "out.pdf", theme=tmp_path / "nope.typ",
+                      typst="typst", pandoc="pandoc")
+
+
+# ---------------------------------------------------------- integration (real) --
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_render_pdf_produces_valid_pdf(tmp_path):
+    md = tmp_path / "doc.md"
+    md.write_text(
+        "# Title\n\nA paragraph.\n\n## Table\n\n| A | B |\n|---|---|\n| 1 | 2 |\n",
+        encoding="utf-8")
+    out = tmp_path / "doc.pdf"
+    result = tb.render_pdf(md, out, title="Test", org="Org", date="2025-01-01")
+    assert result == out and out.is_file()
+    assert out.read_bytes()[:5] == b"%PDF-"
+
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_render_pdf_default_output_dir(tmp_path, monkeypatch):
+    md = tmp_path / "mydoc.md"
+    md.write_text("# Hi\n", encoding="utf-8")
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "renders"))
+    out = tb.render_pdf(md, title="Hi")
+    assert out == tmp_path / "renders" / "mydoc.pdf" and out.is_file()
+
+
+# --------------------------------------------------------------- dispatch --
+
+def test_render_pdf_mode_help_routes():
+    # argparse-backed: --help works with no binaries installed.
+    r = subprocess.run([sys.executable, str(RENDER_PY), "pdf", "--help"],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0
+    assert "render pdf" in r.stdout and "--engine" in r.stdout
+
+
+def test_render_pdf_mode_requires_source():
+    r = subprocess.run([sys.executable, str(RENDER_PY), "pdf"],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 2  # argparse: missing required positional
