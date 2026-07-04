@@ -136,6 +136,7 @@ def compose_main(
     org: "str | None",
     date: "str | None",
     paper: str,
+    lang: str = "en",
 ) -> str:
     """Compose main.typ: import the theme, apply it as a show rule with the
     document metadata, then the pandoc body."""
@@ -145,6 +146,7 @@ def compose_main(
         f"org: {_typ_str(org)}",
         f"date: {_typ_str(date)}",
         f"paper: {_typ_str(paper)}",
+        f"lang: {_typ_str(lang)}",
     ])
     return (
         '#import "theme.typ": conf\n'
@@ -168,6 +170,7 @@ def render_pdf(
     date: "str | None" = None,
     paper: str = "a4",
     variant: str = "base",
+    locale: "str | None" = None,
     typst: "str | None" = None,
     pandoc: "str | None" = None,
 ) -> Path:
@@ -176,6 +179,18 @@ def render_pdf(
     source = Path(source)
     if not source.is_file():
         raise TypstBackendError(f"source not found: {source}")
+
+    # #35: a project locale drives number separators (statement amounts), the
+    # hyphenation language, and long-date formatting (raw ISO -> localized).
+    # Resolved first so a bad locale fails before any tool/render work.
+    import locale_fmt
+    try:
+        locale_cfg = locale_fmt.resolve(locale)
+    except locale_fmt.LocaleError as e:
+        raise TypstBackendError(str(e)) from None
+    number_defaults = locale_fmt.number_format(locale_cfg)
+    text_lang = locale_fmt.lang(locale_cfg, "en")
+    date = locale_fmt.format_date(date, locale_cfg)
 
     typst = typst or find_typst()
     pandoc = pandoc or find_pandoc()
@@ -202,7 +217,7 @@ def render_pdf(
         import statement_data
         raw = source.read_text(encoding="utf-8")
         try:
-            expanded = statement_data.expand_markdown(raw, source.parent)
+            expanded = statement_data.expand_markdown(raw, source.parent, number_defaults)
         except statement_data.StatementError as e:
             raise TypstBackendError(str(e)) from None
         md_for_pandoc = source
@@ -211,7 +226,8 @@ def render_pdf(
             md_for_pandoc.write_text(expanded, encoding="utf-8")
         body = md_to_typst(md_for_pandoc, pandoc, resource_path=source.parent)
         (work / "main.typ").write_text(
-            compose_main(body, title=title, subtitle=subtitle, org=org, date=date, paper=paper),
+            compose_main(body, title=title, subtitle=subtitle, org=org, date=date,
+                         paper=paper, lang=text_lang),
             encoding="utf-8",
         )
         # --root at the source's own dir so body-relative image() paths resolve;
@@ -243,6 +259,8 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--brand", default=None, help="a consumer brand.yaml (default: the built-in tokens)")
     ap.add_argument("--variant", default="base",
                     help="theme variant from brand.yaml [theme.variants] (default: base)")
+    ap.add_argument("--locale", default=None,
+                    help="project locale (e.g. nl-BE) driving number/date formatting + hyphenation")
     ap.add_argument("--title", default=None, help="document title (default: the source stem)")
     ap.add_argument("--subtitle", default=None)
     ap.add_argument("--org", default=None, help="organisation shown in the page header")
@@ -254,7 +272,7 @@ def main(argv: "list[str] | None" = None) -> int:
         out = render_pdf(
             args.source, args.output, theme=args.theme, brand=args.brand,
             title=args.title, subtitle=args.subtitle, org=args.org, date=args.date,
-            paper=args.paper, variant=args.variant,
+            paper=args.paper, variant=args.variant, locale=args.locale,
         )
     except TypstBackendError as e:
         print(f"ERROR: {e}", file=sys.stderr)
