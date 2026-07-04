@@ -202,6 +202,44 @@ def test_project_produces_projected_markdown():
     assert internal and public and internal != public  # projection drops blocks
 
 
+def test_profile_names_missing_config(tmp_path):
+    with pytest.raises(tb.TypstBackendError, match="profiles config not found"):
+        tb.profile_names(tmp_path / "nope.yaml")
+
+
+def test_profile_names_lists_config():
+    cfg = REPO_ROOT / "demo" / "profiles.yaml"
+    if not cfg.is_file():
+        pytest.skip("demo fixtures absent")
+    names = tb.profile_names(cfg)
+    assert names == sorted(names) and "public-tender" in names
+
+
+def test_batch_all_requires_profiles(tmp_path):
+    # errors before any render tool is needed (config check first)
+    src = tmp_path / "s.md"
+    src.write_text("# x\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, str(REPO_ROOT / "render.py"), "pdf", str(src),
+                        "--project", "all"], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 3 and "requires --profiles" in r.stderr
+
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_batch_all_renders_each_profile(tmp_path):
+    src = REPO_ROOT / "demo" / "source" / "signalling-it-refresh.md"
+    cfg = REPO_ROOT / "demo" / "profiles.yaml"
+    if not (src.is_file() and cfg.is_file()):
+        pytest.skip("demo fixtures absent")
+    r = subprocess.run([sys.executable, str(REPO_ROOT / "render.py"), "pdf", str(src),
+                        "-o", str(tmp_path / "x.pdf"), "--project", "all", "--profiles", str(cfg)],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    produced = sorted(p.name for p in tmp_path.glob("signalling-it-refresh-*.pdf"))
+    assert produced == ["signalling-it-refresh-bidder-pack.pdf",
+                        "signalling-it-refresh-internal-full.pdf",
+                        "signalling-it-refresh-public-tender.pdf"]
+
+
 @pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
 def test_render_project_compiles(tmp_path):
     src = REPO_ROOT / "demo" / "source" / "signalling-it-refresh.md"
