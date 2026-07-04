@@ -93,6 +93,7 @@ bound, in which case provenance is stripped.
 | **Round-trip** | Hidden provenance across DOCX/XLSX/PPTX | `render provenance` |
 | | Mechanical DOCX re-ingestion: verdicts, reviewer-edit report, fast-forward apply, embedded-doc triage | `render reingest` |
 | | Editable-diagram round-trip (draw.io lead adapter; stable IDs; semantic/style/layout routing) | `render drawio` |
+| | Editable-diagram round-trip, Visio adapter (NameU anchors; OPC provenance; optional `vsdx` lib) | `render vsdx` |
 | **Gate + verify** | Fail-closed QA chain: Vale, lychee (offline), veraPDF (PDF/A + PDF/UA), duplicate-uid detection | `render gate` |
 | | Post-render QA: leak probes, table geometry, paragraph weight | `render qa` |
 | | Host-vs-lock drift report (never fails: that is the container's job) | `render doctor` |
@@ -174,6 +175,8 @@ python render.py provenance embed|extract|adopt|retarget|strip . # hidden proven
 python render.py reingest <edited.docx> --source <md> [--apply]  # re-ingestion: report-only by default
 python render.py drawio generate <graph.yaml> [--layout l.yaml]  # concept graph -> editable .drawio
 python render.py drawio reingest <edited.drawio|.png> --source <g>  # classify + route hand-edits
+python render.py vsdx generate <graph.yaml> [-o d.vsdx]          # concept graph -> editable Visio .vsdx
+python render.py vsdx reingest <edited.vsdx> --source <g>        # classify + route Visio hand-edits
 python render.py gate <files...> [--stages vale,lychee,verapdf,uids] # fail-closed QA chain
 python render.py qa leaks|tables|paras|figs|all ...              # post-render QA (report-only default)
 python render.py init-ai [--assistant claude|copilot|all]        # install harness-mode instructions

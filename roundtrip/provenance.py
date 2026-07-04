@@ -2,7 +2,9 @@
 provenance.py -- D11 part 2 (chunk 4.1): hidden provenance metadata embedded in
 every rendered editable-document artifact -- DOCX, XLSX, PPTX (main, annex,
 embedded-variant -- chunk 4.2 wires this into all three once the dual-output
-path exists). Deliberately excludes SVG/PNG (visual/diagram artifacts, not
+path exists), and since C8.2 also VSDX (Visio is the same OPC package family;
+handled by the generic in-zip adapter below because no managing library
+exists). Deliberately excludes SVG/PNG (visual/diagram artifacts, not
 round-trippable Office documents) and PDF (a flattened archival format, not
 editable/re-ingestable the way D11 requires).
 
@@ -97,15 +99,128 @@ def _load_pptx(path: Path):
     return pptx.Presentation(str(path))
 
 
+_CORE_XML_NS = {
+    "cp": "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",
+    "dc": "http://purl.org/dc/elements/1.1/",
+}
+_CORE_PART = "docProps/core.xml"
+_MINIMAL_CORE_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<cp:coreProperties xmlns:cp="%s" xmlns:dc="%s"/>'
+    % (_CORE_XML_NS["cp"], _CORE_XML_NS["dc"])
+)
+
+
+class _OpcCoreProps:
+    """Generic OPC core-properties access for package formats none of the three
+    Office libraries covers (today: .vsdx, C8.2 -- Visio is OPC exactly like
+    DOCX/XLSX/PPTX; Microsoft's file-format introduction confirms
+    docProps/core.xml, and the prior-art pass flagged the byte-level check as
+    the first implementation task, done in this chunk's tests).
+
+    Reads the whole package into memory, exposes `.identifier` backed by the
+    dc:identifier element, and rewrites the zip on save. Only the core part
+    (plus, when it has to be created, its content-type override and package
+    relationship) changes; every other member is copied byte-identical, so
+    page XML, masters and window state survive untouched. The module docstring
+    warns hand-rolling registrations risks Office 'repair' prompts -- that is
+    why the creation path registers BOTH entries and is covered by a dedicated
+    test rather than assumed."""
+
+    def __init__(self, path: Path):
+        import zipfile
+
+        self._members: list[tuple[str, bytes]] = []
+        with zipfile.ZipFile(path) as zf:
+            for name in zf.namelist():
+                self._members.append((name, zf.read(name)))
+        self._names = {n for n, _ in self._members}
+
+    def _core_root(self):
+        import xml.etree.ElementTree as ET
+
+        for name, data in self._members:
+            if name == _CORE_PART:
+                return ET.fromstring(data)
+        return ET.fromstring(_MINIMAL_CORE_XML)
+
+    @property
+    def identifier(self) -> str:
+        el = self._core_root().find("dc:identifier", _CORE_XML_NS)
+        return (el.text or "") if el is not None else ""
+
+    @identifier.setter
+    def identifier(self, value: str) -> None:
+        import xml.etree.ElementTree as ET
+
+        root = self._core_root()
+        el = root.find("dc:identifier", _CORE_XML_NS)
+        if el is None:
+            el = ET.SubElement(root, f"{{{_CORE_XML_NS['dc']}}}identifier")
+        el.text = value or None
+        ET.register_namespace("cp", _CORE_XML_NS["cp"])
+        ET.register_namespace("dc", _CORE_XML_NS["dc"])
+        payload = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
+        if _CORE_PART in self._names:
+            self._members = [(n, payload if n == _CORE_PART else d) for n, d in self._members]
+        else:
+            self._members.append((_CORE_PART, payload))
+            self._names.add(_CORE_PART)
+            self._register_core_part()
+
+    def _register_core_part(self) -> None:
+        import xml.etree.ElementTree as ET
+
+        ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+        rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        rtype = ("http://schemas.openxmlformats.org/package/2006/"
+                 "relationships/metadata/core-properties")
+        new_members = []
+        for name, data in self._members:
+            if name == "[Content_Types].xml":
+                root = ET.fromstring(data)
+                if not any(o.get("PartName") == "/" + _CORE_PART
+                           for o in root.iter(f"{{{ct_ns}}}Override")):
+                    ET.SubElement(root, f"{{{ct_ns}}}Override", {
+                        "PartName": "/" + _CORE_PART,
+                        "ContentType": "application/vnd.openxmlformats-package."
+                                       "core-properties+xml",
+                    })
+                ET.register_namespace("", ct_ns)
+                data = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
+            elif name == "_rels/.rels":
+                root = ET.fromstring(data)
+                if not any(r.get("Type") == rtype
+                           for r in root.iter(f"{{{rel_ns}}}Relationship")):
+                    taken = {r.get("Id") for r in root.iter(f"{{{rel_ns}}}Relationship")}
+                    rid = next(f"rId{i}" for i in range(1, 1000) if f"rId{i}" not in taken)
+                    ET.SubElement(root, f"{{{rel_ns}}}Relationship", {
+                        "Id": rid, "Type": rtype, "Target": _CORE_PART,
+                    })
+                ET.register_namespace("", rel_ns)
+                data = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
+            new_members.append((name, data))
+        self._members = new_members
+
+    def save(self, path: Path) -> None:
+        import zipfile
+
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, data in self._members:
+                zf.writestr(name, data)
+
+
 # Per format: (loader, properties-object-getter, saver). docx/pptx expose their
 # OOXML core properties via a nested `.core_properties`; openpyxl exposes them
-# directly as `.properties` on the workbook. Each loader imports its library
-# lazily, so using the DOCX path never requires openpyxl/python-pptx to be
-# installed, and vice versa.
+# directly as `.properties` on the workbook; .vsdx has no managing library, so
+# the generic OPC adapter above edits docProps/core.xml in the zip directly.
+# Each loader imports its library lazily, so using the DOCX path never requires
+# openpyxl/python-pptx to be installed, and vice versa (.vsdx needs stdlib only).
 _FORMAT_ADAPTERS = {
     ".docx": (_load_docx, lambda doc: doc.core_properties, lambda doc, path: doc.save(str(path))),
     ".pptx": (_load_pptx, lambda doc: doc.core_properties, lambda doc, path: doc.save(str(path))),
     ".xlsx": (_load_xlsx, lambda wb: wb.properties, lambda wb, path: wb.save(str(path))),
+    ".vsdx": (_OpcCoreProps, lambda pkg: pkg, lambda pkg, path: pkg.save(path)),
 }
 
 
