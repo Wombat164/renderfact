@@ -160,7 +160,8 @@ def test_ui_gated_behind_flag():
     code, _ = call(make_api(), "GET", "/ui")
     assert code == 404
     code, html = call(make_api(enable_ui=True), "GET", "/ui")
-    assert code == 200 and "renderfact reference UI" in html
+    assert code == 200 and "renderfact studio" in html
+    assert "/render/pdf" in html  # the render studio calls the render endpoint
 
 
 def test_openapi_and_docs_served():

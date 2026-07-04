@@ -171,11 +171,19 @@ def render_pdf(
     paper: str = "a4",
     variant: str = "base",
     locale: "str | None" = None,
+    fmt: str = "pdf",
+    ppi: int = 144,
+    data_root: "Path | None" = None,
     typst: "str | None" = None,
     pandoc: "str | None" = None,
 ) -> Path:
-    """Render a markdown source to a themed A4 PDF via typst. Returns the output
-    path. Raises TypstBackendError on any missing tool or failed step."""
+    """Render a markdown source to a themed A4 PDF (fmt='pdf') or a first-page PNG
+    preview (fmt='png') via typst. Returns the output path. `data_root`, when set,
+    jails every statement `data=` path under it (the API passes its server root
+    for untrusted sources). Raises TypstBackendError on any missing tool or failed
+    step."""
+    if fmt not in ("pdf", "png"):
+        raise TypstBackendError(f"unsupported output format: {fmt!r} (use pdf or png)")
     source = Path(source)
     if not source.is_file():
         raise TypstBackendError(f"source not found: {source}")
@@ -203,7 +211,7 @@ def render_pdf(
     if output is None:
         out_dir = Path(os.environ.get("OUTPUT_DIR", "renders"))
         out_dir.mkdir(parents=True, exist_ok=True)
-        output = out_dir / f"{source.stem}.pdf"
+        output = out_dir / f"{source.stem}.{fmt}"
     output = Path(output)
 
     with tempfile.TemporaryDirectory() as td:
@@ -217,7 +225,8 @@ def render_pdf(
         import statement_data
         raw = source.read_text(encoding="utf-8")
         try:
-            expanded = statement_data.expand_markdown(raw, source.parent, number_defaults)
+            expanded = statement_data.expand_markdown(raw, source.parent, number_defaults,
+                                                      data_root=data_root)
         except statement_data.StatementError as e:
             raise TypstBackendError(str(e)) from None
         md_for_pandoc = source
@@ -230,16 +239,23 @@ def render_pdf(
                          paper=paper, lang=text_lang),
             encoding="utf-8",
         )
-        # --root at the source's own dir so body-relative image() paths resolve;
-        # main.typ lives in work, so allow both roots via the parent that contains
-        # both is impossible -- keep it simple: root = work, and pass the source
-        # dir as a font/asset path is a follow-on. MVP: text + tables + rules.
-        result = subprocess.run(
-            [typst, "compile", "--root", str(work), str(work / "main.typ"), str(output)],
-            capture_output=True, text=True, encoding="utf-8",
-        )
+        # root = work; body-relative images resolve via pandoc's --resource-path
+        # above. For a PNG preview, typst writes one file per page to a zero-padded
+        # template; we return the first page (the preview). For PDF, a single file.
+        if fmt == "png":
+            page_tmpl = work / "_page-{0p}.png"
+            cmd = [typst, "compile", "--format", "png", "--ppi", str(ppi),
+                   "--root", str(work), str(work / "main.typ"), str(page_tmpl)]
+        else:
+            cmd = [typst, "compile", "--root", str(work), str(work / "main.typ"), str(output)]
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
         if result.returncode != 0:
             raise TypstBackendError(f"typst compile failed:\n{result.stderr.strip()}")
+        if fmt == "png":
+            pages = sorted(work.glob("_page-*.png"))
+            if not pages:
+                raise TypstBackendError("typst produced no PNG pages")
+            shutil.copyfile(pages[0], output)
 
     return output
 

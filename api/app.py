@@ -150,6 +150,8 @@ class RenderfactApi:
             return self._validate_output(m.group(1), body)
         if method == "POST" and path == "/project":
             return self._project(body)
+        if method == "POST" and path == "/render/pdf":
+            return self._render_pdf(body)
         raise ApiError(404, f"no route: {method} {path}")
 
     def _info(self):
@@ -168,6 +170,7 @@ class RenderfactApi:
                 "GET /", "GET /session", "GET /openapi.json", "GET /docs",
                 "GET /steps", "GET /steps/{name}",
                 "POST /steps/{name}/validate-output", "POST /project",
+                "POST /render/pdf",
             ] + (["GET /ui"] if self.enable_ui else []),
         }
 
@@ -223,9 +226,67 @@ class RenderfactApi:
         return {"profile": body["profile"], "blocks_dropped": dropped, "text": text}
 
 
+    MAX_INLINE_BYTES = 512 * 1024
+
+    def _render_pdf(self, body: dict | None):
+        """D9 render-as-a-service: markdown (inline or a jailed path) + options ->
+        the rendered PDF (or a first-page PNG preview). The typst backend's own
+        data-path jail is pointed at the server root (source mode) or the temp dir
+        (inline mode) so an untrusted document cannot read outside the sandbox."""
+        if not isinstance(body, dict):
+            raise ApiError(400, "request body must be a JSON object")
+        fmt = body.get("format", "pdf")
+        if fmt not in ("pdf", "png"):
+            raise ApiError(400, "format must be 'pdf' or 'png'")
+        markdown, source = body.get("markdown"), body.get("source")
+        if bool(markdown) == bool(source):
+            raise ApiError(400, "provide exactly one of 'markdown' (inline) or 'source' (path under root)")
+
+        opts = {k: body.get(k) for k in ("title", "subtitle", "org", "date", "locale")}
+        opts["paper"] = body.get("paper", "a4")
+        opts["variant"] = body.get("variant", "base")
+        brand = str(self._jail(body["brand"], "brand")) if body.get("brand") else None
+
+        import tempfile
+
+        sys.path.insert(0, str(REPO_ROOT / "pdf"))
+        import typst_backend  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            if markdown is not None:
+                if len(markdown.encode("utf-8")) > self.MAX_INLINE_BYTES:
+                    raise ApiError(413, "inline markdown exceeds the size limit")
+                src = td / "input.md"
+                src.write_text(markdown, encoding="utf-8")
+                data_root = td  # inline: statement data may not read server files
+            else:
+                src = self._jail(source, "source")
+                if not src.exists():
+                    raise ApiError(404, f"source not found: {source}")
+                data_root = self.root
+            out = td / f"out.{fmt}"
+            try:
+                typst_backend.render_pdf(src, out, brand=brand, fmt=fmt, data_root=data_root, **opts)
+            except typst_backend.TypstBackendError as e:
+                raise ApiError(400, str(e)) from None
+            data = out.read_bytes()
+
+        if fmt == "pdf":
+            return BinaryResponse(data, "application/pdf", filename="render.pdf")
+        return BinaryResponse(data, "image/png")
+
+
 class HtmlResponse:
     def __init__(self, html: str):
         self.html = html
+
+
+class BinaryResponse:
+    def __init__(self, data: bytes, content_type: str, filename: str | None = None):
+        self.data = data
+        self.content_type = content_type
+        self.filename = filename
 
 
 def make_wsgi_app(api: RenderfactApi):
@@ -253,6 +314,13 @@ def make_wsgi_app(api: RenderfactApi):
                            [("Content-Type", "application/json; charset=utf-8"),
                             ("Content-Length", str(len(payload)))])
             return [payload]
+        if isinstance(result, BinaryResponse):
+            headers = [("Content-Type", result.content_type),
+                       ("Content-Length", str(len(result.data)))]
+            if result.filename:
+                headers.append(("Content-Disposition", f'attachment; filename="{result.filename}"'))
+            start_response("200 OK", headers)
+            return [result.data]
         if isinstance(result, HtmlResponse):
             payload = result.html.encode("utf-8")
             ctype = "text/html; charset=utf-8"
@@ -268,7 +336,7 @@ def make_wsgi_app(api: RenderfactApi):
 
 def _reason(status: int) -> str:
     return {400: "Bad Request", 403: "Forbidden", 404: "Not Found",
-            429: "Too Many Requests"}.get(status, "Error")
+            413: "Payload Too Large", 429: "Too Many Requests"}.get(status, "Error")
 
 
 def openapi_spec(api: RenderfactApi) -> dict:
@@ -309,6 +377,22 @@ def openapi_spec(api: RenderfactApi) -> dict:
                                  "keep_frontmatter": {"type": "boolean"}}}}}},
                          "responses": {"200": {"description": "projected markdown + blocks_dropped"},
                                        "403": {"description": "path escapes server root"}}}},
+            "/render/pdf": {
+                "post": {"summary": "Render markdown to a PDF (or first-page PNG preview) via the typst backend",
+                         "requestBody": {"content": {"application/json": {"schema": {
+                             "type": "object",
+                             "description": "exactly one of markdown|source, plus options",
+                             "properties": {
+                                 "markdown": {"type": "string", "description": "inline source (<=512 KB)"},
+                                 "source": {"type": "string", "description": "path under server root"},
+                                 "format": {"type": "string", "enum": ["pdf", "png"], "default": "pdf"},
+                                 "title": {"type": "string"}, "subtitle": {"type": "string"},
+                                 "org": {"type": "string"}, "date": {"type": "string"},
+                                 "variant": {"type": "string"}, "locale": {"type": "string"},
+                                 "paper": {"type": "string"}, "brand": {"type": "string"}}}}}},
+                         "responses": {"200": {"description": "application/pdf or image/png bytes"},
+                                       "400": {"description": "bad input or a render/reconciliation error"},
+                                       "413": {"description": "inline markdown too large"}}}},
         },
     }
 

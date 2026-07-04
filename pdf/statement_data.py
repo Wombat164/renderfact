@@ -214,13 +214,16 @@ def _data_attr(attrs: str) -> "str | None":
     return m.group(1) or m.group(2)
 
 
-def expand_markdown(md_text: str, base_dir: Path, default_format: "dict | None" = None) -> str:
+def expand_markdown(md_text: str, base_dir: Path, default_format: "dict | None" = None,
+                    data_root: "Path | None" = None) -> str:
     """Replace every `::: {.statement data="..."}` block with a plain
     `::: statement` block whose rows are computed + reconciled from the data file
     (paths resolved against base_dir). Blocks without a `data` attribute (hand-
     typed rows) are left untouched. `default_format` (the project locale's
-    separators) fills format keys a data file omits. Raises StatementError on any
-    reconciliation or data failure -- which fails the render, by design."""
+    separators) fills format keys a data file omits. When `data_root` is set every
+    resolved data path must stay under it (the API jails untrusted sources here).
+    Raises StatementError on any reconciliation or data failure -- which fails the
+    render, by design."""
     lines = md_text.split("\n")
     out: list = []
     i = 0
@@ -236,7 +239,14 @@ def expand_markdown(md_text: str, base_dir: Path, default_format: "dict | None" 
                 j += 1
             closing = lines[j] if j < len(lines) else ":::"
             if data:
-                spec = load_spec(Path(base_dir) / data)
+                data_path = (Path(base_dir) / data).resolve()
+                if data_root is not None:
+                    try:
+                        data_path.relative_to(Path(data_root).resolve())
+                    except ValueError:
+                        raise StatementError(
+                            f"statement data path escapes the allowed root: {data!r}") from None
+                spec = load_spec(data_path)
                 rows = compute_rows(spec, default_format)
                 out.append("::: statement")
                 out.append(to_block_markdown(rows))

@@ -302,6 +302,30 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
 
 ---
 
+## Track I - Render-as-a-service (API + studio UI)
+
+The API (`api/app.py`) and reference UI predate Track H: they exposed contract introspection +
+projection but could not render. This track makes the whole pipeline reachable over HTTP and turns the
+UI into an authoring surface. Filed as issues #42-#46.
+
+- **I1 - Render endpoint `POST /render/pdf` (#42).** `[build]` **DONE:** a `BinaryResponse` type +
+  `POST /render/pdf` rendering markdown (inline, <=512 KB, or a jailed `source` path) to
+  `application/pdf` or a first-page `image/png` preview, with the same options as `render pdf`
+  (title/subtitle/org/date/variant/locale/paper/brand). The typst backend gained `fmt='png'` (first
+  page via a zero-padded page template), `ppi`, and a `data_root` jail so statement `data=` paths stay
+  under the server root (source mode) or the render temp dir (inline mode) -- an untrusted document
+  cannot read server files. Origin/Host guard + path jail + size cap apply. OpenAPI + `/docs` extended.
+  12 tests (validation/guard always-on + tool-gated real renders incl. the sandbox-escape check).
+- **I2 - Studio UI live preview (#45).** `[build]` **DONE (core):** `api/ui.py` now leads with a render
+  studio -- markdown editor + debounced live PNG preview (`POST /render/pdf?format=png`, embedded
+  same-origin) + variant/locale controls + PDF download -- over the whole Track H pipeline. Still one
+  self-contained page, vanilla JS, no build. (Remaining #45/#46 polish: block-scaffold buttons, a live
+  statement-reconciliation panel over a future `POST /statement/check`, a doctor status badge.)
+- **I3 - `POST /statement/check` (#43).** `[plan]` reconcile statement data over HTTP without a render.
+- **I4 - Capability-discovery endpoints (#44).** `[plan]` `GET /doctor` / `/locales` / `/theme/variants`.
+
+---
+
 ## Open questions carried forward
 
 - **OQ1 - schema-driven gate chain vs bespoke Python.** Should the gate chain move to a formally
