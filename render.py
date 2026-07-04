@@ -187,10 +187,11 @@ def run_copy_paste(args: list[str]) -> int:
     module = steps[parsed.step]
 
     # This CLI assembles the vision-review-shaped input (tier/image/metrics).
-    # A step with its own richer command (e.g. decision-capture, whose
-    # deterministic-first gate lives in `render decision-capture`) is not driven
-    # from here; point the user at its own door rather than mis-prompting.
-    if not hasattr(module, "VALID_TIERS"):
+    # A step that DECLARES HAS_OWN_GATE has its own richer command with a
+    # deterministic-first gate (e.g. `render decision-capture`) and is not driven
+    # from here; point the user at its own door rather than mis-prompting. A
+    # declared flag, not a duck-typed proxy on VALID_TIERS.
+    if getattr(module, "HAS_OWN_GATE", False):
         print(f"'{parsed.step}' has its own command with a deterministic-first gate -- "
               f"use: render {parsed.step} --escalate copy-paste", file=sys.stderr)
         return 2
