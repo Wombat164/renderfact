@@ -22,6 +22,28 @@ U-shaped over the metrics verdict) and are NOT extracted here.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class Confidence:
+    """A gate score plus the NAMED sub-signals that produced it (Track G, G3).
+
+    The prior-art guidance for a rule-based (non-model) score: compose it from
+    named, independently-inspectable sub-signals rather than one opaque number,
+    and log each so an operator can see WHY a step escalated and tune thresholds
+    per sub-signal later. `score` is the composed [0,1] value the gate compares;
+    `signals` is a small {name: value} map (numbers or short verdict strings);
+    `reason` is a one-line human summary.
+
+    The sub-signal NAMES are the shared vocabulary; the per-step heuristic that
+    computes them stays in each step's own module.
+    """
+
+    score: float
+    signals: dict = field(default_factory=dict)
+    reason: str = ""
+
 
 class GateError(RuntimeError):
     """A resolved gate outcome failed its step's own validate_output()."""
@@ -54,7 +76,12 @@ def resolve(step, module, input_obj, threshold, *, escalate=None,
     `meta` keys: decision ('accept'|'escalate'), score, needs_review, channel
     ('deterministic' | channel_on_escalate | 'needs-review').
     """
-    decision, score = module.gate(input_obj, threshold)
+    decision, conf = module.gate(input_obj, threshold)
+    # gate() returns (decision, Confidence); tolerate a bare float too so a
+    # minimal/legacy step contract still works.
+    score = conf.score if isinstance(conf, Confidence) else conf
+    signals = conf.signals if isinstance(conf, Confidence) else {}
+
     if on_decision is not None:
         on_decision(decision, score)
 
@@ -69,7 +96,8 @@ def resolve(step, module, input_obj, threshold, *, escalate=None,
         try:
             from contracts import gate_telemetry
 
-            gate_telemetry.log_decision(step, score, threshold, decision, channel)
+            gate_telemetry.log_decision(step, score, threshold, decision, channel,
+                                        signals=signals or None)
         except Exception:
             pass  # telemetry must never break the gate
 
@@ -84,5 +112,5 @@ def resolve(step, module, input_obj, threshold, *, escalate=None,
     if not ok:
         raise GateError(f"{step}: gate result failed validation: {errors}")
 
-    return entry, {"decision": decision, "score": score,
+    return entry, {"decision": decision, "score": score, "signals": signals,
                    "needs_review": needs_review, "channel": channel}

@@ -49,7 +49,10 @@ def _input(kinds, verdict="FAST_FORWARD"):
     (["relabel-node"] * 6, "FAST_FORWARD", 0.5),            # high volume
 ])
 def test_confidence_values(kinds, verdict, expected):
-    assert dc.confidence(_input(kinds, verdict)) == pytest.approx(expected)
+    conf = dc.confidence(_input(kinds, verdict))
+    assert conf.score == pytest.approx(expected)
+    # G3: the named sub-signals are present and inspectable
+    assert set(conf.signals) == {"change_count", "intent_ratio", "volume_factor", "verdict_factor"}
 
 
 def test_empty_diff_on_diverged_source_flags_reconciliation():
@@ -57,7 +60,7 @@ def test_empty_diff_on_diverged_source_flags_reconciliation():
     must not silently score 1.0 -- it drops to the verdict factor AND the entry
     carries the DIVERGED reconciliation note."""
     obj = _input([], "DIVERGED")
-    assert dc.confidence(obj) == pytest.approx(0.7)
+    assert dc.confidence(obj).score == pytest.approx(0.7)
     entry = dc.deterministic_entry(obj)
     ok, errors = dc.validate_output(entry)
     assert ok, errors
@@ -67,7 +70,8 @@ def test_empty_diff_on_diverged_source_flags_reconciliation():
 
 def test_gate_accepts_at_and_above_threshold():
     obj = _input(["relabel-node"], "DIVERGED")  # 0.7
-    assert dc.gate(obj, threshold=0.7) == ("accept", 0.7)
+    decision, conf = dc.gate(obj, threshold=0.7)
+    assert decision == "accept" and conf.score == pytest.approx(0.7)
     assert dc.gate(obj, threshold=0.71)[0] == "escalate"
 
 

@@ -221,8 +221,11 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   decision (step / score / threshold / decision / channel / verdict); both gate consumers
   (vision-review, decision-capture) log; `gate-stats` reports overall + per-step escalation rate,
   recent-window storm detection, and the ~10-15% healthy-band note. Telemetry never breaks the gate.
-- **G3 - confidence sub-signal refactor.** `[build]` with two consumers, make `confidence()` return
-  named sub-signals (coverage/specificity/ambiguity/novelty/volume/verdict), not a bare float.
+- **G3 - confidence sub-signal refactor.** `[build]` **DONE:** `confidence()` now returns a
+  `confidence_gate.Confidence` (score + named `signals` + reason), not a bare float. decision-capture
+  exposes `change_count/intent_ratio/volume_factor/verdict_factor`; vision-review exposes
+  `verdict/svg_severity/vq_status`. The signals ride into the gate telemetry event, so escalations
+  are explainable and thresholds tunable per-signal. `resolve()` tolerates a legacy bare-float gate.
 - **G4 - extract the thin gate primitive.** `[build]` **DONE:** `contracts/confidence_gate.py` with
   `decide(score, threshold)` (each step's `gate()` uses it) + `resolve(...)` (the shared
   gate->telemetry->accept/escalate/needs-review orchestration both CLIs were duplicating, with an

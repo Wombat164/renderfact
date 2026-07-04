@@ -25,9 +25,10 @@ from contracts import gate_telemetry as gt  # noqa: E402
 
 
 def _module(score, *, valid=True):
-    """A minimal D16 step contract whose gate() returns a fixed score."""
+    """A minimal D16 step contract whose gate() returns a fixed Confidence."""
+    conf = cg.Confidence(score, {"probe": round(score, 2)})
     return types.SimpleNamespace(
-        gate=lambda input_obj, threshold: (cg.decide(score, threshold), score),
+        gate=lambda input_obj, threshold: (cg.decide(score, threshold), conf),
         deterministic_entry=lambda input_obj: {"kind": "deterministic", "ok": valid},
         validate_output=lambda entry: (entry.get("ok", True), [] if entry.get("ok", True) else ["bad"]),
     )
@@ -52,9 +53,19 @@ def test_accept_takes_deterministic_and_never_escalates():
 
     entry, meta = cg.resolve("step", _module(0.9), {}, 0.6, escalate=escalate, log=False)
     assert entry["kind"] == "deterministic"
-    assert meta == {"decision": "accept", "score": 0.9, "needs_review": False,
-                    "channel": "deterministic"}
+    assert meta == {"decision": "accept", "score": 0.9, "signals": {"probe": 0.9},
+                    "needs_review": False, "channel": "deterministic"}
     assert called["escalate"] is False
+
+
+def test_bare_float_gate_still_works():
+    """resolve() tolerates a legacy gate() that returns a bare float (no signals)."""
+    mod = types.SimpleNamespace(
+        gate=lambda input_obj, threshold: (cg.decide(0.9, threshold), 0.9),
+        deterministic_entry=lambda i: {"ok": True},
+        validate_output=lambda e: (True, []))
+    _, meta = cg.resolve("step", mod, {}, 0.6, log=False)
+    assert meta["score"] == 0.9 and meta["signals"] == {}
 
 
 def test_escalate_with_channel_runs_escalate():
@@ -105,6 +116,16 @@ def test_on_decision_fires_before_escalate():
                escalate=lambda: order.append("escalate") or {"ok": True},
                on_decision=lambda d, s: order.append(f"announce:{d}"), log=False)
     assert order == ["announce:escalate", "escalate"]
+
+
+def test_signals_reach_the_telemetry_event(tmp_path, monkeypatch):
+    """G3 payoff: the named sub-signals are logged so thresholds can be tuned
+    per-signal later."""
+    log = tmp_path / "gate.jsonl"
+    monkeypatch.setenv(gt.ENV_LOG, str(log))
+    cg.resolve("step", _module(0.85), {}, 0.6, log=True)
+    events = gt.read_events(log)
+    assert events[0]["signals"] == {"probe": 0.85}
 
 
 def test_telemetry_failure_never_breaks_resolve(monkeypatch):

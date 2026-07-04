@@ -72,7 +72,11 @@ def _input(sev, vq):
     (None, "ERROR", 0.0),
 ])
 def test_confidence_u_shape(sev, vq, expected):
-    assert vr.confidence(_metrics(sev, vq)) == pytest.approx(expected)
+    conf = vr.confidence(_metrics(sev, vq))
+    assert conf.score == pytest.approx(expected)
+    # G3: sub-signals expose the governing verdict + its two sources
+    assert set(conf.signals) == {"verdict", "svg_severity", "vq_status"}
+    assert conf.signals["vq_status"] == vq
 
 
 def test_worst_of_two_governs():

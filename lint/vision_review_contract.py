@@ -159,13 +159,22 @@ def _governing_verdict(deterministic_metrics: dict) -> str | None:
 _CONFIDENCE = {"BLOCK": 1.0, "OK": 0.85, "WARN": 0.4}
 
 
-def confidence(deterministic_metrics: dict) -> float:
-    """Fuzzy score in [0, 1]: how sufficient the deterministic verdict is on its
-    own. None signal -> 0.0 (must escalate: nothing to stand on)."""
+def confidence(deterministic_metrics: dict):
+    """Confidence that the metrics-only verdict is sufficient -- the composed
+    [0,1] score plus its NAMED sub-signals (G3): the governing verdict and the
+    two source signals it came from. None verdict -> 0.0 (must escalate: nothing
+    to stand on). Returns a confidence_gate.Confidence."""
+    from contracts.confidence_gate import Confidence
+
     verdict = _governing_verdict(deterministic_metrics)
+    signals = {
+        "verdict": verdict,
+        "svg_severity": (deterministic_metrics.get("svg_metrics") or {}).get("severity"),
+        "vq_status": (deterministic_metrics.get("visual_quality") or {}).get("status"),
+    }
     if verdict is None:
-        return 0.0
-    return _CONFIDENCE[verdict]
+        return Confidence(0.0, signals, reason="no deterministic signal (escalate)")
+    return Confidence(_CONFIDENCE[verdict], signals, reason=f"governing verdict {verdict}")
 
 
 def gate(input_obj: dict, threshold: float = DEFAULT_THRESHOLD) -> tuple[str, float]:
@@ -174,8 +183,8 @@ def gate(input_obj: dict, threshold: float = DEFAULT_THRESHOLD) -> tuple[str, fl
     accept/escalate comparison is the shared primitive; the score is per-step."""
     from contracts import confidence_gate
 
-    score = confidence(input_obj.get("deterministic_metrics", {}))
-    return confidence_gate.decide(score, threshold), score
+    conf = confidence(input_obj.get("deterministic_metrics", {}))
+    return confidence_gate.decide(conf.score, threshold), conf
 
 
 def deterministic_entry(input_obj: dict) -> dict:

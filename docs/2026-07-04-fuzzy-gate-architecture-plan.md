@@ -92,7 +92,7 @@ Enables evidence-based thresholds and catches the anti-patterns before they beco
   **escalation storms** (a spike across steps in a window = a systemic input change; backpressure).
 - documents the recalibrate-on-ruleset-change rule as an operational checklist.
 
-### G3 -- confidence sub-signal refactor.
+### G3 -- confidence sub-signal refactor. DONE.
 With two real consumers (decision-capture + vision-review), make `confidence()` return the named
 sub-signal breakdown across both, not a bare float. This is the shared VOCABULARY; the heuristics
 stay per-step. Depends on G1 (needs the second instance to design the shared shape from two data
