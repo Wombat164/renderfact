@@ -114,16 +114,21 @@ def assemble_metrics(svg_path: Path | str, tier: str) -> dict:
     gate reads and the LLM prompt receives as context. The single defined
     source, so `confidence()` never has to guess at a free-form operator dict."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import svg_metrics
-    import visual_quality
+    import visual_quality  # pure text/regex, no optional deps
 
     path = Path(svg_path)
+    # svg_metrics needs the optional svgpathtools/svgelements; when absent it
+    # sys.exit(3)s. The gate must DEGRADE, not crash: a missing geometry signal
+    # simply leaves the verdict to visual_quality (which governs on its own).
+    # (Exception, SystemExit) covers both a bad SVG and the missing-dependency
+    # sys.exit -- SystemExit is not an Exception subclass.
     try:
+        import svg_metrics
         m = svg_metrics.parse_svg(path)
         severity, messages = svg_metrics.check_thresholds(m, tier)
         svg_block = {"severity": severity, "messages": messages}
-    except Exception as e:  # a bad/unparseable SVG must not crash the gate
-        svg_block = {"severity": None, "messages": [f"svg_metrics error: {e}"]}
+    except (Exception, SystemExit) as e:
+        svg_block = {"severity": None, "messages": [f"svg_metrics unavailable: {e}"]}
     vq = visual_quality.visual_quality_check(path)
     return {"svg_metrics": svg_block, "visual_quality": vq}
 

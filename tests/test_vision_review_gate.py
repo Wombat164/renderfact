@@ -128,12 +128,33 @@ def test_reviewer_mode_deterministic_is_valid():
 # ------------------------------------------------------ assemble_metrics --
 
 def test_assemble_metrics_canonical_shape_clean(tmp_path):
+    pytest.importorskip("svgpathtools", reason="svg_metrics geometry needs the optional lib")
     svg = tmp_path / "clean.svg"
     svg.write_text(_CLEAN_SVG, encoding="utf-8")
     m = vr.assemble_metrics(svg, TIER)
     assert set(m) == {"svg_metrics", "visual_quality"}
     assert m["svg_metrics"]["severity"] == 0
     assert m["visual_quality"]["status"] == "OK"
+    assert vr._governing_verdict(m) == "OK"
+
+
+def test_assemble_metrics_degrades_without_svg_geometry_lib(tmp_path, monkeypatch):
+    """When svg_metrics' optional dep is absent, the gate must not crash: the svg
+    signal goes None and visual_quality governs on its own."""
+    import builtins
+    real_import = builtins.__import__
+
+    def no_svgpathtools(name, *a, **k):
+        if name == "svg_metrics":
+            raise SystemExit(3)  # mimic parse_svg's missing-dep exit at import time
+        return real_import(name, *a, **k)
+
+    svg = tmp_path / "clean.svg"
+    svg.write_text(_CLEAN_SVG, encoding="utf-8")
+    monkeypatch.setattr(builtins, "__import__", no_svgpathtools)
+    m = vr.assemble_metrics(svg, TIER)
+    assert m["svg_metrics"]["severity"] is None  # degraded, not crashed
+    assert m["visual_quality"]["status"] == "OK"  # vq still governs
     assert vr._governing_verdict(m) == "OK"
 
 
