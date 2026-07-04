@@ -24,7 +24,7 @@
   <a href="#whats-in-the-box">Capabilities</a> ·
   <a href="demo/">Demo</a> ·
   <a href="templates/">Templates</a> ·
-  <a href="docs/">Docs</a> ·
+  <a href="https://wombat164.github.io/renderfact/">Docs site</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
@@ -207,8 +207,13 @@ sudo podman run --rm localhost/renderfact:latest bash verify-pins.sh
 
 ## Documentation
 
-Start at **[docs/README.md](docs/README.md)**: architecture, the decision record, the
-forward-looking roadmap with adopt/imitate/build tags, and the prior-art research passes.
+The **[documentation site](https://wombat164.github.io/renderfact/)** (built with Quartz from
+[`wiki/`](wiki/), Diataxis-structured) is the reader-friendly entry: getting-started, how-to recipes,
+the command reference, and the architecture explanations.
+
+In-repo, start at **[docs/README.md](docs/README.md)**: the decision record ([`DECISIONS.md`](docs/DECISIONS.md),
+D1-D17), the forward roadmap with adopt/imitate/build tags ([`ROADMAP.md`](docs/ROADMAP.md)), and the
+prior-art research passes.
 
 ## Contributing
 
