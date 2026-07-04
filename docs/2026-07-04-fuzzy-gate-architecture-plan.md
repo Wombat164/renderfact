@@ -116,7 +116,7 @@ The largest surface and the only one touching the D8 trust boundary; off by defa
 - all D15 hardening (no secrets in logs) and the grens-doctrine egress caution (defence consumers:
   Defence content never leaves local machines) apply.
 
-### G6 -- Track D 4.5 contextualize. After G4.
+### G6 -- Track D 4.5 contextualize. DONE.
 The mechanical re-ingest (`roundtrip/reingest.py`) already produces the deterministic partial (its
 `manual` list). 4.5 = compute confidence over that list (size + kind: pure rewording vs add/delete
 lines) reusing the C8.3 `confidence()`/`gate()` shape and the extracted primitive, then narrate only

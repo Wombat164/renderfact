@@ -312,6 +312,16 @@ _INLINE_MARKUP = re.compile(r"(\*\*|__|`|\[[^\]]*\]\()")
 _LEADING_MARKER = re.compile(r"^(\s*(?:[-*]\s+|#{1,6}\s+|\d+\.\s+)?)")
 
 
+# Sentinels + deferral reasons a `manual`-review item can carry. Named so
+# downstream consumers (roundtrip/contextualize.py's confidence classifier)
+# match on the constant, not a magic string re-typed a second time.
+ADDED_MARKER = "(added in the edited DOCX)"
+DELETED_MARKER = "(deleted in the edited DOCX)"
+WHY_NOT_UNIQUE = "normalized text not unique in the source"
+WHY_INLINE_MARKUP = "line carries inline markup a text edit would destroy"
+WHY_HEADING = "heading edits change structure: review by hand"
+
+
 def plan_fast_forward(md_text: str, md_lines_norm: list[str],
                       dx_lines_norm: list[str], dx_lines_raw: list[str]) -> tuple[list, list]:
     """The mechanically safe subset: 1:1 reworded lines (equal-length replace
@@ -324,9 +334,9 @@ def plan_fast_forward(md_text: str, md_lines_norm: list[str],
         if op != "replace":
             if op in ("delete", "insert"):
                 for i in range(a1, a2):
-                    manual.append((md_lines_norm[i], "(deleted in the edited DOCX)"))
+                    manual.append((md_lines_norm[i], DELETED_MARKER))
                 for j in range(b1, b2):
-                    manual.append(("(added in the edited DOCX)", dx_lines_raw[j]))
+                    manual.append((ADDED_MARKER, dx_lines_raw[j]))
             continue
         if (a2 - a1) != (b2 - b1):
             for i, j in zip(range(a1, a2), range(b1, b2)):
@@ -340,16 +350,16 @@ def plan_fast_forward(md_text: str, md_lines_norm: list[str],
     for old_norm, new_raw in apply_list:
         matches = [k for k, ln in enumerate(source_lines) if _norm_source_line(ln) == old_norm]
         if len(matches) != 1:
-            deferred.append((old_norm, new_raw, "normalized text not unique in the source"))
+            deferred.append((old_norm, new_raw, WHY_NOT_UNIQUE))
             continue
         line = source_lines[matches[0]]
         marker = _LEADING_MARKER.match(line).group(1)
         rest = line[len(marker):]
         if _INLINE_MARKUP.search(rest):
-            deferred.append((old_norm, new_raw, "line carries inline markup a text edit would destroy"))
+            deferred.append((old_norm, new_raw, WHY_INLINE_MARKUP))
             continue
         if old_norm.startswith("#> "):
-            deferred.append((old_norm, new_raw, "heading edits change structure: review by hand"))
+            deferred.append((old_norm, new_raw, WHY_HEADING))
             continue
         safe.append((matches[0], marker, new_raw, old_norm))
     manual.extend(deferred)
