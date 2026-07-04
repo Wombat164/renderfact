@@ -43,8 +43,8 @@ def _resolve(explicit: "str | Path | None") -> "Path | None":
 
 
 def log_decision(step: str, score: float, threshold: float, decision: str, channel: str,
-                 *, verdict: "str | None" = None, log_path: "str | Path | None" = None,
-                 extra: "dict | None" = None) -> bool:
+                 *, verdict: "str | None" = None, signals: "dict | None" = None,
+                 log_path: "str | Path | None" = None, extra: "dict | None" = None) -> bool:
     """Append one gate decision to the JSONL. No-op (returns False) unless a log
     path is set via arg or RENDERFACT_GATE_LOG. Never raises -- telemetry must not
     break the gate.
@@ -65,6 +65,9 @@ def log_decision(step: str, score: float, threshold: float, decision: str, chann
     }
     if verdict is not None:
         event["verdict"] = verdict
+    if signals:
+        # the named sub-signals behind the score (G3) -- for per-signal calibration
+        event["signals"] = signals
     if extra:
         event.update(extra)
     try:

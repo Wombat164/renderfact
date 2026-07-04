@@ -56,6 +56,10 @@ Embedded in the OOXML `dc:identifier` core property (and, for VSDX, `docProps/co
 
 ## D16 gate contract (per step)
 
-Every gated step exposes: `confidence(input) -> float`, `gate(input, threshold) -> (accept|escalate,
-score)`, `deterministic_entry(input)` (the accept-path result), plus `MODE_FIELD` (the provenance field
-naming which mode produced the output). See [Explanation](../explanation/index.md#the-d16-fuzzy-gate).
+Every gated step exposes: `confidence(input) -> Confidence` (a score plus named sub-signals),
+`gate(input, threshold) -> (accept|escalate, Confidence)`, `deterministic_entry(input)` (the
+accept-path result), plus `MODE_FIELD` (the provenance field naming which mode produced the output).
+The shared `contracts/confidence_gate.py` provides `decide(score, threshold)` and `resolve(...)` (the
+gate -> telemetry -> accept/escalate/needs-review orchestration); the per-step `confidence()` heuristic
+stays local. Sub-signals are logged to the gate telemetry (`render gate-stats`) for per-signal
+calibration. See [Explanation](../explanation/index.md#the-d16-fuzzy-gate).

@@ -180,11 +180,14 @@ def _change_line(change: dict) -> str:
                        old=change.get("old", ""), new=change.get("new", ""))
 
 
-def confidence(input_obj: dict) -> float:
-    """Fuzzy score in [0, 1]: how likely the deterministic template alone
-    captures the decision. 1.0 when there is nothing whose intent needs
-    narrating; lower as intent-bearing changes, edit volume, and a DIVERGED
-    verdict accumulate. The gate (D16) escalates below the threshold."""
+def confidence(input_obj: dict):
+    """Confidence that the deterministic template alone captures the decision --
+    the composed [0,1] score plus its NAMED sub-signals (G3). 1.0 when there is
+    nothing whose intent needs narrating; lower as intent-bearing changes, edit
+    volume, and a DIVERGED verdict accumulate. The gate (D16) escalates below
+    the threshold. Returns a confidence_gate.Confidence."""
+    from contracts.confidence_gate import Confidence
+
     changes = input_obj.get("semantic_changes", [])
     total = len(changes)
     verdict_factor = _DIVERGED_FACTOR if input_obj.get("verdict") == "DIVERGED" else 1.0
@@ -192,14 +195,18 @@ def confidence(input_obj: dict) -> float:
         # Cosmetic-only edit: no model change to narrate. But a source that
         # DIVERGED while the diagram was out still needs a human to notice and
         # reconcile, so the verdict factor applies here too -- an empty diff on
-        # a moved source is NOT full confidence (bug fixed 2026-07-04: it used
-        # to short-circuit to 1.0 and silently skip both escalation and the
-        # DIVERGED note).
-        return round(1.0 * verdict_factor, 4)
+        # a moved source is NOT full confidence.
+        score = round(1.0 * verdict_factor, 4)
+        return Confidence(score, {"change_count": 0, "intent_ratio": 0.0,
+                                  "volume_factor": 1.0, "verdict_factor": verdict_factor},
+                          reason="cosmetic-only edit" + ("; source DIVERGED" if verdict_factor < 1 else ""))
     intent = sum(1 for c in changes if c.get("kind") in _INTENT_KINDS)
-    intent_ratio = intent / total
-    volume_factor = _SMALL_EDIT / max(_SMALL_EDIT, total)
-    return round((1.0 - intent_ratio) * volume_factor * verdict_factor, 4)
+    intent_ratio = round(intent / total, 4)
+    volume_factor = round(_SMALL_EDIT / max(_SMALL_EDIT, total), 4)
+    score = round((1.0 - intent_ratio) * volume_factor * verdict_factor, 4)
+    return Confidence(score, {"change_count": total, "intent_ratio": intent_ratio,
+                              "volume_factor": volume_factor, "verdict_factor": verdict_factor},
+                      reason=f"{intent}/{total} intent-bearing changes")
 
 
 def deterministic_entry(input_obj: dict) -> dict:
@@ -248,8 +255,8 @@ def gate(input_obj: dict, threshold: float = DEFAULT_THRESHOLD) -> tuple[str, fl
     accept/escalate comparison is the shared primitive; the score is per-step."""
     from contracts import confidence_gate
 
-    score = confidence(input_obj)
-    return confidence_gate.decide(score, threshold), score
+    conf = confidence(input_obj)
+    return confidence_gate.decide(conf.score, threshold), conf
 
 
 # --------------------------------------------------------------------- sink --
