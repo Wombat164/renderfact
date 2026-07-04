@@ -6,6 +6,27 @@ their hashes do not survive the history rewrite, see the publish protocol).
 `tool_version` in embedded provenance follows `git describe --tags` and picks
 up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
+## [0.4.0] - 2026-07-04
+
+Completes render-as-a-service and rounds out onboarding. All additive over 0.3.0.
+
+### Added
+
+- **`POST /render/docx`**: the DOCX peer of `/render/pdf`, completing render-as-a-service. Markdown
+  (inline or a jailed `source`) renders to a styled DOCX via the render-doc.sh pipeline, with
+  `profile` / `name` / `project` + `profiles` options. The source is rendered from a temp copy so the
+  pipeline's provenance-uid embed never mutates a server file. The studio gains a Download DOCX button.
+- **Track H demo showcase**: `demo/source/agm-minutes.md` (Meridian AGM minutes) renders a branded
+  governance/financial PDF exercising the attendance callout, a data-bound + reconciled statement, and
+  the signature grid; `demo/render-demo.sh` gains a PDF step.
+
+### Fixed
+
+- Semantic-block UI labels (signature / date) were hard-coded Dutch even on non-Dutch documents; they
+  now follow the render `--locale` (English default, `Handtekening`/`Datum` for `nl`).
+- The getting-started tutorial referenced a non-existent demo file and a CLI flag that does not exist;
+  rewritten around the real demo with a branded-PDF walkthrough.
+
 ## [0.3.0] - 2026-07-04
 
 PDF-backend hardening and the governed-render path. All additive over 0.2.0.

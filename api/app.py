@@ -514,7 +514,7 @@ def openapi_spec(api: RenderfactApi) -> dict:
         "openapi": "3.0.3",
         "info": {
             "title": "renderfact API",
-            "version": "0.3.0",
+            "version": "0.4.0",
             "description": "Same contract, HTTP instead of copy-paste (D9). "
                            "Localhost-bound, no authentication: do not expose.",
         },
