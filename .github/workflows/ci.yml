@@ -39,3 +39,5 @@ jobs:
         with:
           python-version: "3.12"
       - run: python scripts/generic_gate.py
+      - name: Wiki reference in sync with the render command surface
+        run: python scripts/check_wiki_sync.py

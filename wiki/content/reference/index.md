@@ -10,6 +10,11 @@ title: Reference
 |---|---|
 | `render docx <src> --profile <p>` | Project one source to a governed DOCX for one audience profile. |
 | `render diagram ...` | Render a diagram from its source. |
+| `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
+| `render tokens ...` | Compile brand tokens to per-engine themes. |
+| `render import-template <docx>` | Derive a brand skin from any branded DOCX. |
+| `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight). |
+| `render serve [--enable-ui]` | Localhost HTTP API + thin reference UI. |
 | `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids). |
 | `render doctor [--json]` | Host tools vs `tools.lock`: report OK/DRIFT/MISSING; always exit 0. |
 | `render provenance embed\|extract\|strip\|adopt\|retarget` | D11 provenance operations on DOCX/XLSX/PPTX/VSDX. |
