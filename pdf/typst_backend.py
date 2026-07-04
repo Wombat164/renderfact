@@ -85,6 +85,30 @@ def find_typst() -> str:
 
 # ------------------------------------------------------------- build helpers --
 
+def _project_markdown(source: Path, profile_name: str, profiles_path: "str | Path | None") -> str:
+    """Run the Track F projection engine and return the projected markdown for one
+    audience/clearance/disclosure profile, so a governed source can render one
+    branded PDF per profile. Raises TypstBackendError on a config/profile error."""
+    if not profiles_path:
+        raise TypstBackendError("--project requires --profiles <ladders+profiles.yaml>")
+    profiles_path = Path(profiles_path)
+    if not profiles_path.is_file():
+        raise TypstBackendError(f"profiles config not found: {profiles_path}")
+    sys.path.insert(0, str(REPO_ROOT / "projection"))
+    import projector  # projection/projector.py
+
+    try:
+        ladders, profiles = projector.load_config(profiles_path)
+        if profile_name not in profiles:
+            raise TypstBackendError(
+                f"unknown profile {profile_name!r} (available: {', '.join(sorted(profiles))})")
+        bank = projector.load_terms(None)
+        text, _dropped = projector.project(source, profiles[profile_name], ladders, bank)
+    except projector.ProjectionError as e:
+        raise TypstBackendError(str(e)) from None
+    return text
+
+
 def stage_images(body: str, source_dir: Path, work: Path, image_root: "Path | None" = None) -> str:
     """typst resolves image() paths relative to the compiled .typ (the build dir),
     not the markdown source -- so copy every referenced image the source dir can
@@ -211,6 +235,8 @@ def render_pdf(
     paper: str = "a4",
     variant: str = "base",
     locale: "str | None" = None,
+    project: "str | None" = None,
+    profiles: "str | Path | None" = None,
     fmt: str = "pdf",
     ppi: int = 144,
     data_root: "Path | None" = None,
@@ -260,19 +286,24 @@ def render_pdf(
         (work / "theme.typ").write_text(theme_src.read_text(encoding="utf-8"), encoding="utf-8")
         (work / "blocks.typ").write_text(BLOCKS_TYP.read_text(encoding="utf-8"), encoding="utf-8")
 
+        md_text = source.read_text(encoding="utf-8")
+        # Optional projection: emit the audience/clearance-projected markdown first
+        # (Track F), so a governed source renders one branded PDF per profile.
+        if project:
+            md_text = _project_markdown(source, project, profiles)
+
         # #34: expand data-bound statement blocks (compute + reconcile) before
         # pandoc; a reconciliation failure fails the render. Untouched otherwise.
+        # Paths in the (possibly-projected) text stay relative to the ORIGINAL
+        # source dir, so base_dir + resource_path + image staging all use it.
         import statement_data
-        raw = source.read_text(encoding="utf-8")
         try:
-            expanded = statement_data.expand_markdown(raw, source.parent, number_defaults,
-                                                      data_root=data_root)
+            md_text = statement_data.expand_markdown(md_text, source.parent, number_defaults,
+                                                     data_root=data_root)
         except statement_data.StatementError as e:
             raise TypstBackendError(str(e)) from None
-        md_for_pandoc = source
-        if expanded != raw:
-            md_for_pandoc = work / source.name
-            md_for_pandoc.write_text(expanded, encoding="utf-8")
+        md_for_pandoc = work / f"{source.stem}.md"
+        md_for_pandoc.write_text(md_text, encoding="utf-8")
         body = md_to_typst(md_for_pandoc, pandoc, resource_path=source.parent)
         # copy referenced images into the build dir so typst can resolve them
         # (jailed under data_root for untrusted API sources).
@@ -320,6 +351,10 @@ def main(argv: "list[str] | None" = None) -> int:
                     help="theme variant from brand.yaml [theme.variants] (default: base)")
     ap.add_argument("--locale", default=None,
                     help="project locale (e.g. nl-BE) driving number/date formatting + hyphenation")
+    ap.add_argument("--project", default=None, metavar="PROFILE",
+                    help="project the source through this audience profile before rendering (Track F)")
+    ap.add_argument("--profiles", default=None, metavar="CONFIG",
+                    help="ladders+profiles yaml for --project")
     ap.add_argument("--title", default=None, help="document title (default: the source stem)")
     ap.add_argument("--subtitle", default=None)
     ap.add_argument("--org", default=None, help="organisation shown in the page header")
@@ -332,6 +367,7 @@ def main(argv: "list[str] | None" = None) -> int:
             args.source, args.output, theme=args.theme, brand=args.brand,
             title=args.title, subtitle=args.subtitle, org=args.org, date=args.date,
             paper=args.paper, variant=args.variant, locale=args.locale,
+            project=args.project, profiles=args.profiles,
         )
     except TypstBackendError as e:
         print(f"ERROR: {e}", file=sys.stderr)

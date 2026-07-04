@@ -348,6 +348,8 @@ class RenderfactApi:
         opts = {k: body.get(k) for k in ("title", "subtitle", "org", "date", "locale")}
         opts["paper"] = body.get("paper", "a4")
         opts["variant"] = body.get("variant", "base")
+        opts["project"] = body.get("project")
+        opts["profiles"] = str(self._jail(body["profiles"], "profiles")) if body.get("profiles") else None
         brand = str(self._jail(body["brand"], "brand")) if body.get("brand") else None
 
         import tempfile
@@ -492,7 +494,9 @@ def openapi_spec(api: RenderfactApi) -> dict:
                                  "title": {"type": "string"}, "subtitle": {"type": "string"},
                                  "org": {"type": "string"}, "date": {"type": "string"},
                                  "variant": {"type": "string"}, "locale": {"type": "string"},
-                                 "paper": {"type": "string"}, "brand": {"type": "string"}}}}}},
+                                 "paper": {"type": "string"}, "brand": {"type": "string"},
+                                 "project": {"type": "string", "description": "audience profile name"},
+                                 "profiles": {"type": "string", "description": "ladders+profiles yaml path"}}}}}},
                          "responses": {"200": {"description": "application/pdf or image/png bytes"},
                                        "400": {"description": "bad input or a render/reconciliation error"},
                                        "413": {"description": "inline markdown too large"}}}},

@@ -140,6 +140,51 @@ def test_stage_images_jail_blocks_escape(tmp_path):
 
 # ---------------------------------------------------------- integration (real) --
 
+# ------------------------------------------------------------- projection --
+
+def test_project_requires_profiles(tmp_path):
+    src = tmp_path / "s.md"
+    src.write_text("# x\n", encoding="utf-8")
+    with pytest.raises(tb.TypstBackendError, match="requires --profiles"):
+        tb._project_markdown(src, "some-profile", None)
+
+
+def test_project_missing_config(tmp_path):
+    src = tmp_path / "s.md"
+    src.write_text("# x\n", encoding="utf-8")
+    with pytest.raises(tb.TypstBackendError, match="profiles config not found"):
+        tb._project_markdown(src, "p", tmp_path / "nope.yaml")
+
+
+def test_project_unknown_profile():
+    src = REPO_ROOT / "demo" / "source" / "signalling-it-refresh.md"
+    cfg = REPO_ROOT / "demo" / "profiles.yaml"
+    if not (src.is_file() and cfg.is_file()):
+        pytest.skip("demo fixtures absent")
+    with pytest.raises(tb.TypstBackendError, match="unknown profile"):
+        tb._project_markdown(src, "does-not-exist", cfg)
+
+
+def test_project_produces_projected_markdown():
+    src = REPO_ROOT / "demo" / "source" / "signalling-it-refresh.md"
+    cfg = REPO_ROOT / "demo" / "profiles.yaml"
+    if not (src.is_file() and cfg.is_file()):
+        pytest.skip("demo fixtures absent")
+    internal = tb._project_markdown(src, "internal-full", cfg)
+    public = tb._project_markdown(src, "public-tender", cfg)
+    assert internal and public and internal != public  # projection drops blocks
+
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_render_project_compiles(tmp_path):
+    src = REPO_ROOT / "demo" / "source" / "signalling-it-refresh.md"
+    cfg = REPO_ROOT / "demo" / "profiles.yaml"
+    if not (src.is_file() and cfg.is_file()):
+        pytest.skip("demo fixtures absent")
+    out = tb.render_pdf(src, tmp_path / "pub.pdf", project="public-tender", profiles=cfg, title="Pub")
+    assert out.read_bytes()[:5] == b"%PDF-"
+
+
 @pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
 def test_render_with_image_compiles(tmp_path):
     (tmp_path / "logo.png").write_bytes(_PNG)
