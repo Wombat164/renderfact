@@ -250,6 +250,41 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
 
 ---
 
+## Track H - Layout PDF backend + governance/financial document primitives
+
+Motivated by a real deliverable (Belgian VME general-assembly minutes + a financial statement, A4,
+branded) that bypassed renderfact entirely and was hand-built in typst, because the DOCX->LibreOffice
+path cannot reliably produce a layout-precise branded A4 PDF (page chrome, callout boxes, signature
+grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from "themed Word" into
+"docs-as-code for print-quality deliverables".
+
+- **H1 - PDF/layout backend (typst) as a peer of the DOCX path (#31).** `[build]` **DONE:**
+  `pdf/typst_backend.py` + `pdf/theme/default.typ`, wired as `render pdf <src> [--engine typst]`.
+  Markdown -> pandoc typst writer -> a brand-token-driven theme -> typst compile -> PDF; no OOXML, no
+  LibreOffice, so the layout is typst's own. The default theme is generic-core (D3): A4, page
+  header/footer rules, accent headings, title block, all derived from the existing `tokens.typ`
+  generator (shared palette/fonts with every other engine); consumers override via `--theme` /
+  `--brand`. Tools (pandoc + typst) are already probed by `render doctor`; missing either fails with an
+  actionable message. 13 tests (unit + skipif-guarded real-compile).
+- **H2 - Engine-agnostic theme descriptor (#32).** `[design]` one declarative theme/skin (palette +
+  fonts + page chrome + component styles) that BOTH the OOXML path and the typst backend consume, with
+  inheritable variants (e.g. a "financial" skin). Extends the generic-core/private-skin philosophy from
+  candor-projection to visual styling. `pdf/theme/default.typ` + `docstyle/ooxml_theme.py` are the two
+  current per-engine ends to unify.
+- **H3 - First-class semantic blocks (#33).** `[build]` fenced-div blocks rendered by the active theme:
+  `::: signatures` (roster -> hyphenation-safe card grid with signature + date space), `::: attendance`
+  (present / proxy / quorum), `::: statement` (typed ledger rows, right-aligned amounts, rule lines).
+  Domain-generic across minutes + financial reports.
+- **H4 - Data-bound statement tables (#34).** `[build]` let the statement/ledger block source rows from
+  data (CSV/YAML/sheet) and COMPUTE subtotals/totals/balances, with a reconciliation check that fails
+  the render when a stated total diverges from the sum of its items. Removes the silent-transcription
+  error class from financial docs.
+- **H5 - Locale-driven formatting (#35).** `[build]` a project-level `locale` (e.g. `nl-BE`) driving
+  number/currency formatting (`EUR 1.510,53`), localized long dates, and hyphenation language, so
+  amounts/dates are supplied as raw values and rendered per locale. Pairs with H4.
+
+---
+
 ## Open questions carried forward
 
 - **OQ1 - schema-driven gate chain vs bespoke Python.** Should the gate chain move to a formally

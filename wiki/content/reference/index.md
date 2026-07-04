@@ -9,6 +9,7 @@ title: Reference
 | Command | What it does |
 |---|---|
 | `render docx <src> --profile <p>` | Project one source to a governed DOCX for one audience profile. |
+| `render pdf <src> [--engine typst]` | Render a source to a layout-native branded A4 PDF via typst (a peer of the DOCX path, no LibreOffice). |
 | `render diagram ...` | Render a diagram from its source. |
 | `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
 | `render tokens ...` | Compile brand tokens to per-engine themes. |
@@ -30,6 +31,33 @@ title: Reference
 | `render container <podman-args>` | Passthrough to the container render entry. |
 
 Run any subcommand with `--help` for its flags.
+
+## `render pdf` -- layout-native PDF backend (typst)
+
+A first-class PDF backend, a **peer of the DOCX path** rather than a LibreOffice
+afterthought. Markdown is translated to typst by pandoc's typst writer, wrapped in a
+brand-token-driven theme, and compiled to PDF by typst -- so page chrome, callout boxes,
+tables and rules are laid out by typst, deterministically, where the DOCX->LibreOffice
+conversion drifts.
+
+```bash
+render pdf minutes.md --org "VME Voorbeeld" --title "Algemene Vergadering 2025" --date "15 februari 2025"
+# -> renders/minutes.pdf
+```
+
+| Flag | Meaning |
+|---|---|
+| `--engine typst` | Layout engine (only `typst` today; the flag reserves the peer slot). |
+| `-o, --output <path>` | Output PDF path (default: `renders/<stem>.pdf`; `OUTPUT_DIR` overrides the dir). |
+| `--theme <file.typ>` | A typst theme file (default: the built-in `pdf/theme/default.typ`). |
+| `--brand <brand.yaml>` | A consumer palette/fonts file, consumed through the `tokens.typ` generator. |
+| `--title` / `--subtitle` / `--org` / `--date` | Document metadata for the title block, header, and footer. |
+| `--paper <a4\|...>` | Paper size (default `a4`). |
+
+**Toolchain:** pandoc (>=3, has a typst writer) and typst -- both reported by `render doctor`.
+Missing either fails with an actionable message, never a traceback. Overridable via `PANDOC` /
+`TYPST` env vars. **Generic core (D3):** the default theme needs no configuration; a consumer
+overrides the whole theme via `--theme` and its palette via `--brand`.
 
 ## Environment variables
 
