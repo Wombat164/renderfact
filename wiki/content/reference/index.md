@@ -213,3 +213,29 @@ The shared `contracts/confidence_gate.py` provides `decide(score, threshold)` an
 gate -> telemetry -> accept/escalate/needs-review orchestration); the per-step `confidence()` heuristic
 stays local. Sub-signals are logged to the gate telemetry (`render gate-stats`) for per-signal
 calibration. See [Explanation](../explanation/index.md#the-d16-fuzzy-gate).
+
+## HTTP API (`render serve`)
+
+The localhost API (D9: "same contract, HTTP instead of copy-paste") exposes the D8 step
+contracts, the projection engine, and -- since #42 -- **rendering**. Loopback-bound, no auth,
+with a Host/Origin guard, a filesystem path jail, and a rate limit. Machine-readable at
+`/openapi.json`; human table at `/docs`.
+
+| Route | Purpose |
+|---|---|
+| `GET /` | Service info + advertised endpoints. |
+| `GET /steps`, `GET /steps/{name}` | List / introspect D8 step contracts. |
+| `POST /steps/{name}/validate-output` | Validate a candidate step output against its contract. |
+| `POST /project` | Project a source through one audience profile. |
+| `POST /render/pdf` | Render markdown to a PDF (or first-page PNG preview) via the typst backend. |
+| `GET /ui` | The reference studio (only with `--enable-ui`). |
+
+`POST /render/pdf` takes exactly one of `markdown` (inline, <=512 KB) or `source` (a path under the
+server root), plus `format` (`pdf` | `png`), and the same options as `render pdf` (`title` / `subtitle`
+/ `org` / `date` / `variant` / `locale` / `paper` / `brand`). It returns `application/pdf` or
+`image/png` bytes; a bad input, a failed render, or a statement reconciliation failure returns a `4xx`
+with a JSON `error`. Statement `data=` paths are jailed under the server root (source mode) or the
+render temp dir (inline mode), so an untrusted document cannot read outside the sandbox.
+
+The **studio** (`/ui`, `--enable-ui`) is a thin client of this endpoint: edit markdown, get a live PNG
+preview (debounced), tweak variant/locale, download the PDF -- exercising the whole Track H pipeline.
