@@ -309,3 +309,43 @@ diff-to-narrative shape as C8.3), and any later generative step. The gate primit
 per step until a second consumer justifies extracting a shared `contracts/gate.py` (trigger-gated,
 per this repo's build-when-needed discipline). The consistency sweep that maps every current step
 onto this doctrine and sequences the retrofits is its own workstream (see the augmented roadmap).
+
+## D17 - Optional direct-API escalation channel, with a VLM endpoint separate from the LLM (VLM defaults to the LLM)
+
+D8 made every LLM-touching step degrade across two modes: harness (the user's own configured
+assistant, via `render init-ai`) and copy-paste (a human pasting into any chat LLM). Both keep
+renderfact free of LLM-calling code and of a new trust boundary. D16 then made those modes an
+ESCALATION taken only past a confidence gate. This decision adds a THIRD, OPTIONAL escalation
+channel and the model-config layer it needs -- kept off by default so the D8 posture is unchanged
+for anyone who does not opt in.
+
+**The model-config layer.** An optional `[models]` config (file + env overrides) declares up to two
+endpoints: `llm` (the main text model) and `vlm` (a vision-language model for steps that must look at
+a rendered image -- vision-review, and any image-attach step). Resolution rules:
+1. A step routes to `vlm` if its input carries an image (declared in its INPUT_SCHEMA, e.g.
+   `rendered_image_path`), else to `llm`.
+2. **`vlm` DEFAULTS TO `llm`** when no `vlm` is configured, or when the configured `vlm` has no
+   working API key / fails a cheap reachability probe. One configured model therefore serves both
+   text and vision; you only set `vlm` when you deliberately want a different vision model.
+3. If the resolved model is not vision-capable for a vision step (e.g. the fallback `llm` is
+   text-only), the step degrades to copy-paste -- the human attaches the image to a chat VLM
+   themselves. A vision step is NEVER silently run text-only.
+
+**Direct-API is opt-in and off by default.** Configuring `[models]` is what turns the direct-API
+channel on. With no config, escalation remains harness-or-copy-paste exactly as D8 defined; the
+deterministic-first D16 path is unchanged in all cases (most invocations never escalate at all).
+When on, the same D8 step contract (assemble_input/validate_output, MODE_FIELD provenance) governs
+the API result identically to a harness or pasted one -- a fourth provenance value `MODE_FIELD in
+{deterministic, harness, copy-paste, api}` records which channel produced it. The API result is
+validated by the same validate_output() as every other mode; a failing/unreachable endpoint falls
+back to copy-paste rather than failing the step.
+
+**Why now, why optional.** The operator wants an unattended escalation path (deterministic gate
+misses -> call a model directly) without the human-in-the-loop of copy-paste, and a cheaper/faster
+vision model distinct from the main reasoning model. That is a real need, but it reintroduces the
+LLM-calling code and the network/egress/cost surface D8 deliberately avoided -- so it is strictly
+opt-in, disabled unless configured, and every hardening rule from D15 (no secrets in logs, egress is
+a sovereignty concern per the grens-doctrine for defence consumers) and D16 (telemetry, storm
+backpressure) applies to it. Implementation is sequenced last in the fuzzy-gate plan
+(docs/2026-07-04-fuzzy-gate-architecture-plan.md, item G5) because it is the largest surface and the
+only one that touches the D8 trust boundary.
