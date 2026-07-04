@@ -61,6 +61,11 @@ Missing either fails with an actionable message, never a traceback. Overridable 
 `TYPST` env vars. **Generic core (D3):** the default theme needs no configuration; a consumer
 overrides the whole layout via `--theme` and its palette + house-style via `--brand`.
 
+**Images:** relative image paths (`![logo](logo.png)`, subfolders included) are resolved against the
+source's directory and staged into the build so typst renders them; remote URLs are left as-is. Over
+the API, an image resolving outside the server root is not staged, so an untrusted document cannot pull
+a server file into the PDF.
+
 ### Theme descriptor (engine-agnostic house-style)
 
 The chrome + component layer -- page margins, header/footer slots, and heading/title/rule colour

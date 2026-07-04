@@ -19,6 +19,7 @@ the backend fails with a clear, actionable message rather than a traceback.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 THEME_DIR = Path(__file__).resolve().parent / "theme"
 DEFAULT_THEME = THEME_DIR / "default.typ"
 BLOCKS_TYP = THEME_DIR / "blocks.typ"           # #33 semantic-block render functions
+_IMAGE_RE = re.compile(r'image\("([^"]+)"')     # typst image() calls in pandoc output
 SEMANTIC_FILTER = Path(__file__).resolve().parent / "filters" / "semantic-blocks.lua"
 
 
@@ -82,6 +84,44 @@ def find_typst() -> str:
 
 
 # ------------------------------------------------------------- build helpers --
+
+def stage_images(body: str, source_dir: Path, work: Path, image_root: "Path | None" = None) -> str:
+    """typst resolves image() paths relative to the compiled .typ (the build dir),
+    not the markdown source -- so copy every referenced image the source dir can
+    resolve into the build dir under a flat _img/ name, and rewrite the reference
+    to point there. Remote URLs are left untouched. When `image_root` is set (the
+    API's server root), an image resolving outside it is left as-is rather than
+    copied, so an untrusted document cannot pull a server file into the PDF."""
+    counter = 0
+    mapping: dict[str, str] = {}
+
+    def repl(match):
+        nonlocal counter
+        ref = match.group(1)
+        if ref in mapping:
+            return f'image("{mapping[ref]}"'
+        if ref.startswith(("http://", "https://")):
+            return match.group(0)
+        src = Path(ref)
+        if not src.is_absolute():
+            src = source_dir / ref
+        src = src.resolve()
+        if image_root is not None:
+            try:
+                src.relative_to(Path(image_root).resolve())
+            except ValueError:
+                return match.group(0)  # outside the jail: do not stage
+        if not src.is_file():
+            return match.group(0)  # missing: let typst report it
+        counter += 1
+        staged = f"_img/{counter}{src.suffix}"
+        (work / "_img").mkdir(exist_ok=True)
+        shutil.copyfile(src, work / staged)
+        mapping[ref] = staged
+        return f'image("{staged}"'
+
+    return _IMAGE_RE.sub(repl, body)
+
 
 def md_to_typst(md_path: Path, pandoc: str, resource_path: "Path | None" = None) -> str:
     """Translate a markdown source to a typst FRAGMENT (no --standalone: we supply
@@ -234,14 +274,17 @@ def render_pdf(
             md_for_pandoc = work / source.name
             md_for_pandoc.write_text(expanded, encoding="utf-8")
         body = md_to_typst(md_for_pandoc, pandoc, resource_path=source.parent)
+        # copy referenced images into the build dir so typst can resolve them
+        # (jailed under data_root for untrusted API sources).
+        body = stage_images(body, source.parent, work, image_root=data_root)
         (work / "main.typ").write_text(
             compose_main(body, title=title, subtitle=subtitle, org=org, date=date,
                          paper=paper, lang=text_lang),
             encoding="utf-8",
         )
-        # root = work; body-relative images resolve via pandoc's --resource-path
-        # above. For a PNG preview, typst writes one file per page to a zero-padded
-        # template; we return the first page (the preview). For PDF, a single file.
+        # root = work; referenced images were staged into work/_img above. For a
+        # PNG preview, typst writes one file per page to a zero-padded template; we
+        # return the first page (the preview). For PDF, a single file.
         if fmt == "png":
             page_tmpl = work / "_page-{0p}.png"
             cmd = [typst, "compile", "--format", "png", "--ppi", str(ppi),
