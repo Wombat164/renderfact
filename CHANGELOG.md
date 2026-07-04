@@ -6,6 +6,53 @@ their hashes do not survive the history rewrite, see the publish protocol).
 `tool_version` in embedded provenance follows `git describe --tags` and picks
 up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
+## [0.2.0] - 2026-07-04
+
+Layout-native PDF, financial/governance documents, a consistent fuzzy-gated LLM pipeline, and
+render-as-a-service. All additive over 0.1.0.
+
+### Added
+
+- **Layout-native PDF backend** (`render pdf`): markdown to a branded, layout-precise A4 PDF via
+  pandoc's typst writer + a brand-token-driven theme + typst -- a peer of the DOCX path, no OOXML and
+  no LibreOffice. First-page PNG previews, `--paper`, and metadata (title/subtitle/org/date).
+- **Engine-agnostic theme descriptor**: `brand.yaml [theme]` (page margins, header/footer slots,
+  heading/title/rule colour ROLES) with a `base` + inheritable `variants` (built-in `financial`).
+  Drives BOTH engines -- the typst chrome (`chrome.typ`) and the DOCX house-style
+  (`template-profile.yaml`); `render pdf --variant <name>`.
+- **First-class semantic blocks** (fenced divs, rendered by the theme): `::: signatures` (hyphenation-
+  safe signature card grid), `::: attendance` (present/proxy/quorum callout), `::: statement` (typed
+  ledger with right-aligned amounts + rule lines).
+- **Data-bound, self-reconciling statements**: a `::: {.statement data="finance.yaml"}` sources rows
+  from YAML/CSV and COMPUTES subtotals/totals/balances (safe `+ - * /` formulas over subtotal ids); a
+  stated total that diverges from its computed value FAILS the render -- removing the silent-
+  transcription error class from financial documents.
+- **Project locale** (`render pdf --locale nl-BE|fr-BE|en|...`): number separators + currency
+  placement, hyphenation language, and localized long dates (raw ISO in -> `15 februari 2025` out).
+- **Fuzzy-gate LLM pipeline (D16)**: every LLM-touching step runs a deterministic result first, scores
+  confidence, and escalates only past a threshold. Shared `confidence_gate` primitive, opt-in gate
+  telemetry (`render gate-stats`), named confidence sub-signals, and an optional off-by-default
+  direct-API escalation channel (D17, VLM/LLM) alongside the harness + copy-paste channels. Applied to
+  vision-review, decision-capture, and the new document `contextualize` step.
+- **Render-as-a-service HTTP API**: `POST /render/pdf` (PDF or PNG bytes, inline or jailed source),
+  `POST /statement/check` (reconcile without rendering), and discovery endpoints `GET /doctor` /
+  `/locales` / `/theme/variants`. The reference **studio** UI (`--enable-ui`) gains a live PNG preview,
+  variant/locale controls, block-scaffold buttons, and a live reconciliation panel.
+
+### Fixed
+
+- `render <mode> --help` for the docx mode printed `source not found: --help` instead of usage.
+- The generated DOCX `template-profile.yaml` used a nested shape the house-style post-processor's
+  flat-key reader ignored -- so brand/theme values never reached the DOCX render (dead config). Now
+  emitted in the consumed flat schema.
+
+### Security
+
+- The API render/statement endpoints jail statement `data=` paths under the server root (source mode)
+  or the render temp dir (inline mode); an untrusted inline document cannot read server files. Inline
+  source size cap, plus the existing loopback bind + Host/Origin guard + rate limit.
+- The direct-API channel's `api_key` is env-only and never written to a config file or any log line.
+
 ## [0.1.0] - 2026-07-04
 
 ### Capability set
