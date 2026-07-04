@@ -239,15 +239,18 @@ def render_pdf(
     profiles: "str | Path | None" = None,
     fmt: str = "pdf",
     ppi: int = 144,
+    page: int = 1,
+    page_count: "list | None" = None,
     data_root: "Path | None" = None,
     typst: "str | None" = None,
     pandoc: "str | None" = None,
 ) -> Path:
-    """Render a markdown source to a themed A4 PDF (fmt='pdf') or a first-page PNG
-    preview (fmt='png') via typst. Returns the output path. `data_root`, when set,
-    jails every statement `data=` path under it (the API passes its server root
-    for untrusted sources). Raises TypstBackendError on any missing tool or failed
-    step."""
+    """Render a markdown source to a themed A4 PDF (fmt='pdf') or a single-page PNG
+    preview (fmt='png', 1-indexed `page`, clamped) via typst. Returns the output
+    path; for png, a caller-supplied `page_count` list receives the total page
+    count. `data_root`, when set, jails every statement `data=` path under it (the
+    API passes its server root for untrusted sources). Raises TypstBackendError on
+    any missing tool or failed step."""
     if fmt not in ("pdf", "png"):
         raise TypstBackendError(f"unsupported output format: {fmt!r} (use pdf or png)")
     source = Path(source)
@@ -329,7 +332,10 @@ def render_pdf(
             pages = sorted(work.glob("_page-*.png"))
             if not pages:
                 raise TypstBackendError("typst produced no PNG pages")
-            shutil.copyfile(pages[0], output)
+            if page_count is not None:
+                page_count.append(len(pages))
+            idx = min(max(page - 1, 0), len(pages) - 1)  # 1-indexed, clamped
+            shutil.copyfile(pages[idx], output)
 
     return output
 

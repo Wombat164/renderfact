@@ -121,6 +121,43 @@ def test_render_inline_png_preview(tmp_path):
     assert code == 200 and ctype == "image/png" and data[:4] == b"\x89PNG"
 
 
+def _png_call(api, body):
+    """Like call_raw but also returns the X-Total-Pages header."""
+    app = api_app.make_wsgi_app(api)
+    raw = json.dumps(body).encode("utf-8")
+    environ = {"REQUEST_METHOD": "POST", "PATH_INFO": "/render/pdf",
+               "HTTP_HOST": "127.0.0.1:8385", "REMOTE_ADDR": "127.0.0.1",
+               "CONTENT_LENGTH": str(len(raw)), "wsgi.input": io.BytesIO(raw)}
+    cap = {}
+
+    def start_response(status, headers):
+        cap["status"] = status
+        cap["headers"] = dict(headers)
+
+    data = b"".join(app(environ, start_response))
+    return int(cap["status"].split()[0]), cap["headers"], data
+
+
+def test_png_page_out_of_range_rejected(tmp_path):
+    api = api_app.RenderfactApi(root=tmp_path)
+    code, _, _ = _png_call(api, {"markdown": "# Hi\n", "format": "png", "page": 0})
+    assert code == 400
+
+
+@render_tools
+def test_png_multipage_navigation(tmp_path):
+    api = api_app.RenderfactApi(root=tmp_path)
+    md = "# One\n\n" + ("filler paragraph\n\n" * 60) + "# Two\n\nsecond page.\n"
+    c1, h1, d1 = _png_call(api, {"markdown": md, "format": "png", "page": 1})
+    c2, h2, d2 = _png_call(api, {"markdown": md, "format": "png", "page": 2})
+    assert c1 == 200 and c2 == 200
+    assert h1["X-Total-Pages"] == "2" and h2["X-Total-Pages"] == "2"
+    assert d1 != d2 and d1[:4] == b"\x89PNG" and d2[:4] == b"\x89PNG"
+    # a page past the end clamps to the last page (still 200)
+    c3, _, d3 = _png_call(api, {"markdown": md, "format": "png", "page": 99})
+    assert c3 == 200 and d3 == d2
+
+
 @render_tools
 def test_render_from_jailed_source(tmp_path):
     (tmp_path / "doc.md").write_text("# From file\n\nText.\n", encoding="utf-8")

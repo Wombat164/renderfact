@@ -371,15 +371,21 @@ class RenderfactApi:
                     raise ApiError(404, f"source not found: {source}")
                 data_root = self.root
             out = td / f"out.{fmt}"
+            page = body.get("page", 1)
+            if not isinstance(page, int) or page < 1:
+                raise ApiError(400, "page must be a positive integer")
+            counts: list = []
             try:
-                typst_backend.render_pdf(src, out, brand=brand, fmt=fmt, data_root=data_root, **opts)
+                typst_backend.render_pdf(src, out, brand=brand, fmt=fmt, data_root=data_root,
+                                         page=page, page_count=counts, **opts)
             except typst_backend.TypstBackendError as e:
                 raise ApiError(400, str(e)) from None
             data = out.read_bytes()
 
         if fmt == "pdf":
             return BinaryResponse(data, "application/pdf", filename="render.pdf")
-        return BinaryResponse(data, "image/png")
+        total = counts[0] if counts else 1
+        return BinaryResponse(data, "image/png", extra_headers={"X-Total-Pages": str(total)})
 
 
 class HtmlResponse:
@@ -388,10 +394,12 @@ class HtmlResponse:
 
 
 class BinaryResponse:
-    def __init__(self, data: bytes, content_type: str, filename: str | None = None):
+    def __init__(self, data: bytes, content_type: str, filename: str | None = None,
+                 extra_headers: dict | None = None):
         self.data = data
         self.content_type = content_type
         self.filename = filename
+        self.extra_headers = extra_headers or {}
 
 
 def make_wsgi_app(api: RenderfactApi):
@@ -424,6 +432,7 @@ def make_wsgi_app(api: RenderfactApi):
                        ("Content-Length", str(len(result.data)))]
             if result.filename:
                 headers.append(("Content-Disposition", f'attachment; filename="{result.filename}"'))
+            headers += list(result.extra_headers.items())
             start_response("200 OK", headers)
             return [result.data]
         if isinstance(result, HtmlResponse):
