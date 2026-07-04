@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/Wombat164/renderfact/actions/workflows/ci.yml"><img src="https://github.com/Wombat164/renderfact/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Wombat164/renderfact/actions/workflows/demo.yml"><img src="https://github.com/Wombat164/renderfact/actions/workflows/demo.yml/badge.svg" alt="Demo render"></a>
   <a href="https://pypi.org/project/renderfact/"><img src="https://img.shields.io/pypi/v/renderfact" alt="PyPI"></a>
   <a href="https://pypi.org/project/renderfact/"><img src="https://img.shields.io/pypi/pyversions/renderfact" alt="Python versions"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Wombat164/renderfact" alt="License: MIT"></a>
@@ -41,6 +42,12 @@ double meaning: render + artefact (what it produces), render factory (what it is
 
 ## Quickstart
 
+<p align="center">
+  <img src="assets/quickstart.gif" alt="One markdown source rendered to a branded A4 PDF, cycling the base and financial theme variants and an en/nl-BE locale" width="640">
+</p>
+
+<p align="center"><sub>One markdown source &rarr; a branded, layout-precise PDF. Same document, cycling the <code>base</code> and <code>financial</code> theme variants and an <code>en</code> / <code>nl-BE</code> locale (note the recomputed, reconciled figures).</sub></p>
+
 ```sh
 git clone https://github.com/Wombat164/renderfact && cd renderfact
 pip install -e ".[dev]"        # editable install is the supported mode; wires the render CLI
@@ -51,6 +58,11 @@ python render.py project demo/source/signalling-it-refresh.md \
     --profiles demo/profiles.yaml --all --output-dir demo/renders
 python render.py gate demo/source --stages vale,uids   # fail-closed QA on the demo source
 python render.py doctor                                 # what your host has vs. tools.lock
+
+# render the branded governance/financial PDF above (needs typst + pandoc):
+python render.py pdf demo/source/agm-minutes.md \
+    --brand demo/skin/brand.yaml --variant financial --locale en \
+    --org "Meridian Rail Infrastructure" --title "AGM Minutes 2026" --date 2026-03-18
 ```
 
 The three projected renders differ exactly as the profiles dictate: `internal-full` keeps
