@@ -71,6 +71,39 @@ and override only the keys they name; e.g. the built-in `financial` variant rest
 primary role. Role-based and engine-neutral by design so an OOXML consumer can read the same
 descriptor (Golden Rule -- one source -- extended from palette to house-style).
 
+### Semantic blocks (governance + financial documents)
+
+Three first-class blocks (fenced divs), rendered by the active theme, cover components that recur
+across meeting minutes and financial statements. Each reads a plain bullet list of pipe-delimited
+fields, so the source stays markdown; a pandoc Lua filter maps them to typst functions.
+
+```markdown
+::: attendance
+- present | A. Janssens (voorzitter)
+- proxy   | C. De Wit, via A. Janssens
+- quorum  | 3 van de 5 leden aanwezig: quorum bereikt
+:::
+
+::: statement
+- heading  | Ontvangsten
+- item     | Bijdragen leden | EUR 8.045,77
+- subtotal | Totaal ontvangsten | EUR 8.045,77
+- rule
+- total    | Saldo boekjaar | EUR 1.510,53
+:::
+
+::: signatures
+- A. Janssens | Voorzitter
+- B. Peeters  | Secretaris
+:::
+```
+
+| Block | Fields per item | Renders |
+|---|---|---|
+| `signatures` | `Name \| Role` | A card grid: bold name, muted role, reserved signature whitespace, a `Handtekening / Datum` rule. Hyphenation-safe (a long role never breaks the name). |
+| `attendance` | `kind \| text` (kind = `present` / `proxy` / `quorum`) | A callout box (accent left border): present-in-person and represented-by-proxy sections, plus an emphasized quorum line. |
+| `statement` | `kind \| label \| amount` (kind = `heading` / `item` / `subtotal` / `total` / `balance` / `rule`) | A ledger: section headings, right-aligned amounts, bold totals, `rule` hairlines. (Amounts are given here; #34 will compute + reconcile them from data.) |
+
 ## Environment variables
 
 | Variable | Used by | Meaning |
