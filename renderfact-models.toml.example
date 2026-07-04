@@ -1,0 +1,23 @@
+# renderfact-models.toml -- optional [models] config for the D17 direct-API
+# escalation channel (Track G / G5). Copy to `renderfact-models.toml` (gitignored)
+# to opt in. With no such file present the channel is OFF and escalation stays
+# harness-or-copy-paste, exactly as before.
+#
+# SECRETS: api_key is ENV-ONLY and is never read from this file. Set it in the
+# environment: RENDERFACT_LLM_API_KEY / RENDERFACT_VLM_API_KEY. Omit it entirely
+# for a keyless local endpoint (e.g. a default ollama install).
+
+[llm]
+# Any OpenAI-compatible /chat/completions server (ollama, vLLM, llama.cpp, a
+# hosted provider, ...). Text steps (decision-capture, contextualize) route here.
+base_url = "http://localhost:11434/v1"
+model = "qwen2.5:14b"
+
+# [vlm] is OPTIONAL. Vision steps (vision-review) route here with the rendered
+# image attached inline. When [vlm] is unset or its endpoint is unreachable, the
+# vision step falls back to [llm]; if no resolved model is vision-capable, the
+# step degrades to copy-paste rather than running the image text-only.
+[vlm]
+base_url = "http://localhost:11434/v1"
+model = "qwen2.5vl:7b"
+vision = true

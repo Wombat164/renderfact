@@ -37,10 +37,48 @@ Run any subcommand with `--help` for its flags.
 |---|---|---|
 | `RENDERFACT_VISION_THRESHOLD` | vision-review | D16 gate confidence threshold (default 0.6). |
 | `RENDERFACT_DECISION_THRESHOLD` | decision-capture | D16 gate confidence threshold (default 0.6). |
+| `RENDERFACT_CONTEXTUALIZE_THRESHOLD` | contextualize | D16 gate confidence threshold (default 0.6). |
 | `RENDERFACT_GATE_LOG` | all gated steps | Path to the append-only gate decision log (opt-in). |
+| `RENDERFACT_MODELS_CONFIG` | direct-API channel | Path to the `[models]` TOML (default `./renderfact-models.toml`). |
+| `RENDERFACT_LLM_API_KEY` / `RENDERFACT_VLM_API_KEY` | direct-API channel | Bearer token for the text / vision endpoint. **Env-only, never read from the TOML.** |
+| `RENDERFACT_LLM_BASE_URL` / `_MODEL` / `_VISION` | direct-API channel | Env overrides for the `[llm]` endpoint. |
+| `RENDERFACT_VLM_BASE_URL` / `_MODEL` / `_VISION` | direct-API channel | Env overrides for the `[vlm]` endpoint. |
 | `RENDERFACT_VALE_CONFIG` | gate (vale) | Override the built-in Vale config. |
 | `RENDERFACT_LYCHEE_BIN` / `_VERAPDF_BIN` | gate | Native binary overrides. |
 | `PROVENANCE=off` | render pipeline | Skip provenance embedding for a render. |
+
+## D17 direct-API escalation channel (optional, off by default)
+
+When the D16 gate escalates, the default channels are the assistant harness and human copy-paste (D8).
+D17 adds an **optional third channel**: a directly-called OpenAI-compatible model. It is off unless a
+`[models]` config is present, and it never fails a render -- an unreachable endpoint falls back to
+copy-paste.
+
+Declare endpoints in `renderfact-models.toml` (base URL + model only -- the api_key is **env-only**):
+
+```toml
+[llm]
+base_url = "http://localhost:11434/v1"   # any OpenAI-compatible server (ollama, vLLM, ...)
+model = "qwen2.5:14b"
+
+[vlm]                                     # optional; falls back to [llm] when unset/unreachable
+base_url = "http://localhost:11434/v1"
+model = "qwen2.5vl:7b"
+vision = true                             # required for a vision step (else it degrades to copy-paste)
+```
+
+Then set the key(s) in the environment and opt in per command:
+
+```bash
+export RENDERFACT_LLM_API_KEY=...         # omit for a keyless local endpoint
+render copy-paste vision-review --image d.svg --tier tier-3   # uses the API when configured
+render copy-paste vision-review --image d.svg --tier tier-3 --no-api   # force copy-paste
+render contextualize --source doc.md --reingest r.json --escalate api  # try API, fall back to copy-paste
+```
+
+Routing: a step whose input carries a `rendered_image_path` (vision-review) routes to the `[vlm]`
+(with the rendered image attached as a base64 data URL); every other step routes to the `[llm]`. The
+result's mode field records `api`, alongside `harness` / `copy-paste` / `deterministic`.
 
 ## Provenance schema (D11)
 

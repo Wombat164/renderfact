@@ -122,8 +122,9 @@ OUTPUT_SCHEMA: list[FieldSpec] = [
     FieldSpec("changes", list, required=True,
               description="Factual, self-contained list of what changed (one string per change)."),
     FieldSpec("capture_mode", str, required=True,
-              allowed_values=("deterministic", "harness", "copy-paste"),
-              description="How this entry was produced -- provenance, not a quality signal."),
+              allowed_values=("deterministic", "harness", "copy-paste", "api"),
+              description="How this entry was produced -- provenance, not a quality signal. "
+                          "'api' = the D17 direct-API channel handled the escalation."),
 ]
 
 
@@ -303,9 +304,10 @@ def main(argv: list[str] | None = None) -> int:
                     default=float(os.environ.get("RENDERFACT_CONTEXTUALIZE_THRESHOLD", DEFAULT_THRESHOLD)),
                     help=f"confidence gate (default {DEFAULT_THRESHOLD}; env "
                          "RENDERFACT_CONTEXTUALIZE_THRESHOLD)")
-    ap.add_argument("--escalate", choices=("copy-paste",), default=None,
+    ap.add_argument("--escalate", choices=("copy-paste", "api"), default=None,
                     help="how to escalate when below threshold (default: none -- the "
-                         "deterministic entry is written, flagged needs_review)")
+                         "deterministic entry is written, flagged needs_review). 'api' "
+                         "tries the D17 direct-API channel, falling back to copy-paste")
     ap.add_argument("--dry-run", action="store_true", help="print the entry, do not append")
     ap.add_argument("--json", action="store_true", help="emit the decision + gate as JSON")
     args = ap.parse_args(argv)
@@ -321,11 +323,15 @@ def main(argv: list[str] | None = None) -> int:
 
         input_obj = assemble_input(reingest, args.source.name, title)
 
-        from contracts import confidence_gate, copy_paste
+        from contracts import confidence_gate, copy_paste, direct_api
         escalate = None
         if args.escalate == "copy-paste":
             def escalate():
                 return copy_paste.run_copy_paste_step(
+                    "contextualize", sys.modules[__name__], input_obj, scratch_dir=Path("."))
+        elif args.escalate == "api":
+            def escalate():
+                return direct_api.api_then_copy_paste(
                     "contextualize", sys.modules[__name__], input_obj, scratch_dir=Path("."))
         try:
             entry, meta = confidence_gate.resolve(

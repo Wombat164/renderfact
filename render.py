@@ -195,6 +195,11 @@ def run_copy_paste(args: list[str]) -> int:
         help="bypass the D16 gate and always run the LLM review (e.g. for compositional coverage "
              "of a clean diagram the gate would otherwise accept).",
     )
+    parser.add_argument(
+        "--no-api", action="store_true",
+        help="disable the D17 direct-API escalation channel for this run; escalate straight to "
+             "copy-paste even if a [models] config is present.",
+    )
     parsed = parser.parse_args(args)
 
     module = steps[parsed.step]
@@ -240,11 +245,19 @@ def run_copy_paste(args: list[str]) -> int:
     # steps that declare a gate participate; others (and --force-review) fall
     # through to the unconditional LLM run below, as before.
     if not parsed.force_review and hasattr(module, "gate") and hasattr(module, "deterministic_entry"):
-        from contracts import confidence_gate
+        from contracts import confidence_gate, direct_api
 
-        def escalate():
-            return copy_paste.run_copy_paste_step(
-                parsed.step, module, input_obj, scratch_dir=REPO_ROOT, max_retries=parsed.max_retries)
+        # D17: escalate through the direct-API channel first (it internally falls
+        # back to copy-paste on no-config or a transport failure), unless --no-api
+        # forces the copy-paste-only path.
+        if parsed.no_api:
+            def escalate():
+                return copy_paste.run_copy_paste_step(
+                    parsed.step, module, input_obj, scratch_dir=REPO_ROOT, max_retries=parsed.max_retries)
+        else:
+            def escalate():
+                return direct_api.api_then_copy_paste(
+                    parsed.step, module, input_obj, scratch_dir=REPO_ROOT)
 
         def announce(decision, score):  # before any interactive paste prompt
             print(f"[D16 gate] confidence {score} vs threshold {parsed.threshold} -> {decision}",

@@ -232,9 +232,16 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   `on_decision` hook so the verdict prints before an interactive prompt). Per-step `confidence()`
   heuristics stay local. decision-capture + vision-review both refactored onto it; adversarially
   subagent-reviewed for behavior-preservation.
-- **G5 - model-config + optional direct-API channel (D17).** `[build]` sequenced last (touches the
-  D8 trust boundary, off by default): `[models] llm/vlm` with VLM->LLM fallback, modality routing, a
-  fourth D8 escalation channel behind the same contract.
+- **G5 - model-config + optional direct-API channel (D17).** `[build]` **DONE:**
+  `contracts/model_config.py` (`[models] llm/vlm` from a TOML file + env, `api_key` ENV-ONLY;
+  `resolve_for_step()` routes text->llm / vision->vlm, falls the VLM back to the LLM when unset or
+  unreachable, and degrades a vision step to copy-paste when no resolved model is vision-capable) plus
+  `contracts/direct_api.py` (a stdlib-urllib OpenAI-compatible `/chat/completions` caller reusing the
+  copy-paste prompt + validate_output, forcing `MODE_FIELD="api"`, attaching the rendered image as a
+  base64 data URL for vision endpoints, and never logging the key). A third D8 escalation channel
+  behind the same contract, off by default; `api_then_copy_paste()` falls back to copy-paste on
+  no-config or any transport failure. Wired into `render copy-paste` (default on when configured,
+  `--no-api` to force copy-paste) and `decision-capture` / `contextualize` (`--escalate api`). 39 tests.
 - **G6 - Track D 4.5 contextualize on this shape.** `[build]` **DONE:** `roundtrip/contextualize.py`
   + `render contextualize`, mirroring decision-capture over reingest's `manual` diff. A `classify()`
   maps each reingest tuple (no `kind` field) to reword (descriptive) vs add/delete/replace/heading
