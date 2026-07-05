@@ -166,3 +166,13 @@
   box(clip: true, radius: 50%, width: size, height: size, stroke: 0.6pt + accent,
     align(center + horizon, text(size: size * 0.34, fill: accent, weight: "medium", initials)))
 }
+
+// A small drawn LinkedIn mark (brand blue, white "in"), no external SVG/icon
+// font bundled -- keeps the licensing surface as simple as the OFL-bundled
+// Geist fonts already are. Meant to sit inline just before a linked name, so
+// a contact line reads as an icon + human name rather than a bare printed
+// URL (the URL still lives in the surrounding #link(...) as the real href).
+#let linkedin-mark(size: 0.85em) = box(
+  width: size, height: size, radius: 15%, fill: rgb("#0A66C2"), baseline: 15%,
+  align(center + horizon, text(size: size * 0.62, fill: white, weight: "bold")[in]),
+)
