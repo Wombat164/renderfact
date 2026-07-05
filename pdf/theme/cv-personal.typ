@@ -16,6 +16,15 @@
 // Consumers place that block themselves as a raw typst passthrough at the top
 // of the markdown body (see templates/cv.md / templates/cover-letter.md) --
 // this theme supplies the section/heading/spacing register around it.
+//
+// Two spacing profiles, selected by --mode (passed through into conf() by
+// typst_backend.py; deliberately a separate knob from --variant, which is
+// validated against brand.yaml's declared theme.variants -- --mode has no
+// such registry). "base" is the CV's profile, tuned tight for one-page fit
+// under real content load. "letter" is the cover letter's profile: a letter
+// runs to well under a page even with generous spacing, so it should not
+// inherit the CV's page-fit compression -- cramped paragraphs on a
+// three-quarters-empty page read as a mistake, not restraint.
 
 #import "tokens.typ": *
 #import "chrome.typ": chrome
@@ -29,16 +38,26 @@
   date: none,
   paper: "a4",
   lang: "en",
+  mode: "base",
   doc,
 ) = {
   set document(title: if title != none { title } else { "" })
 
   let accent = _role("accent")
   let ink = brand.ink
+  let letter = mode == "letter"
 
   set page(
     paper: paper,
-    margin: (x: 2.2cm, top: 2.0cm, bottom: 2.0cm),
+    // Margins are a spacing knob too. "base" (CV) runs tight so a content-dense
+    // CV holds one page. "letter" runs generous on all four sides: a short cover
+    // letter should sit in a comfortable, well-inset text column on a mostly-full
+    // page, not span edge-to-edge like a data-dense CV.
+    margin: (if letter {
+      (x: 2.7cm, top: 2.3cm, bottom: 2.1cm)
+    } else {
+      (x: 2.0cm, top: 1.5cm, bottom: 1.5cm)
+    }),
     footer: context {
       set text(size: 8pt, fill: ink)
       line(length: 100%, stroke: 0.4pt + accent.lighten(40%))
@@ -62,21 +81,44 @@
 
   set text(
     font: (brand-font, "Liberation Sans", "Arial", "DejaVu Sans"),
-    size: 9.4pt, fill: ink, lang: lang,
+    size: (if letter { 10.8pt } else { 9.4pt }), fill: ink, lang: lang,
   )
-  set par(justify: false, leading: 0.58em, spacing: 0.68em)
+  // "letter" gets deliberately open vertical rhythm: comfortable line leading and
+  // generous paragraph spacing so a short letter fills its page as a composed,
+  // breathing document rather than a compressed CV. "base" stays tight for fit.
+  set par(
+    justify: false,
+    leading: (if letter { 0.85em } else { 0.58em }),
+    spacing: (if letter { 1.2em } else { 0.68em }),
+  )
 
   // Section labels (h2): tracked-out small-caps in the accent colour, one
   // hairline rule beneath -- the "regulatory, not Canva" cue from the research.
+  // Whitespace goes ABOVE the label (separating it from the section it closes
+  // out), not below (the label should sit close to ITS OWN content, the same
+  // pattern default.typ's own heading rule already uses: above > below).
   // No h1 show rule: h1 is reserved for a genre's own raw identity block, not
   // pandoc heading flow (a consumer who does use markdown h1 gets sane bold
   // text, just without a special treatment layered on top).
-  show heading.where(level: 2): it => block(above: 0.55em, below: 0.25em, breakable: false, {
-    set text(size: 9.5pt, fill: accent, weight: "bold", tracking: 0.4pt)
-    upper(it.body)
-    v(0.25em)
-    line(length: 100%, stroke: 0.6pt + accent)
-  })
+  // The "gap ABOVE the section header" deliberately does NOT use block(above:):
+  // Typst collapses adjacent block spacing to the MAX of the two values, and the
+  // preceding paragraph already emits its own trailing spacing via set par(...)
+  // (0.68em base / 0.9em letter), so any `above:` at or near that size collapses
+  // away to almost nothing. Instead we emit an explicit NON-weak v() before the
+  // block: non-weak spacing is not subject to weak-spacing collapse, so it adds
+  // in full on top of whatever the previous paragraph contributed, producing a
+  // clearly visible separator between the previous section and the new header.
+  // Inside the block, a tight local par spacing keeps the header text flush to
+  // its own underline rule (no gap between the label and its hairline).
+  show heading.where(level: 2): it => {
+    v(if letter { 1.5em } else { 1.25em }, weak: false)
+    block(above: 0em, below: 0.2em, breakable: false, {
+      set text(size: 9.5pt, fill: accent, weight: "bold", tracking: 0.4pt)
+      set par(spacing: 0.16em, leading: 0.4em)
+      upper(it.body)
+      line(length: 100%, stroke: 0.6pt + accent)
+    })
+  }
 
   show heading.where(level: 1): it => block(above: 0.6em, below: 0.4em, {
     set text(size: 15pt, fill: _role("primary"), weight: "bold")
@@ -86,4 +128,14 @@
   set list(marker: text(fill: accent)[•], spacing: 0.4em, indent: 0.2em)
 
   doc
+}
+
+// A small accent-stroked initials badge, no fill (rule 1: accent never fills).
+// For a cover letter's lighter identity block (rule 7: no photo) this is the
+// same circular-badge motif the CV uses for its photo, so the pair reads as
+// one visual identity across both documents without repeating the photo.
+#let initials-badge(initials, size: 2.0cm) = {
+  let accent = _role("accent")
+  box(clip: true, radius: 50%, width: size, height: size, stroke: 0.6pt + accent,
+    align(center + horizon, text(size: size * 0.34, fill: accent, weight: "medium", initials)))
 }

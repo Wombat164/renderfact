@@ -231,9 +231,17 @@ def compose_main(
     date: "str | None",
     paper: str,
     lang: str = "en",
+    mode: str = "base",
 ) -> str:
     """Compose main.typ: import the theme, apply it as a show rule with the
-    document metadata, then the pandoc body."""
+    document metadata, then the pandoc body. `mode` is a free-form string a
+    theme's *layout logic* can branch on (deliberately separate from --variant,
+    which selects a brand.yaml token override and is validated against the
+    brand's declared `theme.variants`; `mode` has no such registry, so a
+    consumer never needs to add a dummy brand.yaml variant just to pick a
+    layout profile). E.g. cv-personal.typ's "base" (CV, page-fit-tight) vs
+    "letter" (cover letter, room to breathe) spacing profiles. Themes that
+    ignore the param (the default) are unaffected."""
     args = ", ".join([
         f"title: {_typ_str(title)}",
         f"subtitle: {_typ_str(subtitle)}",
@@ -241,9 +249,10 @@ def compose_main(
         f"date: {_typ_str(date)}",
         f"paper: {_typ_str(paper)}",
         f"lang: {_typ_str(lang)}",
+        f"mode: {_typ_str(mode)}",
     ])
     return (
-        '#import "theme.typ": conf\n'
+        '#import "theme.typ": *\n'
         '#import "blocks.typ": *\n'
         f"#show: conf.with({args})\n\n"
         f"{body}\n"
@@ -275,6 +284,7 @@ def render_pdf(
     data_root: "Path | None" = None,
     typst: "str | None" = None,
     pandoc: "str | None" = None,
+    mode: str = "base",
 ) -> Path:
     """Render a markdown source to a themed A4 PDF (fmt='pdf') or a single-page PNG
     preview (fmt='png', 1-indexed `page`, clamped) via typst. Returns the output
@@ -352,7 +362,7 @@ def render_pdf(
         body = stage_images(body, source.parent, work, image_root=data_root)
         (work / "main.typ").write_text(
             compose_main(body, title=title, subtitle=subtitle, org=org, date=date,
-                         paper=paper, lang=text_lang),
+                         paper=paper, lang=text_lang, mode=mode),
             encoding="utf-8",
         )
         # root = work; referenced images were staged into work/_img above. For a
@@ -390,6 +400,11 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--brand", default=None, help="a consumer brand.yaml (default: the built-in tokens)")
     ap.add_argument("--variant", default="base",
                     help="theme variant from brand.yaml [theme.variants] (default: base)")
+    ap.add_argument("--mode", default="base",
+                    help="a free-form layout-mode string passed into the theme's conf() "
+                         "(default: base); for themes whose layout logic branches on it, e.g. "
+                         "cv-personal.typ's base (CV) vs letter (cover letter) spacing profiles. "
+                         "Unlike --variant this is not validated against brand.yaml")
     ap.add_argument("--locale", default=None,
                     help="project locale (e.g. nl-BE) driving number/date formatting + hyphenation")
     ap.add_argument("--project", default=None, metavar="PROFILE",
@@ -413,7 +428,7 @@ def main(argv: "list[str] | None" = None) -> int:
 
     common = dict(theme=args.theme, brand=args.brand, title=args.title, subtitle=args.subtitle,
                   org=args.org, date=args.date, paper=args.paper, variant=args.variant,
-                  locale=args.locale, font_paths=font_paths or None)
+                  locale=args.locale, font_paths=font_paths or None, mode=args.mode)
     try:
         if args.project == "all":
             # Batch: one branded PDF per audience profile, named <stem>-<profile>.<fmt>.

@@ -22,6 +22,7 @@
   date: none,
   paper: "a4",
   lang: "en",
+  mode: "base",
   doc,
 ) = {
   set document(title: if title != none { title } else { "" })
