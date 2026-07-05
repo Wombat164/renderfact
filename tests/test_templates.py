@@ -1,6 +1,7 @@
 """
-Tests for the template pack (templates/): five genre sources + committed
-identity-free DOCX exemplars.
+Tests for the template pack (templates/): seven genre sources (five DOCX-
+governance-theme genres with committed identity-free DOCX exemplars, plus
+cv.md/cover-letter.md, a PDF/Typst-theme pair with no DOCX exemplar).
 
 Covers: the pack invariants that make templates safe to copy (NO renderfact_uid
 in any template's frontmatter: a uid on a template would be inherited by every
@@ -36,12 +37,20 @@ EXEMPLARS = sorted((REPO_ROOT / "templates" / "renders").glob("*.docx"))
 EXAMPLE_PROFILES = REPO_ROOT / "projection" / "profiles-example.yaml"
 
 
+DOCX_GENRES = {
+    "executive-summary", "external-party-brief", "pitch-1pager",
+    "pitch-5pager", "purchase-request",
+}
+# cv.md / cover-letter.md pair with pdf/theme/cv-personal.typ (a PDF/Typst
+# theme), not the default DOCX governance theme every other template is
+# rendered against for its committed exemplar -- they intentionally have no
+# DOCX exemplar (see templates/README.md).
+TYPST_GENRES = {"cv", "cover-letter"}
+
+
 def test_pack_shape():
-    assert {t.stem for t in SOURCES} == {
-        "executive-summary", "external-party-brief", "pitch-1pager",
-        "pitch-5pager", "purchase-request",
-    }
-    assert {e.stem for e in EXEMPLARS} == {f"{t.stem}-exemplar" for t in SOURCES}
+    assert {t.stem for t in SOURCES} == DOCX_GENRES | TYPST_GENRES
+    assert {e.stem for e in EXEMPLARS} == {f"{g}-exemplar" for g in DOCX_GENRES}
 
 
 @pytest.mark.parametrize("template", SOURCES, ids=lambda t: t.stem)
