@@ -54,17 +54,40 @@
     // letter should sit in a comfortable, well-inset text column on a mostly-full
     // page, not span edge-to-edge like a data-dense CV.
     margin: (if letter {
-      (x: 2.7cm, top: 2.3cm, bottom: 2.1cm)
+      (x: 2.7cm, top: 2.0cm, bottom: 1.8cm)
     } else {
       (x: 2.0cm, top: 1.5cm, bottom: 1.5cm)
     }),
+    // Subtle VDHome letterhead background (the DOC/light register). Two layers:
+    //   1. a soft violet-50 -> white wash across the top ~8.5cm, so the identity
+    //      block sits on a faint branded field while the body stays on pure white
+    //      (near-black ink on white below the wash = full print legibility; no
+    //      light-text-on-tint failure mode). Uses the `fill` token, never `accent`
+    //      -- the "accent is stroke/label only" restraint holds for the wash.
+    //   2. ONE full-saturation touch: a 2pt top-edge rule in the vivid web-brand
+    //      violet (#7C3AED, violet-600). This is the single deliberate link to the
+    //      energetic web register; everywhere else the print palette stays deepened
+    //      and muted. Full-bleed at the very top edge, above the text block.
+    background: {
+      place(top, rect(width: 100%, height: 8.5cm,
+        fill: gradient.linear(brand.fill, brand.background, angle: 90deg)))
+      place(top, rect(width: 100%, height: 2pt, fill: rgb("#7C3AED")))
+    },
     footer: context {
       set text(size: 8pt, fill: ink)
       line(length: 100%, stroke: 0.4pt + accent.lighten(40%))
       v(0.15em)
+      // Three slots: date (left), an optional document-handling / distribution
+      // marking (centre, fed from the generic `org` param so the theme stays
+      // application-neutral -- any consumer can pass a handling caveat via --org),
+      // page x/y (right). The marking is set smaller + muted: an info-classification
+      // convention, present but never shouting.
       grid(
-        columns: (1fr, auto),
+        columns: (1fr, auto, 1fr),
         align(left, if date != none { date } else { [] }),
+        align(center, if org != none {
+          text(size: 7pt, fill: ink.lighten(30%), org)
+        } else { [] }),
         align(right, {
           let here-page = counter(page).at(here()).first()
           let total = counter(page).final().first()
@@ -81,16 +104,20 @@
 
   set text(
     font: (brand-font, "Liberation Sans", "Arial", "DejaVu Sans"),
-    size: (if letter { 10.8pt } else { 9.4pt }), fill: ink, lang: lang,
+    size: (if letter { 10.2pt } else { 9.0pt }), fill: ink, lang: lang,
   )
   // "letter" gets deliberately open vertical rhythm: comfortable line leading and
   // generous paragraph spacing so a short letter fills its page as a composed,
   // breathing document rather than a compressed CV. "base" stays tight for fit.
   set par(
     justify: false,
-    leading: (if letter { 0.85em } else { 0.58em }),
-    spacing: (if letter { 1.2em } else { 0.68em }),
+    leading: (if letter { 0.78em } else { 0.56em }),
+    spacing: (if letter { 1.32em } else { 0.62em }),
   )
+
+  // Clickable links (contact line email/LinkedIn, in-text URLs) carry the accent
+  // colour so they read as intentional links without a dated underline.
+  show link: set text(fill: accent)
 
   // Section labels (h2): tracked-out small-caps in the accent colour, one
   // hairline rule beneath -- the "regulatory, not Canva" cue from the research.
@@ -111,9 +138,9 @@
   // Inside the block, a tight local par spacing keeps the header text flush to
   // its own underline rule (no gap between the label and its hairline).
   show heading.where(level: 2): it => {
-    v(if letter { 1.5em } else { 1.25em }, weak: false)
+    v(if letter { 1.3em } else { 1.0em }, weak: false)
     block(above: 0em, below: 0.2em, breakable: false, {
-      set text(size: 9.5pt, fill: accent, weight: "bold", tracking: 0.4pt)
+      set text(size: 9.5pt, fill: accent, weight: "semibold", tracking: 0.4pt)
       set par(spacing: 0.16em, leading: 0.4em)
       upper(it.body)
       line(length: 100%, stroke: 0.6pt + accent)
