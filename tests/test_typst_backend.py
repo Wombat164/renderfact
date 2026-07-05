@@ -38,7 +38,11 @@ def test_typ_str_escapes():
 
 def test_compose_main_shape():
     main = tb.compose_main("= Body\n", title="T", subtitle=None, org="Org", date="2025", paper="a4")
-    assert '#import "theme.typ": conf' in main
+    # Wildcard import (not `: conf` alone): a theme's other exported helpers
+    # (e.g. cv-personal.typ's initials-badge()/linkedin-mark()) must be
+    # reachable from raw-typst passthrough blocks in document bodies, not
+    # just conf() itself.
+    assert '#import "theme.typ": *' in main
     assert "#show: conf.with(" in main
     assert 'title: "T"' in main and 'org: "Org"' in main and 'subtitle: none' in main
     assert 'paper: "a4"' in main
