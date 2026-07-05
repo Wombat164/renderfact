@@ -63,6 +63,35 @@ none of the whitespace-as-hierarchy a personal/professional document needs.
    Keep the business-letter shape (date, recipient, subject line, salutation) below
    the header rather than folding it into the header block itself.
 
+## Lessons from the first real production use (same day, second pass)
+
+Built for a real freelance application; both documents went through several rounds
+of visual re-inspection (rendering to PDF and reading it back) before they were
+right. Two lessons worth keeping:
+
+- **`tracking:` in Typst `text()` is an ABSOLUTE point value per character, not a
+  relative one.** `tracking: 1.6pt` on 9.5pt section-header text rendered as visibly
+  broken, wildly-spaced letters ("P R O F I L E"), not a tasteful tracked small-caps
+  look. `0.4pt` is the value that actually reads as intentional letter-spacing at
+  this genre's font sizes. Sanity-check any tracking value against font size before
+  trusting the description "tracked-out small-caps" to mean the same thing across
+  themes.
+- **Base font size is the highest-leverage lever for page-fit, ahead of margin or
+  paragraph-spacing tweaks.** Chasing a one-page CV through margin (2.4 to 2.2cm),
+  leading (0.72em to 0.62em), and heading-spacing reductions each bought a little
+  room but left a stubborn half-page of spillover; dropping the base body size from
+  10.3pt to 9.4pt closed most of the remaining gap in one move, with real content
+  trims (merging near-duplicate closing sections) closing the rest. Reach for font
+  size early in a page-fit pass, not as a last resort after several rounds of
+  spacing surgery.
+- **`--` as a prose separator renders as a real dash character through pandoc, and
+  reads as an AI-writing tell.** Markdown source written with " -- " between clauses
+  (this project's own vault house style, ironically) comes out the other side as an
+  en-dash in the PDF; dash-heavy prose is one of the most recognisable LLM
+  fingerprints to a human reader. For consumer-facing genres like CV/cover-letter,
+  write with commas, colons, semicolons, and parentheses instead, reserve the
+  hyphen for actual compound words.
+
 ## What's still open (candidates for a real `--genre cv` mode, #TODO)
 
 - The identity-block-as-raw-typst pattern works but is copy-paste per document; a

@@ -1,0 +1,10 @@
+extends: existence
+message: "'%s' reads as NL-NL, not BE-NL formal register (see writing-golden-rules-be-nl.md rule 1-2). Confirm the target variant before changing."
+level: warning
+ignorecase: true
+tokens:
+  - u kunt
+  - u zult
+  - u wilt
+  - mocht ik
+  - mocht u

@@ -38,7 +38,7 @@
 
   set page(
     paper: paper,
-    margin: (x: 2.4cm, top: 2.2cm, bottom: 2.2cm),
+    margin: (x: 2.2cm, top: 2.0cm, bottom: 2.0cm),
     footer: context {
       set text(size: 8pt, fill: ink)
       line(length: 100%, stroke: 0.4pt + accent.lighten(40%))
@@ -62,19 +62,19 @@
 
   set text(
     font: (brand-font, "Liberation Sans", "Arial", "DejaVu Sans"),
-    size: 10.3pt, fill: ink, lang: lang,
+    size: 9.4pt, fill: ink, lang: lang,
   )
-  set par(justify: false, leading: 0.72em, spacing: 1.05em)
+  set par(justify: false, leading: 0.58em, spacing: 0.68em)
 
   // Section labels (h2): tracked-out small-caps in the accent colour, one
   // hairline rule beneath -- the "regulatory, not Canva" cue from the research.
   // No h1 show rule: h1 is reserved for a genre's own raw identity block, not
   // pandoc heading flow (a consumer who does use markdown h1 gets sane bold
   // text, just without a special treatment layered on top).
-  show heading.where(level: 2): it => block(above: 1.15em, below: 0.5em, {
-    set text(size: 9.5pt, fill: accent, weight: "bold", tracking: 1.6pt)
+  show heading.where(level: 2): it => block(above: 0.55em, below: 0.25em, breakable: false, {
+    set text(size: 9.5pt, fill: accent, weight: "bold", tracking: 0.4pt)
     upper(it.body)
-    v(0.28em)
+    v(0.25em)
     line(length: 100%, stroke: 0.6pt + accent)
   })
 
@@ -83,7 +83,7 @@
     it.body
   })
 
-  set list(marker: text(fill: accent)[•], spacing: 0.6em, indent: 0.2em)
+  set list(marker: text(fill: accent)[•], spacing: 0.4em, indent: 0.2em)
 
   doc
 }

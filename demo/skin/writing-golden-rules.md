@@ -57,6 +57,13 @@ RENDERFACT_VALE_CONFIG=demo/skin/vale/vale.ini python render.py gate demo/source
 Everything else in the taxonomy above needs human judgment (or a reviewing pass); the gate only
 automates what is genuinely deterministic.
 
+## Related: language-register companions
+
+This file is structure doctrine, language-agnostic on purpose. For BE-NL (Flemish)
+formal register specifically (salutation/closing conventions, BE-NL vs NL-NL
+grammar, business-letter layout markers), see `writing-golden-rules-be-nl.md` in
+this same skin.
+
 ## Sources (public traditions this distils)
 
 Minto, The Pyramid Principle (governing thought, answer-first, MECE) - BLUF per US Army AR 25-50 -
