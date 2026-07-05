@@ -6,6 +6,12 @@ prose per section, bracketed placeholders, and worked fenced-div blocks so the p
 vocabulary (clearance, releasable, and disclosure posture) is visible in place, not just
 described.
 
+Two more genre skeletons -- `cv.md` and `cover-letter.md` -- pair with the
+`pdf/theme/cv-personal.typ` theme instead of the default governance theme; they're a
+personal/professional-document register (a freelance CV and its cover letter), not a
+governed-disclosure one, so they don't use the clearance/releasable block vocabulary.
+See `docs/2026-07-05-cv-cover-letter-design-spec.md` for the design rationale.
+
 ## Instantiation workflow
 
 1. Copy a template out of `templates/` to where your working source lives; do not edit
@@ -46,3 +52,5 @@ pass.
 | `pitch-1pager.md`                   | Single-page pitch: problem, answer, value, cost and effort, one ask     |
 | `pitch-5pager.md`                   | Long-form pitch memo: situation, complication, options, recommendation  |
 | `purchase-request.md`               | Purchase request dossier: need, requirements, cost estimate, approvals  |
+| `cv.md`                              | Freelance/consulting CV: capability statement, not a chronological job history. Pairs with `cover-letter.md` and `pdf/theme/cv-personal.typ`. |
+| `cover-letter.md`                    | Screening-application cover letter: a direct capability pitch, not a narrative. Pairs with `cv.md` and `pdf/theme/cv-personal.typ`. |
