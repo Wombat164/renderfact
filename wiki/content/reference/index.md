@@ -16,7 +16,7 @@ title: Reference
 | `render import-template <docx>` | Derive a brand skin from any branded DOCX. |
 | `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight). |
 | `render serve [--enable-ui]` | Localhost HTTP API + thin reference UI. |
-| `render projects list\|show [--projects-root DIR]` | Read-side project registry (Track J): scan the projects root, report each project's manifest, render-ledger tail, and git facts. |
+| `render projects list\|show\|new [--projects-root DIR]` | Project registry (Track J): `list`/`show` scan the projects root and report each project's manifest, render-ledger tail, git facts, and concurrency hash; `new` scaffolds a project (manifest, seeded source, profiles skeleton, git init + initial commit). Config mutation (`PUT /projects/{name}/config`, hash-guarded, one commit per change) is API/UI-only. |
 | `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids). |
 | `render doctor [--json]` | Host tools vs `tools.lock`: report OK/DRIFT/MISSING; always exit 0. |
 | `render provenance embed\|extract\|strip\|adopt\|retarget` | D11 provenance operations on DOCX/XLSX/PPTX/VSDX. |

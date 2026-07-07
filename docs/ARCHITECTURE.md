@@ -208,13 +208,38 @@ The guard set (D9 hardened past a read-server posture per D15) runs on every req
 - binds `127.0.0.1` by default; binding wider prints an explicit runtime warning that the server has
   NO authentication or authorization controls;
 - rejects any non-loopback `Host` header with 403 (DNS-rebinding protection);
-- on every POST, rejects browser-signaled cross-origin requests (an `Origin` or `Sec-Fetch-Site`
-  allowlist; non-browser clients that carry neither header pass);
+- on every POST or PUT, rejects browser-signaled cross-origin requests (an `Origin` or
+  `Sec-Fetch-Site` allowlist; non-browser clients that carry neither header pass);
 - jails every request-named filesystem path under `--root` (default: the working directory at start);
 - applies a fixed-window per-client rate limit (429 when exceeded);
-- issues a per-session CSRF token from `/session`, ready for the first truly-mutating route.
+- issues a per-session CSRF token from `/session`, checked by every truly-mutating route.
 
-Current routes are compute/read-only; the CSRF mechanism exists for the editor's write endpoints.
+`POST /projects` and `PUT /projects/{name}/config` (Track J, chunk 6.2) are the first routes that
+persist server-side state, and the first to enforce the CSRF token (`_require_csrf`); every other
+route remains compute/read-only or (for `/render/pdf`, `/render/docx`) renders-and-returns without
+touching the server's own files.
+
+## Project registry (Track J)
+
+`api/store.py` is a small registry over a "projects" directory tree, read side shipped in chunk 6.1,
+write side (create + config mutation) in chunk 6.2. A project is identified by its directory name (a
+slug, no opaque ID) and holds a git-tracked `renderfact.yaml` manifest as its sole source of truth --
+there is no central database of record; discovery is a depth-limited scan with an mtime cache, and a
+future SQLite index is specified only as a disposable, rebuildable read-cache (not yet built). A
+`.renderfact/renders.jsonl` per-project ledger records render history; it is untracked by default
+(operations, not intent -- the git history already carries intent).
+
+`POST /projects` scaffolds a new project (manifest, a seeded source, a `profiles.yaml` skeleton,
+`.gitignore`, `git init` if needed, one initial commit). `PUT /projects/{name}/config` mutates the
+manifest's mutable fields (audience profile, template, doc type, diagram scaffold, render defaults)
+with the same optimistic-concurrency shape the (specified, not yet built) structured editor below
+uses: a content-hash `base_hash` guards against a stale write (409 on mismatch), and every diff-
+carrying change is exactly one commit with a required, sanitized commit message. `GET
+/projects/{name}` returns that hash (`manifest_hash`) alongside the manifest, ledger tail, and git
+facts, so a client always has a current token to write back with.
+
+Full design (audit, requirements, information architecture, template auto-choose, diff view, the
+rest of the Track J roadmap): `docs/2026-07-07-ui-ux-project-workspace-design-spike.md`.
 
 ## Structured source editor (specified, not built)
 

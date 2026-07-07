@@ -343,6 +343,65 @@ UI into an authoring surface. Filed as issues #42-#46.
   `/statement/check`, a PDF-backend-ready badge, and data-driven variant/locale selects. 12 service +
   9 render API tests.
 
+## Track J - Project workspace (registry, template library, live render, diff, auto-choose)
+
+A NEW track (not a continuation of the Track E/I API surface or the 5.x editor thread), covering the
+operator-facing project-workspace UI/UX: start a project, load a template, browse previous projects,
+live-render output, live-edit input, see diffs, choose audience/doc-type/diagram-scaffolding manually
+or let the app auto-choose. Full design in
+`docs/2026-07-07-ui-ux-project-workspace-design-spike.md`; chunks numbered 6.x per that spike's
+section 8 (placement rationale: most of this track is registry/library/diff/render plumbing, not
+editor work, so it does not inherit the Track F freeze below -- only the final integration chunk 6.11
+does). Buildable-now unless marked GATED; sequencing note: 6.1-6.6 are a coherent releasable arc
+(workspace without any LLM and without the editor).
+
+- **6.1 - Registry core (read side).** `[build]` **DONE:** `api/store.py` -- manifest schema + parser
+  (fail-closed on unknown top-level keys, `x-skin` extension namespace, JSON-safe date coercion),
+  depth-<=2 projects-root scan with an mtime cache, `.renderfact/renders.jsonl` ledger-tail reader,
+  git facts via subprocess (no GitPython). `api/app.py` gains `GET /projects` and
+  `GET /projects/{name}` (query folded into `body` so `?limit=` works over both real WSGI and the
+  in-process test driver). CLI: `render projects list|show` (D9: CLI-proven before UI). 20 tests.
+- **6.2 - Project creation + config mutation.** `[build]` **DONE:** `POST /projects` (slug validation,
+  refuse-existing, scaffold the directory: manifest + a seeded source -- a real `templates/*.md` file
+  when `template` names one, else a minimal stub -- + a `profiles.yaml` skeleton copied from
+  `projection/profiles-example.yaml` + `.gitignore`; `git init` if not already inside a work tree;
+  initial commit). `PUT /projects/{name}/config` mutates the mutable manifest fields
+  (`default_profile`, `template`, `doc_type`, `diagram_scaffold`, `render`) with the same optimistic-
+  concurrency shape as the (specified, not yet built) editor: request carries `base_hash`, 409 on
+  staleness, one commit per diff-carrying change, required non-empty commit message
+  (`sanitize_commit_message`: length cap + control-character stripping; a no-diff patch is a git-free
+  no-op). These are the FIRST routes to enforce the full D15 mutating-endpoint guard set: a per-
+  session CSRF token from `GET /session` (checked via `_require_csrf`, previously issued but checked
+  by nothing), plus the existing Origin/Sec-Fetch-Site + Host guards extended from POST-only to also
+  cover PUT. `GET /projects/{name}` now also returns `manifest_hash`, the concurrency token. CLI twin:
+  `render projects new`. 24 tests (creation, template seeding incl. a real built-in template, config
+  mutation, stale-hash conflict, immutable-key rejection, empty-message rejection, no-diff no-op,
+  non-git-tree refusal, HTTP CSRF/cross-origin/409 coverage).
+- **6.3 - Template library.** `[build]` for the library convention and `GET /templates`, `[imitate]`
+  the existing I5 data-driven-select shape for listing; `POST /templates/import` wraps the shipped
+  `import-template` pipeline `[adopt]` (own prior work). Ships the built-in plain templates
+  (`templates/*.md`) as the default library contents. NEXT.
+- **6.4 - Profile discovery.** `[build]`. `GET /projects/{name}/profiles` and `GET /profiles?path=`,
+  names + minimal metadata. Small, unblocks the audience menu. NEXT.
+- **6.5 - Dashboard + wizard UI (manual path only).** `[build]`. Projects Dashboard, New Project
+  wizard with MANUAL template/doc_type/scaffold selection, Template Library screen. Auto mode is
+  deferred to 6.7 so the wizard ships without any LLM machinery. NEXT.
+- **6.6 - Workspace shell + Render tab + History tab.** `[build]`. Project workspace page, render
+  config panel (consumes 6.4), project-then-render flow, ledger writes, artifact links, `/doctor`-
+  driven degradation. Interim whole-document Edit tab (studio pattern bound to project source, whole-
+  file hash-guarded save). NEXT.
+- **6.7 - Auto-choose.** `[build]` for the deterministic scorer + sub-signals, gated via
+  `contracts/confidence_gate.py` (Track G's G4); escalation via the D8 dual-mode contract machinery
+  `[imitate]` aider's clipboard-watch UX per the D8 spike. Telemetry log (G2 pattern). NEXT.
+- **6.8 - Diff view, source mode.** `[adopt]` git via subprocess, `[build]` the hunk-JSON endpoint +
+  colorizer UI. Depends only on 6.1/6.6. NEXT.
+- **6.9 - Studio-workspace reconciliation polish.** `[build]`. Landing-page decision, scratchpad-to-
+  project hand-off, keyboard-nav pass over all Track J screens. NEXT.
+- **6.10 - Projected-diff mode.** `[build]`. `mode=projected`, difflib over two projections. NEXT.
+- **6.11 - Three-pane editor integration.** GATED behind Track F (release readiness, D13) and behind
+  the editor thread's own chunk 5.8. Mounts the D12 editor into the workspace Edit tab; the only
+  chunk in this track that touches the editor contract.
+
 ---
 
 ## Open questions carried forward

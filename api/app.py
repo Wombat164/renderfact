@@ -104,15 +104,25 @@ class RenderfactApi:
         client = environ.get("REMOTE_ADDR", "?")
         if not self.limiter.allow(client):
             raise ApiError(429, "rate limit exceeded")
-        if environ["REQUEST_METHOD"] == "POST":
+        if environ["REQUEST_METHOD"] in ("POST", "PUT"):
             origin = environ.get("HTTP_ORIGIN")
             fetch_site = environ.get("HTTP_SEC_FETCH_SITE")
             if origin is not None:
                 m = re.match(r"https?://([^/:]+)(:\d+)?$", origin)
                 if not m or m.group(1) not in LOOPBACK_HOSTS:
-                    raise ApiError(403, f"cross-origin POST rejected: {origin!r}")
+                    raise ApiError(403, f"cross-origin {environ['REQUEST_METHOD']} rejected: {origin!r}")
             elif fetch_site is not None and fetch_site not in ("same-origin", "none"):
-                raise ApiError(403, f"cross-site POST rejected: Sec-Fetch-Site={fetch_site!r}")
+                raise ApiError(403, f"cross-site {environ['REQUEST_METHOD']} rejected: "
+                                    f"Sec-Fetch-Site={fetch_site!r}")
+
+    def _require_csrf(self, environ) -> None:
+        """D15 point 2: a per-session CSRF token, checked on every truly
+        mutating endpoint (chunk 6.2 is the first to enforce this; earlier
+        POST routes render-and-return, they do not persist server-side
+        state). Token comes from GET /session; it is not single-use."""
+        token = environ.get("HTTP_X_CSRF_TOKEN")
+        if not token or token not in self.csrf_tokens:
+            raise ApiError(403, "missing or invalid CSRF token (GET /session first)")
 
     def _jail(self, raw: str, what: str) -> Path:
         p = Path(raw)
@@ -127,7 +137,7 @@ class RenderfactApi:
 
     # ---- routes ----
 
-    def route(self, method: str, path: str, body: dict | None):
+    def route(self, method: str, path: str, body: dict | None, environ: dict | None = None):
         if method == "GET" and path == "/":
             return self._info()
         if method == "GET" and path == "/session":
@@ -168,9 +178,14 @@ class RenderfactApi:
             return self._render_docx(body)
         if method == "GET" and path == "/projects":
             return self._projects_list()
+        if method == "POST" and path == "/projects":
+            return self._project_create(body, environ)
         m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)$", path)
         if method == "GET" and m:
             return self._project_detail(m.group(1), body)
+        m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)/config$", path)
+        if method == "PUT" and m:
+            return self._project_config_put(m.group(1), body, environ)
         raise ApiError(404, f"no route: {method} {path}")
 
     # ---- project registry (Track J, chunk 6.1; read-side) ----
@@ -202,6 +217,60 @@ class RenderfactApi:
         except store.ManifestError as e:
             raise ApiError(404, str(e)) from None
 
+    def _project_create(self, body: dict | None, environ: dict | None):
+        """POST /projects (chunk 6.2): scaffold a new project. The first
+        route to enforce the full D15 mutating set: CSRF token (this
+        handler), Origin/Host (already enforced for every POST by _guard),
+        no path-jail needed beyond the slug regex + a fixed root (traversal
+        is structurally impossible: valid_slug forbids '/' and '..')."""
+        self._require_csrf(environ or {})
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import store  # noqa: PLC0415
+
+        if not isinstance(body, dict) or not body.get("name"):
+            raise ApiError(400, "missing required field 'name'")
+        formats = body.get("formats")
+        if formats is not None and not isinstance(formats, list):
+            raise ApiError(400, "'formats' must be a list of strings")
+        try:
+            return self._project_store().create(
+                body["name"], title=body.get("title"), template=body.get("template"),
+                doc_type=body.get("doc_type", "report"),
+                diagram_scaffold=body.get("diagram_scaffold", "none"),
+                default_profile=body.get("default_profile", "internal-full"),
+                formats=formats, locale=body.get("locale", "en-US"))
+        except store.ProjectExistsError as e:
+            raise ApiError(409, str(e)) from None
+        except store.ManifestError as e:
+            raise ApiError(400, str(e)) from None
+
+    def _project_config_put(self, name: str, body: dict | None, environ: dict | None):
+        """PUT /projects/{name}/config (chunk 6.2): mutate manifest fields.
+        Same optimistic-concurrency shape as the (specified, not yet built)
+        editor PUT /editor/section: base_hash + 409 on staleness, one commit
+        per diff-carrying change, required non-empty commit message."""
+        self._require_csrf(environ or {})
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import store  # noqa: PLC0415
+
+        if not isinstance(body, dict):
+            raise ApiError(400, "request body must be a JSON object")
+        for key in ("base_hash", "message", "patch"):
+            if not body.get(key):
+                raise ApiError(400, f"missing required field {key!r}")
+        if not isinstance(body["patch"], dict):
+            raise ApiError(400, "'patch' must be an object")
+        try:
+            return self._project_store().update_config(
+                name, body["patch"], body["base_hash"], body["message"])
+        except store.StaleManifestError as e:
+            raise ApiError(409, str(e)) from None
+        except store.CommitMessageError as e:
+            raise ApiError(400, str(e)) from None
+        except store.ManifestError as e:
+            status = 404 if "no such project" in str(e) else 400
+            raise ApiError(status, str(e)) from None
+
     def _info(self):
         sys.path.insert(0, str(REPO_ROOT / "roundtrip"))
         try:
@@ -220,7 +289,8 @@ class RenderfactApi:
                 "POST /steps/{name}/validate-output", "POST /project",
                 "POST /render/pdf", "POST /render/docx", "POST /statement/check",
                 "GET /doctor", "GET /locales", "GET /theme/variants",
-                "GET /projects", "GET /projects/{name}",
+                "GET /projects", "POST /projects", "GET /projects/{name}",
+                "PUT /projects/{name}/config",
             ] + (["GET /ui"] if self.enable_ui else []),
         }
 
@@ -508,7 +578,7 @@ def make_wsgi_app(api: RenderfactApi):
                 path, _, embedded = path.partition("?")
                 query = embedded if not query else f"{query}&{embedded}"
             body = None
-            if method == "POST":
+            if method in ("POST", "PUT"):
                 try:
                     length = int(environ.get("CONTENT_LENGTH") or 0)
                 except ValueError:
@@ -519,13 +589,13 @@ def make_wsgi_app(api: RenderfactApi):
                         body = json.loads(raw.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         raise ApiError(400, "request body is not valid JSON") from None
-            # For non-POST requests carrying no JSON body, expose query params as
+            # For requests carrying no JSON body, expose query params as
             # `body` so read handlers (e.g. ?limit=) can consume them uniformly.
             if body is None and query:
                 from urllib.parse import parse_qsl  # noqa: PLC0415
 
                 body = dict(parse_qsl(query))
-            result = api.route(method, path, body)
+            result = api.route(method, path, body, environ)
         except ApiError as e:
             payload = json.dumps({"error": e.message}).encode("utf-8")
             start_response(f"{e.status} {_reason(e.status)}",
@@ -555,7 +625,8 @@ def make_wsgi_app(api: RenderfactApi):
 
 def _reason(status: int) -> str:
     return {400: "Bad Request", 403: "Forbidden", 404: "Not Found",
-            413: "Payload Too Large", 429: "Too Many Requests"}.get(status, "Error")
+            409: "Conflict", 413: "Payload Too Large",
+            429: "Too Many Requests"}.get(status, "Error")
 
 
 def openapi_spec(api: RenderfactApi) -> dict:
@@ -647,8 +718,25 @@ def openapi_spec(api: RenderfactApi) -> dict:
                                  "responses": {"200": {"description": "locales"}}}},
             "/theme/variants": {"get": {"summary": "Theme variants from brand.yaml",
                                         "responses": {"200": {"description": "variants"}}}},
-            "/projects": {"get": {"summary": "List projects under the projects root (Track J, 6.1)",
-                                  "responses": {"200": {"description": "project summaries"}}}},
+            "/projects": {
+                "get": {"summary": "List projects under the projects root (Track J, 6.1)",
+                       "responses": {"200": {"description": "project summaries"}}},
+                "post": {"summary": "Create a new project (Track J, 6.2). Requires a CSRF token from GET /session.",
+                         "requestBody": {"content": {"application/json": {"schema": {
+                             "type": "object", "required": ["name"],
+                             "properties": {
+                                 "name": {"type": "string", "description": "project slug"},
+                                 "title": {"type": "string"},
+                                 "template": {"type": "string", "description": "built-in templates/ pack name"},
+                                 "doc_type": {"type": "string", "enum": ["report", "deck", "poster", "sheet"]},
+                                 "diagram_scaffold": {"type": "string", "enum": ["none", "mermaid", "d2"]},
+                                 "default_profile": {"type": "string"},
+                                 "formats": {"type": "array", "items": {"type": "string"}},
+                                 "locale": {"type": "string"}}}}}},
+                         "responses": {"200": {"description": "the new project's manifest + history + git"},
+                                       "400": {"description": "bad input"},
+                                       "403": {"description": "missing/invalid CSRF token or cross-origin"},
+                                       "409": {"description": "a project with that name already exists"}}}},
             "/projects/{name}": {
                 "get": {"summary": "One project's manifest, render-ledger tail, and git facts",
                         "parameters": [
@@ -657,8 +745,24 @@ def openapi_spec(api: RenderfactApi) -> dict:
                             {"name": "limit", "in": "query", "required": False,
                              "schema": {"type": "integer", "default": 20},
                              "description": "render-ledger entries to include"}],
-                        "responses": {"200": {"description": "manifest + history + git"},
+                        "responses": {"200": {"description": "manifest + history + git + manifest_hash"},
                                       "404": {"description": "unknown or invalid project name"}}}},
+            "/projects/{name}/config": {
+                "put": {"summary": "Mutate manifest fields (Track J, 6.2), hash-guarded + one commit per change. "
+                                   "Requires a CSRF token from GET /session.",
+                        "parameters": [{"name": "name", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "requestBody": {"content": {"application/json": {"schema": {
+                            "type": "object", "required": ["patch", "base_hash", "message"],
+                            "properties": {
+                                "patch": {"type": "object", "description": "mutable manifest fields to merge"},
+                                "base_hash": {"type": "string", "description": "manifest_hash from a prior GET"},
+                                "message": {"type": "string", "description": "required non-empty commit message"}}}}}},
+                        "responses": {"200": {"description": "{changed, manifest_hash[, commit]}"},
+                                      "400": {"description": "bad patch, empty message, or not a git work tree"},
+                                      "403": {"description": "missing/invalid CSRF token or cross-origin"},
+                                      "404": {"description": "unknown project"},
+                                      "409": {"description": "base_hash is stale; re-GET and retry"}}}},
         },
     }
 
