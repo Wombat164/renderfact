@@ -57,6 +57,32 @@ RENDERFACT_VALE_CONFIG=demo/skin/vale/vale.ini python render.py gate demo/source
 Everything else in the taxonomy above needs human judgment (or a reviewing pass); the gate only
 automates what is genuinely deterministic.
 
+## AI-writing tells (always-on)
+
+Most text now passes through a language model at some stage, and LLM prose leaves a recognisable
+fingerprint: a small vocabulary it overuses (`delve`, `tapestry`, `leverage`, `seamless`,
+`robust`), em-dash punctuation, contrast-by-negation cadence ("it's not just X, it's Y"), opening
+cliches ("In today's fast-paced world"), sycophantic openers ("Great question!"), and defensive
+hedging ("It's important to note"). None of this survives the one-rule test above, but none of it
+is caught by the throat-clearing or hedge lists either: it is a different failure mode with its own
+detector.
+
+The `AiTells` style in this skin catches it. Unlike the BE-NL companion (below), which is
+language-specific and opt-in, AI-writing tells are language-agnostic and relevant to essentially
+every document, so `AiTells` is folded into the BASE `vale/vale.ini` `BasedOnStyles` and runs
+always-on, next to `GoldenRules`.
+
+Treat it as a heuristic, not gospel. Some flagged words are the right word in context (a
+"rendering framework" really is a framework; a colon before a proper noun in a title is fine).
+Fix the genuine tell; keep the precise word. The point is to strip the fingerprint, not to
+mechanically delete vocabulary.
+
+`AiTells` is vendored (unmodified) from the `ai-tells` prose style of
+[`tbhb/vale-ai-tells`](https://github.com/tbhb/vale-ai-tells) v1.21.0 by Tony Burns, MIT-licensed;
+the upstream LICENSE and vendoring notes live in `vale/styles/AiTells/`. It follows the same
+vendor-the-`.yml`-files pattern as `GoldenRules` and `BeNl`, rather than Vale's `Packages =` /
+`vale sync` fetch, so the skin stays self-contained and offline-buildable.
+
 ## Related: language-register companions
 
 This file is structure doctrine, language-agnostic on purpose. For BE-NL (Flemish)

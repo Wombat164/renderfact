@@ -1,0 +1,115 @@
+---
+extends: existence
+message: "AI cliché: '%s'. Say what you mean directly."
+level: error
+ignorecase: true
+tokens:
+  # "Earning" family
+  - earns? its keep
+  - earns? its place
+  - earns? its spot
+  - earned its keep
+  - earned its place
+  - earned its spot
+  - more than earns?
+
+  # "Paying" family
+  - pays? for itself
+  - pays? dividends
+  - pays? its rent
+  - more than pays? for itself
+  - paid for itself
+  - paid dividends
+  - paid its rent
+  - paying its rent
+
+  # "Weight" family
+  - pulls? its weight
+  - carries? its weight
+  - carrying its weight
+  - pulling its weight
+  - punche?s? above its weight
+  - punching above its weight
+  - worth its weight
+
+  # "Lifting" family
+  - does? the heavy lifting
+  - does? a lot of heavy lifting
+  - doing the heavy lifting
+  - doing a lot of heavy lifting
+  - does? the legwork
+  - doing the legwork
+  - do the heavy lifting
+
+  # "Load-bearing" / "doing work" family.
+  - load-bearing
+  - load bearing
+  - does? the work
+  - doing the work
+  - does? the real work
+  - doing the real work
+  - does? the actual work
+  - doing the actual work
+  - does? the hard work
+  - doing the hard work
+  - does? the important work
+  - doing the important work
+  - does? most of the work
+  - doing most of the work
+
+  # "Standing" family
+  - stands? on its own
+  - standing on its own
+  - holds? its own
+  - holding its own
+  - speaks? for itself
+  - speaking for itself
+  - justifies? its existence
+  - justify its existence
+  - justifying its existence
+
+  # "Deserving" family.
+  # Treats abstractions and inanimate subjects as moral agents owed
+  # consideration. The gerund shape ("deserves noting", "deserves
+  # exploring") is the strongest AI tell — the older idiomatic
+  # phrases ("deserves a closer look", "deserves mention") are
+  # included for completeness.
+  - deserves? attention
+  - deserves? mention
+  - deserves? mentioning
+  - deserves? noting
+  - deserves? exploring
+  - deserves? unpacking
+  - deserves? examining
+  - deserves? scrutiny
+  - deserves? consideration
+  - deserves? careful consideration
+  - deserves? careful thought
+  - deserves? careful attention
+  - deserves? a closer look
+  - deserves? a second look
+  - deserves? a moment
+  - deserves? a mention
+  - deserves? credit
+  - deserves? confirming
+  - deserves? checking
+  - deserves? rethinking
+  - deserves? revisiting
+
+  # "Harm" family.
+  # Treats inanimate subjects (a check, a config, a flag) as moral
+  # agents capable of inflicting or withholding damage — the
+  # Hippocratic register applied to code. "The check passes too
+  # without doing harm." Technical writing rarely needs it; just say
+  # what the change does or doesn't do.
+  # NOTE: legitimate in medical / health-software prose ("the device
+  # must do no harm"). No regex-clean way to detect that context;
+  # disable this rule for those files via .vale.ini if needed.
+  - does? harm
+  - doing harm
+  - does? no harm
+  - doing no harm
+  - without doing harm
+  - causes? harm
+  - causing harm
+  - without causing harm
