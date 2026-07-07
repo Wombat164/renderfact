@@ -399,9 +399,19 @@ does). Buildable-now unless marked GATED; sequencing note: 6.1-6.6 are a coheren
   its rank in the ladder, `releasable_to` + rank, `lang`, `audience`, `disclosure` -- not the raw
   ladder-keyed governance dict, so a private skin's full clearance vocabulary isn't handed out
   wholesale even on loopback. 7 tests.
-- **6.5 - Dashboard + wizard UI (manual path only).** `[build]`. Projects Dashboard, New Project
-  wizard with MANUAL template/doc_type/scaffold selection, Template Library screen. Auto mode is
-  deferred to 6.7 so the wizard ships without any LLM machinery. NEXT.
+- **6.5 - Dashboard + wizard UI (manual path only).** `[build]` **DONE:** the static-asset decision
+  (D18) lands here -- `api/static/` (common.js + one CSS/JS pair per screen) served by an allowlisted
+  `GET /ui/static/{name}` (cache-control headers, gated behind `--enable-ui`); the HTML shells stay
+  small Python strings matching `render_docs_html`'s pattern. Projects Dashboard (`GET /ui/projects`:
+  project cards from `GET /projects`, doctor badge); New Project wizard (`GET /ui/projects/new`:
+  MANUAL template picker from `GET /templates` + doc_type + diagram_scaffold selects, create goes
+  through the D15-hardened `POST /projects`, lands on the Dashboard -- the Project Workspace it will
+  redirect to instead is chunk 6.6); Template Library (`GET /ui/templates`: cards + a `POST
+  /templates/import` form). Auto mode is deferred to 6.7, so none of this ships any LLM machinery. 10
+  new server-side tests (route gating, static-asset allowlist/content-type/cache-header, shell
+  sanity); the client JS itself was verified with a real headless-browser click-through (full
+  create-project flow end to end, zero console errors) rather than unit-tested, matching this repo's
+  existing convention for embedded/served JS.
 - **6.6 - Workspace shell + Render tab + History tab.** `[build]`. Project workspace page, render
   config panel (consumes 6.4), project-then-render flow, ledger writes, artifact links, `/doctor`-
   driven degradation. Interim whole-document Edit tab (studio pattern bound to project source, whole-

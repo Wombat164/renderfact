@@ -257,6 +257,15 @@ audience profiles for the wizard/render-config menu: names + minimal metadata (c
 distribution rank, lang, audience, disclosure), not the raw ladder-keyed governance dict --
 resolving the design spike's OQ11 as names+ranks.
 
+The workspace screens (chunk 6.5, D18) end the monolithic-`UI_HTML`-string pattern: first-party
+JS/CSS ship as real files under `api/static/`, served by an allowlisted `GET /ui/static/{name}`
+(exact filenames only, long-cache headers, gated behind `--enable-ui`) rather than growing
+`api.ui`'s single string further. `GET /ui/projects` (Dashboard), `GET /ui/projects/new` (New
+Project wizard, manual template/doc_type/scaffold selection only -- auto-choose is chunk 6.7),
+and `GET /ui/templates` (Template Library, with an import form over `POST /templates/import`)
+are each a small HTML shell plus one JS file; every mutating action goes through the same
+D15-hardened routes chunks 6.2/6.3 already built.
+
 ## Structured source editor (specified, not built)
 
 The editor is a reference client of the API and a direct-edit (third D8) mode. The design is settled;

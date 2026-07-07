@@ -39,6 +39,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
 
+# Workspace static assets (Track J, chunk 6.5 / D18): package-data files, not
+# string literals. Exact-filename allowlist -- traversal is not possible by
+# construction, no path-jail arithmetic needed. Gated behind --enable-ui.
+STATIC_DIR = REPO_ROOT / "api" / "static"
+STATIC_ALLOWLIST = {
+    "common.js", "dashboard.css", "dashboard.js", "wizard.js", "templates-library.js",
+}
+_STATIC_CONTENT_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+
 
 class ApiError(Exception):
     def __init__(self, status: int, message: str):
@@ -139,6 +148,23 @@ class RenderfactApi:
             raise ApiError(403, f"{what} escapes the server root: {raw!r}") from None
         return p
 
+    def _require_ui(self) -> None:
+        if not self.enable_ui:
+            raise ApiError(404, "UI not enabled (start with --enable-ui)")
+
+    def _static_asset(self, name: str):
+        """GET /ui/static/{name} (D18): an exact-filename allowlist, so no
+        directory-traversal check is even needed -- an unlisted name never
+        reaches the filesystem at all."""
+        if name not in STATIC_ALLOWLIST:
+            raise ApiError(404, f"no such static asset: {name}")
+        path = STATIC_DIR / name
+        if not path.is_file():
+            raise ApiError(404, f"static asset missing on disk: {name}")
+        ctype = _STATIC_CONTENT_TYPES.get(path.suffix, "application/octet-stream")
+        return BinaryResponse(path.read_bytes(), ctype,
+                              extra_headers={"Cache-Control": "public, max-age=86400"})
+
     # ---- routes ----
 
     def route(self, method: str, path: str, body: dict | None, environ: dict | None = None):
@@ -158,6 +184,19 @@ class RenderfactApi:
             from api.ui import UI_HTML  # noqa: PLC0415
 
             return HtmlResponse(UI_HTML)
+        if method == "GET" and path == "/ui/projects":
+            self._require_ui()
+            return HtmlResponse(render_dashboard_html())
+        if method == "GET" and path == "/ui/projects/new":
+            self._require_ui()
+            return HtmlResponse(render_wizard_html())
+        if method == "GET" and path == "/ui/templates":
+            self._require_ui()
+            return HtmlResponse(render_template_library_html())
+        m = re.match(r"^/ui/static/([A-Za-z0-9_.-]+)$", path)
+        if method == "GET" and m:
+            self._require_ui()
+            return self._static_asset(m.group(1))
         if method == "GET" and path == "/steps":
             return {"steps": sorted(self.steps)}
         if method == "GET" and path == "/doctor":
@@ -962,6 +1001,105 @@ def render_docs_html(api: RenderfactApi) -> str:
             "<table><tr><th>Method</th><th>Path</th><th>Summary</th></tr>"
             + "".join(rows) +
             "</table><p>Machine-readable: <a href='/openapi.json'>/openapi.json</a></p>")
+
+
+# ---- workspace screens (Track J, chunk 6.5 / D18) ----
+# Each shell is a small Python string (matching render_docs_html's pattern);
+# the substantial JS/CSS logic lives in api/static/ files, not inline.
+
+_WORKSPACE_STYLE = (
+    "body{font-family:sans-serif;margin:1.5rem;max-width:78rem}"
+    "h1{font-size:1.3rem}h2{font-size:1.05rem;margin-top:1.6rem}"
+    ".hint{color:#666;font-size:.85rem}"
+    ".err{color:#b00;font-family:monospace;white-space:pre-wrap;font-size:.85rem}"
+    "nav a{margin-right:1rem}"
+)
+
+
+def render_dashboard_html() -> str:
+    """GET /ui/projects: the Projects Dashboard (design spike 5.1)."""
+    return (
+        "<!doctype html><meta charset='utf-8'><title>renderfact projects</title>"
+        f"<link rel='stylesheet' href='/ui/static/dashboard.css'>"
+        f"<style>{_WORKSPACE_STYLE}</style>"
+        "<h1>Projects <span id='doctor' class='hint'></span></h1>"
+        "<nav><a href='/ui/projects/new'>+ New project</a>"
+        "<a href='/ui/templates'>Template library</a>"
+        "<a href='/ui'>Scratchpad studio</a></nav>"
+        "<div id='cards' class='cards'></div>"
+        "<div id='err' class='err'></div>"
+        "<script src='/ui/static/common.js'></script>"
+        "<script src='/ui/static/dashboard.js'></script>"
+    )
+
+
+def render_wizard_html() -> str:
+    """GET /ui/projects/new: the New Project wizard, manual path only (design
+    spike 5.2; auto-choose is chunk 6.7, deferred so this ships without any
+    LLM machinery)."""
+    return (
+        "<!doctype html><meta charset='utf-8'><title>renderfact: new project</title>"
+        f"<style>{_WORKSPACE_STYLE}"
+        ".step{margin:1rem 0}label{display:block;margin:.4rem 0 .15rem;font-size:.9rem}"
+        "input,select,textarea{font-family:monospace;box-sizing:border-box;width:100%;"
+        "max-width:28rem;padding:.3rem}"
+        ".cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:.8rem}"
+        ".card{border:1px solid #ccc;border-radius:.3rem;padding:.6rem;cursor:pointer}"
+        ".card.selected{border-color:#2E7D32;box-shadow:0 0 0 1px #2E7D32}"
+        "</style>"
+        "<h1>New project</h1>"
+        "<nav><a href='/ui/projects'>&larr; Dashboard</a></nav>"
+        "<div class='step'><label for='w-name'>Project name (slug)</label>"
+        "<input id='w-name' placeholder='q3-partner-briefing'></div>"
+        "<div class='step'><label for='w-title'>Display title (optional)</label>"
+        "<input id='w-title' placeholder='Q3 Partner Briefing'></div>"
+        "<div class='step'><label>Template <span class='hint'>(manual selection -- "
+        "renderfact does not choose for you yet)</span></label>"
+        "<div id='w-templates' class='cards'></div></div>"
+        "<div class='step'><label for='w-doctype'>Document type</label>"
+        "<select id='w-doctype'><option value='report'>report</option>"
+        "<option value='deck'>deck</option><option value='poster'>poster</option>"
+        "<option value='sheet'>sheet</option></select></div>"
+        "<div class='step'><label for='w-scaffold'>Diagram scaffold</label>"
+        "<select id='w-scaffold'><option value='none'>none</option>"
+        "<option value='mermaid'>mermaid</option><option value='d2'>d2</option></select></div>"
+        "<div class='step'><button onclick='createProject()'>Create project</button></div>"
+        "<div id='err' class='err'></div>"
+        "<script src='/ui/static/common.js'></script>"
+        "<script src='/ui/static/wizard.js'></script>"
+    )
+
+
+def render_template_library_html() -> str:
+    """GET /ui/templates: the Template Library (design spike 5.6)."""
+    return (
+        "<!doctype html><meta charset='utf-8'><title>renderfact: templates</title>"
+        f"<style>{_WORKSPACE_STYLE}"
+        ".cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));gap:.8rem}"
+        ".card{border:1px solid #ccc;border-radius:.3rem;padding:.6rem}"
+        ".tag{font-size:.75rem;color:#666;border:1px solid #ccc;border-radius:.2rem;"
+        "padding:0 .3rem;margin-left:.3rem}"
+        "form.import{margin-top:1rem;max-width:28rem}"
+        "form.import input{font-family:monospace;box-sizing:border-box;width:100%;padding:.3rem;"
+        "margin:.2rem 0}"
+        "</style>"
+        "<h1>Template library</h1>"
+        "<nav><a href='/ui/projects'>&larr; Dashboard</a></nav>"
+        "<div id='cards' class='cards'></div>"
+        "<h2>Import a branded DOCX</h2>"
+        "<p class='hint'>Wraps <code>render import-template</code> (C7). Path is under the "
+        "server root.</p>"
+        "<form class='import' onsubmit='return false'>"
+        "<input id='t-name' placeholder='new template slug'>"
+        "<input id='t-source' placeholder='path/to/corporate.docx'>"
+        "<input id='t-doctype' placeholder='doc_type (default: report)'>"
+        "<input id='t-description' placeholder='description (optional)'>"
+        "<button onclick='importTemplate()'>Import</button>"
+        "</form>"
+        "<div id='err' class='err'></div>"
+        "<script src='/ui/static/common.js'></script>"
+        "<script src='/ui/static/templates-library.js'></script>"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
