@@ -377,10 +377,20 @@ does). Buildable-now unless marked GATED; sequencing note: 6.1-6.6 are a coheren
   `render projects new`. 24 tests (creation, template seeding incl. a real built-in template, config
   mutation, stale-hash conflict, immutable-key rejection, empty-message rejection, no-diff no-op,
   non-git-tree refusal, HTTP CSRF/cross-origin/409 coverage).
-- **6.3 - Template library.** `[build]` for the library convention and `GET /templates`, `[imitate]`
-  the existing I5 data-driven-select shape for listing; `POST /templates/import` wraps the shipped
-  `import-template` pipeline `[adopt]` (own prior work). Ships the built-in plain templates
-  (`templates/*.md`) as the default library contents. NEXT.
+- **6.3 - Template library.** `[build]` **DONE:** `api/templates.py` -- a new directory convention,
+  `<library-root>/<name>/` (`template.yaml` metadata + optional `scaffold.md` + optional
+  `template-profile.yaml` + optional `reference.docx`), deliberately distinct from the pre-existing
+  flat `templates/*.md` genre pack (untouched; still what `store.py`'s project-creation seed reads by
+  filename). Two roots merge: built-in (`templates/library/`, ships `plain-report` + `plain-deck`) and
+  a custom root (operator imports); a custom entry shadows a built-in of the same name. `GET
+  /templates` (list, `[imitate]` the established I5 data-driven-select shape) + `GET /templates/{name}`
+  (metadata + scaffold + profile). `POST /templates/import` `[adopt]`s the shipped `import-template`
+  (C7) pipeline directly -- calls its `main()` in-process (stdout captured) rather than reimplementing
+  derivation, including its `--check` idempotency gate (a DRIFT there does not delete the entry: the
+  derivation succeeded, the gate is validation on top, reported via `idempotency_check_passed`).
+  D15-hardened (writes into the library): CSRF required, same Origin/Host guards. CLI: `render
+  templates list|show` (`new`/import stays API-only -- DOCX upload has no CLI-shaped one-shot form
+  here). 18 tests.
 - **6.4 - Profile discovery.** `[build]`. `GET /projects/{name}/profiles` and `GET /profiles?path=`,
   names + minimal metadata. Small, unblocks the audience menu. NEXT.
 - **6.5 - Dashboard + wizard UI (manual path only).** `[build]`. Projects Dashboard, New Project

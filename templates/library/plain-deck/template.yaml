@@ -1,0 +1,8 @@
+# plain-deck: built-in domain-neutral template library entry (Track J, 6.3).
+# Ships with the core; carries no brand -- import a real corporate DOCX via
+# POST /templates/import (or `render import-template`) for a styled deck.
+name: plain-deck
+doc_type: deck
+description: Domain-neutral plain deck -- no brand, house-default styling only.
+derived_from: null
+diagram_scaffolds: [mermaid, d2]

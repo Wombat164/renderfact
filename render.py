@@ -31,7 +31,8 @@ Usage:
                                                # source -> one governed render per profile
     render qa leaks|tables|paras|figs|all ...  # deterministic post-render QA gate
     render serve [--port N] [--enable-ui] [--root DIR]   # localhost HTTP API + thin UI (chunk 5.1)
-    render projects list|show [--projects-root DIR]      # Track J project registry, read side (chunk 6.1)
+    render projects list|show|new [--projects-root DIR]  # Track J project registry (chunks 6.1-6.2)
+    render templates list|show [--templates-root DIR]    # Track J template library, read side (chunk 6.3)
     render container <podman-args...>          # raw passthrough to container/render
     render doctor [--json]                     # host tools vs tools.lock: warn, never fail (1.5)
     render gate <files...> [--stages vale]     # fail-closed pre-publish QA gate chain (B3)
@@ -418,14 +419,28 @@ def run_gate(args: list[str]) -> int:
 
 
 def run_projects(args: list[str]) -> int:
-    """Dispatch to api/store.py: the read-side project registry (chunk 6.1,
-    Track J). `render projects list|show` scans the projects root and reports
-    each project's manifest, render-ledger tail, and git facts. Creation and
-    config mutation land in chunk 6.2."""
+    """Dispatch to api/store.py: the project registry (Track J). `render
+    projects list|show` (chunk 6.1) scans the projects root and reports each
+    project's manifest, render-ledger tail, git facts, and concurrency hash.
+    `render projects new` (chunk 6.2) scaffolds a project. Config mutation
+    (PUT /projects/{name}/config) is API/UI-only: it needs a base_hash from a
+    prior GET, which does not fit a one-shot CLI invocation cleanly."""
     sys.path.insert(0, str(REPO_ROOT))
     from api import store
 
     return store.main(args)
+
+
+def run_templates(args: list[str]) -> int:
+    """Dispatch to api/templates.py: the template library (chunk 6.3, Track
+    J). `render templates list|show` reports built-in entries (templates/
+    library/) merged with a custom root. Import is API-only for now (it
+    wraps `render import-template`; use that CLI directly for a one-off
+    derivation outside the library convention)."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from api import templates
+
+    return templates.main(args)
 
 
 MODES = {
@@ -447,6 +462,7 @@ MODES = {
     "qa": run_qa,
     "serve": run_serve,
     "projects": run_projects,
+    "templates": run_templates,
     "gate": run_gate,
     "container": run_container,
     "doctor": run_doctor,

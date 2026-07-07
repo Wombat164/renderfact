@@ -241,6 +241,17 @@ facts, so a client always has a current token to write back with.
 Full design (audit, requirements, information architecture, template auto-choose, diff view, the
 rest of the Track J roadmap): `docs/2026-07-07-ui-ux-project-workspace-design-spike.md`.
 
+`api/templates.py` (chunk 6.3) is the template library the New Project wizard will draw from: a
+directory convention, `<library-root>/<name>/` (metadata + optional scaffold source + optional
+derived theme profile + optional reference DOCX), NOT the same thing as the pre-existing flat
+`templates/*.md` genre pack (that pack's own copy-and-instantiate workflow is untouched; project
+creation's best-effort source seed still reads it directly by filename). Two roots merge at read
+time -- built-in (`templates/library/`, ships two domain-neutral entries) and an operator's custom
+root -- with a custom entry shadowing a built-in of the same name (an intentional override, not a
+collision). `POST /templates/import` is a thin, D15-hardened wrapper over the shipped
+`import-template` (C7) pipeline: it calls that pipeline's own derivation in-process rather than
+re-implementing it, including its `--check` idempotency gate.
+
 ## Structured source editor (specified, not built)
 
 The editor is a reference client of the API and a direct-edit (third D8) mode. The design is settled;

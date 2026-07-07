@@ -81,14 +81,18 @@ class RateLimiter:
 
 class RenderfactApi:
     def __init__(self, root: Path | None = None, enable_ui: bool = False,
-                 rate_limit: int = 120, projects_root: Path | None = None):
+                 rate_limit: int = 120, projects_root: Path | None = None,
+                 templates_root: Path | None = None):
         self.root = (root or Path.cwd()).resolve()
         self.enable_ui = enable_ui
         self.limiter = RateLimiter(limit=rate_limit)
         self.csrf_tokens: set[str] = set()
         self.projects_root = (Path(projects_root).resolve() if projects_root
                               else self.root / "projects")
+        self.templates_root = (Path(templates_root).resolve() if templates_root
+                               else self.root / "templates")
         self._store = None
+        self._templates = None
         sys.path.insert(0, str(REPO_ROOT))
         sys.path.insert(0, str(REPO_ROOT / "lint"))
         from contracts import init_ai  # noqa: PLC0415
@@ -186,6 +190,13 @@ class RenderfactApi:
         m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)/config$", path)
         if method == "PUT" and m:
             return self._project_config_put(m.group(1), body, environ)
+        if method == "GET" and path == "/templates":
+            return self._templates_list()
+        if method == "POST" and path == "/templates/import":
+            return self._template_import(body, environ)
+        m = re.match(r"^/templates/([a-z0-9][a-z0-9-]*)$", path)
+        if method == "GET" and m:
+            return self._template_detail(m.group(1))
         raise ApiError(404, f"no route: {method} {path}")
 
     # ---- project registry (Track J, chunk 6.1; read-side) ----
@@ -271,6 +282,58 @@ class RenderfactApi:
             status = 404 if "no such project" in str(e) else 400
             raise ApiError(status, str(e)) from None
 
+    # ---- template library (Track J, chunk 6.3) ----
+
+    def _template_library(self):
+        if self._templates is None:
+            sys.path.insert(0, str(REPO_ROOT))
+            from api import templates as templates_mod  # noqa: PLC0415
+
+            self._templates = templates_mod.TemplateLibrary(self.templates_root)
+        return self._templates
+
+    def _templates_list(self):
+        lib = self._template_library()
+        return {"templates_root": str(lib.custom_root), "templates": lib.scan()}
+
+    def _template_detail(self, name: str):
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import templates as templates_mod  # noqa: PLC0415
+
+        try:
+            return self._template_library().get(name)
+        except templates_mod.TemplateError as e:
+            raise ApiError(404, str(e)) from None
+
+    def _template_import(self, body: dict | None, environ: dict | None):
+        """POST /templates/import (chunk 6.3): thin wrapper over the shipped
+        import-template pipeline, landing the derived profile + this
+        module's own template.yaml metadata in the custom library root.
+        D15-hardened (this writes into the library): CSRF required."""
+        self._require_csrf(environ or {})
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import templates as templates_mod  # noqa: PLC0415
+
+        if not isinstance(body, dict):
+            raise ApiError(400, "request body must be a JSON object")
+        for key in ("name", "source"):
+            if not body.get(key):
+                raise ApiError(400, f"missing required field {key!r}")
+        docx_path = self._jail(body["source"], "source")
+        check_probe = self._jail(body["check_probe"], "check_probe") if body.get("check_probe") else None
+        scaffolds = body.get("diagram_scaffolds")
+        if scaffolds is not None and not isinstance(scaffolds, list):
+            raise ApiError(400, "'diagram_scaffolds' must be a list of strings")
+        try:
+            return self._template_library().import_docx(
+                body["name"], docx_path, doc_type=body.get("doc_type"),
+                description=body.get("description"), diagram_scaffolds=scaffolds,
+                copy_reference=bool(body.get("copy_reference")), check_probe=check_probe)
+        except templates_mod.TemplateExistsError as e:
+            raise ApiError(409, str(e)) from None
+        except templates_mod.TemplateError as e:
+            raise ApiError(400, str(e)) from None
+
     def _info(self):
         sys.path.insert(0, str(REPO_ROOT / "roundtrip"))
         try:
@@ -291,6 +354,7 @@ class RenderfactApi:
                 "GET /doctor", "GET /locales", "GET /theme/variants",
                 "GET /projects", "POST /projects", "GET /projects/{name}",
                 "PUT /projects/{name}/config",
+                "GET /templates", "GET /templates/{name}", "POST /templates/import",
             ] + (["GET /ui"] if self.enable_ui else []),
         }
 
@@ -763,6 +827,32 @@ def openapi_spec(api: RenderfactApi) -> dict:
                                       "403": {"description": "missing/invalid CSRF token or cross-origin"},
                                       "404": {"description": "unknown project"},
                                       "409": {"description": "base_hash is stale; re-GET and retry"}}}},
+            "/templates": {
+                "get": {"summary": "List template library entries (Track J, 6.3): built-in + custom root, merged",
+                       "responses": {"200": {"description": "template summaries"}}}},
+            "/templates/{name}": {
+                "get": {"summary": "One template entry's metadata, scaffold source, and derived profile",
+                        "parameters": [{"name": "name", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "metadata + scaffold + profile"},
+                                      "404": {"description": "unknown template"}}}},
+            "/templates/import": {
+                "post": {"summary": "Import a branded DOCX into the custom library root via the C7 "
+                                    "import-template pipeline. Requires a CSRF token from GET /session.",
+                         "requestBody": {"content": {"application/json": {"schema": {
+                             "type": "object", "required": ["name", "source"],
+                             "properties": {
+                                 "name": {"type": "string", "description": "new library entry slug"},
+                                 "source": {"type": "string", "description": "path under server root: the .docx to import"},
+                                 "doc_type": {"type": "string"}, "description": {"type": "string"},
+                                 "diagram_scaffolds": {"type": "array", "items": {"type": "string"}},
+                                 "copy_reference": {"type": "boolean"},
+                                 "check_probe": {"type": "string",
+                                                "description": "path under server root: idempotency-gate probe .md"}}}}}},
+                         "responses": {"200": {"description": "the new entry's metadata + import_output + idempotency_check_passed"},
+                                       "400": {"description": "bad input or derivation failure"},
+                                       "403": {"description": "missing/invalid CSRF token or cross-origin"},
+                                       "409": {"description": "a template with that name already exists"}}}},
         },
     }
 
@@ -800,6 +890,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--projects-root", default=None,
                         help="project registry root scanned by /projects "
                              "(default: <root>/projects)")
+    parser.add_argument("--templates-root", default=None,
+                        help="custom template library root for /templates "
+                             "(default: <root>/templates; merged with the built-in "
+                             "templates/library/ entries shipped in this repo)")
     parser.add_argument("--enable-ui", action="store_true",
                         help="mount the thin reference UI at /ui (off by default)")
     parser.add_argument("--rate-limit", type=int, default=120,
@@ -812,7 +906,8 @@ def main(argv: list[str] | None = None) -> int:
 
     api = RenderfactApi(root=Path(args.root) if args.root else None,
                         enable_ui=args.enable_ui, rate_limit=args.rate_limit,
-                        projects_root=Path(args.projects_root) if args.projects_root else None)
+                        projects_root=Path(args.projects_root) if args.projects_root else None,
+                        templates_root=Path(args.templates_root) if args.templates_root else None)
 
     class QuietHandler(WSGIRequestHandler):
         def log_message(self, fmt, *log_args):  # one line, no noise
