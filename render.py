@@ -31,6 +31,7 @@ Usage:
                                                # source -> one governed render per profile
     render qa leaks|tables|paras|figs|all ...  # deterministic post-render QA gate
     render serve [--port N] [--enable-ui] [--root DIR]   # localhost HTTP API + thin UI (chunk 5.1)
+    render projects list|show [--projects-root DIR]      # Track J project registry, read side (chunk 6.1)
     render container <podman-args...>          # raw passthrough to container/render
     render doctor [--json]                     # host tools vs tools.lock: warn, never fail (1.5)
     render gate <files...> [--stages vale]     # fail-closed pre-publish QA gate chain (B3)
@@ -416,6 +417,17 @@ def run_gate(args: list[str]) -> int:
     return run_gates.main(args)
 
 
+def run_projects(args: list[str]) -> int:
+    """Dispatch to api/store.py: the read-side project registry (chunk 6.1,
+    Track J). `render projects list|show` scans the projects root and reports
+    each project's manifest, render-ledger tail, and git facts. Creation and
+    config mutation land in chunk 6.2."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from api import store
+
+    return store.main(args)
+
+
 MODES = {
     "docx": run_docx,
     "pdf": run_pdf,
@@ -434,6 +446,7 @@ MODES = {
     "project": run_project,
     "qa": run_qa,
     "serve": run_serve,
+    "projects": run_projects,
     "gate": run_gate,
     "container": run_container,
     "doctor": run_doctor,

@@ -81,11 +81,14 @@ class RateLimiter:
 
 class RenderfactApi:
     def __init__(self, root: Path | None = None, enable_ui: bool = False,
-                 rate_limit: int = 120):
+                 rate_limit: int = 120, projects_root: Path | None = None):
         self.root = (root or Path.cwd()).resolve()
         self.enable_ui = enable_ui
         self.limiter = RateLimiter(limit=rate_limit)
         self.csrf_tokens: set[str] = set()
+        self.projects_root = (Path(projects_root).resolve() if projects_root
+                              else self.root / "projects")
+        self._store = None
         sys.path.insert(0, str(REPO_ROOT))
         sys.path.insert(0, str(REPO_ROOT / "lint"))
         from contracts import init_ai  # noqa: PLC0415
@@ -163,7 +166,41 @@ class RenderfactApi:
             return self._render_pdf(body)
         if method == "POST" and path == "/render/docx":
             return self._render_docx(body)
+        if method == "GET" and path == "/projects":
+            return self._projects_list()
+        m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)$", path)
+        if method == "GET" and m:
+            return self._project_detail(m.group(1), body)
         raise ApiError(404, f"no route: {method} {path}")
+
+    # ---- project registry (Track J, chunk 6.1; read-side) ----
+
+    def _project_store(self):
+        if self._store is None:
+            sys.path.insert(0, str(REPO_ROOT))
+            from api import store  # noqa: PLC0415
+
+            self._store = store.ProjectStore(self.projects_root)
+        return self._store
+
+    def _projects_list(self):
+        store = self._project_store()
+        return {"projects_root": str(store.root), "projects": store.scan()}
+
+    def _project_detail(self, name: str, body: dict | None):
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import store  # noqa: PLC0415
+
+        limit = 20
+        if isinstance(body, dict) and body.get("limit") is not None:
+            try:
+                limit = max(0, int(body["limit"]))
+            except (TypeError, ValueError):
+                raise ApiError(400, "limit must be an integer") from None
+        try:
+            return self._project_store().get(name, limit=limit)
+        except store.ManifestError as e:
+            raise ApiError(404, str(e)) from None
 
     def _info(self):
         sys.path.insert(0, str(REPO_ROOT / "roundtrip"))
@@ -183,6 +220,7 @@ class RenderfactApi:
                 "POST /steps/{name}/validate-output", "POST /project",
                 "POST /render/pdf", "POST /render/docx", "POST /statement/check",
                 "GET /doctor", "GET /locales", "GET /theme/variants",
+                "GET /projects", "GET /projects/{name}",
             ] + (["GET /ui"] if self.enable_ui else []),
         }
 
@@ -462,6 +500,13 @@ def make_wsgi_app(api: RenderfactApi):
             api._guard(environ)
             method = environ["REQUEST_METHOD"]
             path = environ.get("PATH_INFO", "/")
+            query = environ.get("QUERY_STRING", "")
+            # Real WSGI servers split the query into QUERY_STRING; the in-process
+            # test driver leaves it on PATH_INFO. Normalise both so query params
+            # are available regardless of transport.
+            if "?" in path:
+                path, _, embedded = path.partition("?")
+                query = embedded if not query else f"{query}&{embedded}"
             body = None
             if method == "POST":
                 try:
@@ -474,6 +519,12 @@ def make_wsgi_app(api: RenderfactApi):
                         body = json.loads(raw.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         raise ApiError(400, "request body is not valid JSON") from None
+            # For non-POST requests carrying no JSON body, expose query params as
+            # `body` so read handlers (e.g. ?limit=) can consume them uniformly.
+            if body is None and query:
+                from urllib.parse import parse_qsl  # noqa: PLC0415
+
+                body = dict(parse_qsl(query))
             result = api.route(method, path, body)
         except ApiError as e:
             payload = json.dumps({"error": e.message}).encode("utf-8")
@@ -596,6 +647,18 @@ def openapi_spec(api: RenderfactApi) -> dict:
                                  "responses": {"200": {"description": "locales"}}}},
             "/theme/variants": {"get": {"summary": "Theme variants from brand.yaml",
                                         "responses": {"200": {"description": "variants"}}}},
+            "/projects": {"get": {"summary": "List projects under the projects root (Track J, 6.1)",
+                                  "responses": {"200": {"description": "project summaries"}}}},
+            "/projects/{name}": {
+                "get": {"summary": "One project's manifest, render-ledger tail, and git facts",
+                        "parameters": [
+                            {"name": "name", "in": "path", "required": True,
+                             "schema": {"type": "string"}},
+                            {"name": "limit", "in": "query", "required": False,
+                             "schema": {"type": "integer", "default": 20},
+                             "description": "render-ledger entries to include"}],
+                        "responses": {"200": {"description": "manifest + history + git"},
+                                      "404": {"description": "unknown or invalid project name"}}}},
         },
     }
 
@@ -630,6 +693,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--root", default=None,
                         help="filesystem jail root for request paths (default: cwd)")
+    parser.add_argument("--projects-root", default=None,
+                        help="project registry root scanned by /projects "
+                             "(default: <root>/projects)")
     parser.add_argument("--enable-ui", action="store_true",
                         help="mount the thin reference UI at /ui (off by default)")
     parser.add_argument("--rate-limit", type=int, default=120,
@@ -641,7 +707,8 @@ def main(argv: list[str] | None = None) -> int:
               "only bind to non-localhost in trusted network environments.", file=sys.stderr)
 
     api = RenderfactApi(root=Path(args.root) if args.root else None,
-                        enable_ui=args.enable_ui, rate_limit=args.rate_limit)
+                        enable_ui=args.enable_ui, rate_limit=args.rate_limit,
+                        projects_root=Path(args.projects_root) if args.projects_root else None)
 
     class QuietHandler(WSGIRequestHandler):
         def log_message(self, fmt, *log_args):  # one line, no noise
