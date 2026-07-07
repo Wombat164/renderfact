@@ -190,6 +190,11 @@ class RenderfactApi:
         m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)/config$", path)
         if method == "PUT" and m:
             return self._project_config_put(m.group(1), body, environ)
+        m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)/profiles$", path)
+        if method == "GET" and m:
+            return self._project_profiles(m.group(1))
+        if method == "GET" and path == "/profiles":
+            return self._profiles_by_path(body)
         if method == "GET" and path == "/templates":
             return self._templates_list()
         if method == "POST" and path == "/templates/import":
@@ -353,8 +358,9 @@ class RenderfactApi:
                 "POST /render/pdf", "POST /render/docx", "POST /statement/check",
                 "GET /doctor", "GET /locales", "GET /theme/variants",
                 "GET /projects", "POST /projects", "GET /projects/{name}",
-                "PUT /projects/{name}/config",
-                "GET /templates", "GET /templates/{name}", "POST /templates/import",
+                "PUT /projects/{name}/config", "GET /projects/{name}/profiles",
+                "GET /profiles", "GET /templates", "GET /templates/{name}",
+                "POST /templates/import",
             ] + (["GET /ui"] if self.enable_ui else []),
         }
 
@@ -450,6 +456,72 @@ class RenderfactApi:
 
         theme = load_tokens(None).get("theme") or {}
         return {"variants": ["base"] + sorted((theme.get("variants") or {}).keys())}
+
+    # ---- profile discovery (Track J, chunk 6.4) ----
+
+    def _profiles_summary(self, profiles_path: Path) -> dict:
+        """Names + minimal metadata for the audience menu (OQ11: names+ranks,
+        not full ladder governance vocabulary -- a private skin's clearance
+        scheme is not something every consumer wants on an HTTP surface even
+        on loopback). Reuses projector.load_config exactly (F1's own fail-
+        closed ladder validation), so a broken profiles.yaml surfaces the
+        same error here as it would at render time."""
+        sys.path.insert(0, str(REPO_ROOT))
+        from projection import projector  # noqa: PLC0415
+
+        try:
+            ladders, profiles = projector.load_config(profiles_path)
+        except projector.ProjectionError as e:
+            raise ApiError(400, str(e)) from None
+        rows = []
+        for name, prof in profiles.items():
+            rows.append({
+                "name": name,
+                "clearance_ceiling": prof.get("clearance_ceiling"),
+                "clearance_rank": ladders["clearance"][prof["clearance_ceiling"]],
+                "releasable_to": prof.get("releasable_to"),
+                "distribution_rank": ladders["distribution"][prof["releasable_to"]],
+                "lang": prof.get("lang"),
+                "audience": prof.get("audience"),
+                "disclosure": prof.get("disclosure"),
+            })
+        rows.sort(key=lambda r: r["name"])
+        return {
+            "ladders": {
+                "clearance": sorted(ladders["clearance"], key=ladders["clearance"].get),
+                "distribution": sorted(ladders["distribution"], key=ladders["distribution"].get),
+            },
+            "profiles": rows,
+        }
+
+    def _profiles_by_path(self, body: dict | None):
+        if not isinstance(body, dict) or not body.get("path"):
+            raise ApiError(400, "missing required query param 'path'")
+        profiles_path = self._jail(body["path"], "path")
+        if not profiles_path.is_file():
+            raise ApiError(404, f"profiles config not found: {body['path']}")
+        return self._profiles_summary(profiles_path)
+
+    def _project_profiles(self, name: str):
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import store  # noqa: PLC0415
+
+        try:
+            detail = self._project_store().get(name, limit=0)
+        except store.ManifestError as e:
+            raise ApiError(404, str(e)) from None
+        project_dir = Path(detail["path"])
+        profiles_rel = detail["manifest"].get("profiles")
+        if not profiles_rel:
+            raise ApiError(400, f"project {name!r} manifest has no 'profiles' field")
+        profiles_path = (project_dir / profiles_rel).resolve()
+        try:
+            profiles_path.relative_to(project_dir)  # a project's own jail, not self.root
+        except ValueError:
+            raise ApiError(403, f"profiles path escapes the project directory: {profiles_rel!r}") from None
+        if not profiles_path.is_file():
+            raise ApiError(404, f"profiles config not found: {profiles_rel}")
+        return self._profiles_summary(profiles_path)
 
     # ---- #43 statement reconciliation (no render) ----
 
@@ -827,6 +899,23 @@ def openapi_spec(api: RenderfactApi) -> dict:
                                       "403": {"description": "missing/invalid CSRF token or cross-origin"},
                                       "404": {"description": "unknown project"},
                                       "409": {"description": "base_hash is stale; re-GET and retry"}}}},
+            "/projects/{name}/profiles": {
+                "get": {"summary": "Audience profiles defined in a project's own profiles.yaml (Track J, 6.4): "
+                                   "names + minimal metadata (clearance/distribution rank, lang, audience, "
+                                   "disclosure), not the full ladder governance vocabulary",
+                        "parameters": [{"name": "name", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "ladders (ordered value lists) + profile rows"},
+                                      "400": {"description": "manifest has no 'profiles' field, or it fails to parse"},
+                                      "404": {"description": "unknown project or missing profiles file"}}}},
+            "/profiles": {
+                "get": {"summary": "Same shape as /projects/{name}/profiles for an arbitrary profiles.yaml "
+                                   "path (the New Project wizard's profile-source step, before a project exists)",
+                        "parameters": [{"name": "path", "in": "query", "required": True,
+                                        "schema": {"type": "string"}, "description": "path under server root"}],
+                        "responses": {"200": {"description": "ladders + profile rows"},
+                                      "400": {"description": "config fails to parse"},
+                                      "404": {"description": "path not found"}}}},
             "/templates": {
                 "get": {"summary": "List template library entries (Track J, 6.3): built-in + custom root, merged",
                        "responses": {"200": {"description": "template summaries"}}}},

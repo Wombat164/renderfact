@@ -740,11 +740,12 @@ front-page architecture file; should be corrected in whichever chunk next touche
 If the operator instead reads the workspace as an extension of Track E (API+UI), the chunks
 renumber but nothing else changes. Confirm before ROADMAP.md is edited.
 
-**OQ11 - profile-listing schema depth.** Names-only is sufficient for the menu; exposing
-ladder metadata (clearance ranks, distribution scopes) makes the UI richer (tooltips,
-ordering) but puts consumer-defined governance vocabulary on an HTTP surface, which some
-private skins may not want even on loopback. Options: names-only; names+ranks; full ladders
-behind a config flag. Leaning names+ranks, operator call.
+**OQ11 - profile-listing schema depth. RESOLVED (chunk 6.4): names+ranks**, per the leaning
+above. `GET /projects/{name}/profiles` / `GET /profiles?path=` return each profile's name,
+`clearance_ceiling` value + its numeric rank in the ladder, `releasable_to` value + rank,
+`lang`, `audience`, `disclosure` -- enough for tooltips and ordering in the audience menu,
+without exposing the raw ladder-keyed dict (a private skin's full governance vocabulary).
+Full ladders behind a config flag was not built; revisit only if a real UI need surfaces.
 
 **OQ12 - SQLite read-cache trigger.** Deferred per 3.3 with a stated trigger (sustained scan
 over ~250 ms at real project count). Needs a real-world number: how many projects does the

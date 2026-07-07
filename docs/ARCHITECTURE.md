@@ -252,6 +252,11 @@ collision). `POST /templates/import` is a thin, D15-hardened wrapper over the sh
 `import-template` (C7) pipeline: it calls that pipeline's own derivation in-process rather than
 re-implementing it, including its `--check` idempotency gate.
 
+`GET /projects/{name}/profiles` and `GET /profiles?path=` (chunk 6.4) list a profiles.yaml's
+audience profiles for the wizard/render-config menu: names + minimal metadata (clearance/
+distribution rank, lang, audience, disclosure), not the raw ladder-keyed governance dict --
+resolving the design spike's OQ11 as names+ranks.
+
 ## Structured source editor (specified, not built)
 
 The editor is a reference client of the API and a direct-edit (third D8) mode. The design is settled;

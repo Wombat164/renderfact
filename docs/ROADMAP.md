@@ -391,8 +391,14 @@ does). Buildable-now unless marked GATED; sequencing note: 6.1-6.6 are a coheren
   D15-hardened (writes into the library): CSRF required, same Origin/Host guards. CLI: `render
   templates list|show` (`new`/import stays API-only -- DOCX upload has no CLI-shaped one-shot form
   here). 18 tests.
-- **6.4 - Profile discovery.** `[build]`. `GET /projects/{name}/profiles` and `GET /profiles?path=`,
-  names + minimal metadata. Small, unblocks the audience menu. NEXT.
+- **6.4 - Profile discovery.** `[build]` **DONE:** `GET /projects/{name}/profiles` (a project's own
+  `profiles.yaml`, resolved via its manifest + jailed to the project directory) and `GET
+  /profiles?path=` (the same shape for any jailed path -- the wizard's profile-source step, before a
+  project exists). Both reuse `projector.load_config` exactly (same fail-closed ladder validation a
+  real render would hit) and resolve OQ11 as names+ranks: each profile's name, `clearance_ceiling` +
+  its rank in the ladder, `releasable_to` + rank, `lang`, `audience`, `disclosure` -- not the raw
+  ladder-keyed governance dict, so a private skin's full clearance vocabulary isn't handed out
+  wholesale even on loopback. 7 tests.
 - **6.5 - Dashboard + wizard UI (manual path only).** `[build]`. Projects Dashboard, New Project
   wizard with MANUAL template/doc_type/scaffold selection, Template Library screen. Auto mode is
   deferred to 6.7 so the wizard ships without any LLM machinery. NEXT.

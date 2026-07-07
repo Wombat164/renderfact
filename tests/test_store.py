@@ -610,3 +610,84 @@ def test_api_put_config_happy_path_and_stale_conflict(tmp_path, monkeypatch):
         {"patch": {"doc_type": "poster"}, "base_hash": base_hash, "message": "to poster"},
         extra={"HTTP_X_CSRF_TOKEN": token})
     assert code == 409
+
+
+# ---------- profile discovery (chunk 6.4) ----------
+
+def test_api_project_profiles_names_and_ranks(tmp_path, monkeypatch):
+    """A freshly created project's seeded profiles.yaml (copied from
+    projection/profiles-example.yaml by store.create()) is real, valid
+    config -- no extra fixture needed."""
+    _isolated_git_env(monkeypatch)
+    api = api_app.RenderfactApi(root=tmp_path, projects_root=tmp_path)
+    token = _get_csrf_token(api)
+    _call_with_headers(api, "POST", "/projects", {"name": "demo"},
+                       extra={"HTTP_X_CSRF_TOKEN": token})
+
+    code, data = _call_with_headers(api, "GET", "/projects/demo/profiles")
+    assert code == 200
+    assert data["ladders"]["clearance"] == ["public", "internal", "confidential", "secret"]
+    names = {p["name"] for p in data["profiles"]}
+    assert {"internal-full", "partner-brief", "public-release"} <= names
+    public = next(p for p in data["profiles"] if p["name"] == "public-release")
+    assert public["clearance_rank"] == 0  # lowest ceiling in the ladder
+    internal = next(p for p in data["profiles"] if p["name"] == "internal-full")
+    assert internal["clearance_rank"] == 3  # highest (secret)
+    # only names + minimal metadata, not the raw ladder-keyed governance dict
+    assert "disclosure" in public and "audience" in public
+
+
+def test_api_project_profiles_404_unknown_project(tmp_path):
+    api = api_app.RenderfactApi(root=tmp_path, projects_root=tmp_path)
+    code, _ = _call_with_headers(api, "GET", "/projects/nope/profiles")
+    assert code == 404
+
+
+def test_api_project_profiles_400_when_manifest_field_missing(tmp_path, monkeypatch):
+    _isolated_git_env(monkeypatch)
+    api = api_app.RenderfactApi(root=tmp_path, projects_root=tmp_path)
+    token = _get_csrf_token(api)
+    _call_with_headers(api, "POST", "/projects", {"name": "demo"},
+                       extra={"HTTP_X_CSRF_TOKEN": token})
+    # config-PUT cannot remove 'profiles' (it is not in MUTABLE_MANIFEST_KEYS);
+    # simulate the missing-field case directly on the manifest on disk
+    manifest_path = tmp_path / "demo" / store.MANIFEST_NAME
+    text = manifest_path.read_text(encoding="utf-8").replace("profiles: profiles.yaml\n", "")
+    manifest_path.write_text(text, encoding="utf-8")
+    code, data = _call_with_headers(api, "GET", "/projects/demo/profiles")
+    assert code == 400
+    assert "profiles" in data["error"]
+
+
+def test_api_standalone_profiles_by_path(tmp_path):
+    example = REPO_ROOT / "projection" / "profiles-example.yaml"
+    rel = example.relative_to(REPO_ROOT)
+    api = api_app.RenderfactApi(root=REPO_ROOT, projects_root=tmp_path)
+    code, data = _call_with_headers(api, "GET", f"/profiles?path={rel.as_posix()}")
+    assert code == 200
+    assert any(p["name"] == "public-release" for p in data["profiles"])
+
+
+def test_api_standalone_profiles_missing_path_param(tmp_path):
+    api = api_app.RenderfactApi(root=tmp_path, projects_root=tmp_path)
+    code, data = _call_with_headers(api, "GET", "/profiles")
+    assert code == 400
+
+
+def test_api_standalone_profiles_path_jail(tmp_path):
+    api = api_app.RenderfactApi(root=tmp_path, projects_root=tmp_path)
+    code, data = _call_with_headers(api, "GET", "/profiles?path=../outside.yaml")
+    assert code == 403
+    assert "escapes" in data["error"]
+
+
+def test_api_project_profiles_400_on_broken_config(tmp_path, monkeypatch):
+    _isolated_git_env(monkeypatch)
+    api = api_app.RenderfactApi(root=tmp_path, projects_root=tmp_path)
+    token = _get_csrf_token(api)
+    _call_with_headers(api, "POST", "/projects", {"name": "demo"},
+                       extra={"HTTP_X_CSRF_TOKEN": token})
+    (tmp_path / "demo" / "profiles.yaml").write_text("not: {a: valid, profiles: config}\n",
+                                                      encoding="utf-8")
+    code, _ = _call_with_headers(api, "GET", "/projects/demo/profiles")
+    assert code == 400
