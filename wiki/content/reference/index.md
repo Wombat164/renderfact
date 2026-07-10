@@ -9,6 +9,7 @@ title: Reference
 | Command | What it does |
 |---|---|
 | `render docx <src> --profile <p>` | Project one source to a governed DOCX for one audience profile. |
+| `render docstyle <in.docx> [out.docx] [--table-widths <yaml>]` | Standalone house-style DOCX post-processor: font/heading/table styling, punctuation normalization, `--cover-version`/`--cover-date`, operator-fitted `--table-widths`. The same engine `render docx` calls internally, exposed directly. |
 | `render pdf <src> [--engine typst]` | Render a source to a layout-native branded A4 PDF via typst (a peer of the DOCX path, no LibreOffice). |
 | `render diagram ...` | Render a diagram from its source. |
 | `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
@@ -31,6 +32,28 @@ title: Reference
 | `render container <podman-args>` | Passthrough to the container render entry. |
 
 Run any subcommand with `--help` for its flags.
+
+## `render docstyle` -- standalone house-style DOCX post-processor
+
+`render docx` (render-doc.sh) already calls `docstyle/style_postprocess.py` internally as the
+house-style pass of its own pipeline. `render docstyle` is the same engine reachable directly, for
+callers who want its capabilities (most usefully `--table-widths`, which `render docx` does not pass
+through) without going through the full docx pipeline. Also useful for restyling a DOCX that was not
+itself produced by `render docx`.
+
+```bash
+render docstyle draft.docx styled.docx --profile reference --table-widths widths.yaml \
+  --cover-version 1.2 --cover-date "2026-07-10"
+```
+
+| Flag | Meaning |
+|---|---|
+| `<input.docx>` | Source DOCX (styled in place unless `[output.docx]` is given). |
+| `[output.docx]` | Optional destination path. |
+| `--profile compact\|reference` | Style profile (default `compact`: dense, justified; `reference`: reader-friendly, cover page). |
+| `--template-profile <yaml>` | Override the whole theme (palette/font/geometry/marking/cover) from a profile yaml. |
+| `--table-widths <yaml>` | Operator-fitted column widths (twips), matched to tables by ordinal, scaled proportionally to fill the actual section text width (`apply_table_widths()`). |
+| `--cover-version <v>` / `--cover-date <d>` | Cover version/date line overrides (`--profile reference`). |
 
 ## `render pdf` -- layout-native PDF backend (typst)
 

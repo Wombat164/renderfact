@@ -7,6 +7,7 @@ The reading order depends on what you came for:
 | Understand the system's shape (modules, data flow, trust boundaries) | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Know why things are the way they are (numbered decision record, with rationale) | [DECISIONS.md](DECISIONS.md) |
 | See what is planned, in what order, and what gets adopted vs imitated vs built | [ROADMAP.md](ROADMAP.md) |
+| Find every module with its own CLI, wired into `render` or not | [capabilities.md](capabilities.md) |
 | Try the framework in five minutes | [../demo/](../demo/) (start with its README) |
 | Contribute (test discipline, generic-core rule) | [../CONTRIBUTING.md](../CONTRIBUTING.md) |
 

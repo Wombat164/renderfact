@@ -6,6 +6,16 @@ their hashes do not survive the history rewrite, see the publish protocol).
 `tool_version` in embedded provenance follows `git describe --tags` and picks
 up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
+## [Unreleased]
+
+### Added
+
+- **`render docstyle`** (issue #74): the house-style DOCX post-processor's standalone CLI surface
+  (`--profile`, `--template-profile`, `--table-widths`, `--cover-version`, `--cover-date`) is now a
+  documented top-level subcommand, in addition to being invoked internally by `render docx`. Fixes the
+  discoverability gap where `apply_table_widths()` and its sibling flags were only findable by reading
+  `docstyle/style_postprocess.py` source end to end.
+
 ## [0.4.0] - 2026-07-04
 
 Completes render-as-a-service and rounds out onboarding. All additive over 0.3.0.
