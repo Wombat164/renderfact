@@ -30,7 +30,7 @@ port (stdlib only: zipfile, ElementTree, difflib).
 
 Usage:
     render reingest <edited.docx> --source <canonical.md>
-                    [--report out.md] [--json] [--apply]
+                    [--report out.md] [--json] [--apply] [--strip-pattern <regex>]...
 """
 
 from __future__ import annotations

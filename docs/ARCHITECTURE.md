@@ -220,6 +220,17 @@ would be silently stomped. So the editor and any save-path never refresh provena
 `render` or `retarget` stamps it. A `source_commit` field, stamped at render time only when the
 source sits in a clean git work tree, makes ancestor recovery a direct `git show`.
 
+**Text-delta normalization (issue #72).** `roundtrip/reingest.py`'s `## 4. Text delta` /
+`## 5. Fast-forward plan` compare canonical-markdown lines against DOCX paragraph text, so any
+pandoc source syntax that never renders as literal DOCX text must be stripped from the markdown
+side first, or its absence reads as a false reviewer deletion. Two tiers: a pre-split, whole-block
+regex pass in `md_plaintext()` (frontmatter, HTML comments, and raw-attribute OOXML blocks such as
+a manual page break's ` ```{=openxml} ... ``` `, which spans multiple lines and cannot be stripped
+per-line) and a per-line pass in `_norm()` (non-breaking spaces, list bullets, auto-numbered
+headings, fenced-div `::: {...}` / `:::` lines, the blockquote `> ` marker). `render reingest
+--strip-pattern <regex>` (repeatable) adds caller-supplied patterns at the same per-line tier, for
+a project's own structural-noise conventions renderfact has no reason to special-case itself.
+
 ## QA gates
 
 `lint/render_qa.py` (`render qa`) is a deterministic, zero-LLM gate over rendered artifacts, run
