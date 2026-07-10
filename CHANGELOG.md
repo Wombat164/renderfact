@@ -18,6 +18,18 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   `wshare / max(cshare, floor)`, scored for every column with its own floor so proportionally-sized
   small columns are not flagged), printed alongside the existing pressure line, and both signals now
   drive which tables surface in the ranked top-N output.
+- **`layered-stack` diagram archetype** (issue #68, FR1-FR3): a new diagram archetype for an ordered
+  technology stack with an explicit, visually distinct interface boundary between adjacent layers, and
+  support for N parallel realizing chains laid out side by side under one shared interface (N=1 is the
+  degenerate default). Authored as a plain, hand-written renderfact YAML source - no dependency on
+  Archi or any ArchiMate file. `render diagram <source.yaml>` dispatches to it by content-sniff (a
+  `.yaml`/`.yml` file whose top level carries `archetype: layered-stack`), generates D2 styled via the
+  existing brand-token system, and renders through the existing D2 -> svg -> pdf pipeline unchanged.
+  Element counts are checked against `lint/element_budget.py`'s existing view-tier budgets before any
+  D2 is generated, failing closed with an actionable message when a model needs splitting into multiple
+  views. New: `lint/layered_stack.py`, `demo/diagrams/layered-stack-example.yaml`,
+  `tests/test_layered_stack_archetype.py`. The issue's own optional ArchiMate Exchange-XML adapter
+  (FR4-FR7) is deliberately out of scope for this change; see the follow-up issue.
 - **PlainLanguage Vale style + `plainlang` gate stage** (issue #76): `render gate --stages vale` now
   also carries a reader-facing plain-language/KISS check, distinct from the existing `AiTells`
   authorial-tell detection. `demo/skin/vale/styles/PlainLanguage/`: `SentenceLength` (tunable
@@ -46,6 +58,13 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   pattern. Ships with no default pattern; the regex is a required parameter (`--pattern` /
   `--pattern-file`, or `RENDERFACT_GATE_PATTERN` / `RENDERFACT_GATE_PATTERN_FILE` for zero-arg hook
   invocation), keeping the public core domain-neutral.
+- **Purpose annotations and dossier role (#77, D19)**: an annotative-only authoring convention, never
+  a blocking gate. `<!-- PURPOSE: ... -->` HTML comments stated above a paragraph or heading record
+  why it exists, verified empirically to be a no-op on both the DOCX and typst-PDF render paths
+  (`tests/test_purpose_annotations.py`). A freeform `dossier_role:` frontmatter field
+  (`roundtrip/dossier_role.py`) states what a document uniquely contributes relative to its siblings
+  in a dossier. `render qa purpose <source.md>` is an optional, advisory-only lint pass flagging a
+  prominent block with no purpose comment above it; report-only, never fails.
 
 ### Fixed
 
@@ -117,18 +136,18 @@ render-as-a-service. All additive over 0.1.0.
 ### Added
 
 - **Layout-native PDF backend** (`render pdf`): markdown to a branded, layout-precise A4 PDF via
-  pandoc's typst writer + a brand-token-driven theme + typst -- a peer of the DOCX path, no OOXML and
+  pandoc's typst writer + a brand-token-driven theme + typst - a peer of the DOCX path, no OOXML and
   no LibreOffice. First-page PNG previews, `--paper`, and metadata (title/subtitle/org/date).
 - **Engine-agnostic theme descriptor**: `brand.yaml [theme]` (page margins, header/footer slots,
   heading/title/rule colour ROLES) with a `base` + inheritable `variants` (built-in `financial`).
-  Drives BOTH engines -- the typst chrome (`chrome.typ`) and the DOCX house-style
+  Drives BOTH engines - the typst chrome (`chrome.typ`) and the DOCX house-style
   (`template-profile.yaml`); `render pdf --variant <name>`.
 - **First-class semantic blocks** (fenced divs, rendered by the theme): `::: signatures` (hyphenation-
   safe signature card grid), `::: attendance` (present/proxy/quorum callout), `::: statement` (typed
   ledger with right-aligned amounts + rule lines).
 - **Data-bound, self-reconciling statements**: a `::: {.statement data="finance.yaml"}` sources rows
   from YAML/CSV and COMPUTES subtotals/totals/balances (safe `+ - * /` formulas over subtotal ids); a
-  stated total that diverges from its computed value FAILS the render -- removing the silent-
+  stated total that diverges from its computed value FAILS the render - removing the silent-
   transcription error class from financial documents.
 - **Project locale** (`render pdf --locale nl-BE|fr-BE|en|...`): number separators + currency
   placement, hyphenation language, and localized long dates (raw ISO in -> `15 februari 2025` out).
@@ -146,7 +165,7 @@ render-as-a-service. All additive over 0.1.0.
 
 - `render <mode> --help` for the docx mode printed `source not found: --help` instead of usage.
 - The generated DOCX `template-profile.yaml` used a nested shape the house-style post-processor's
-  flat-key reader ignored -- so brand/theme values never reached the DOCX render (dead config). Now
+  flat-key reader ignored - so brand/theme values never reached the DOCX render (dead config). Now
   emitted in the consumed flat schema.
 
 ### Security

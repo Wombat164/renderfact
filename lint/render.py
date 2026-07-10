@@ -14,6 +14,10 @@ Dispatch:
     .svg             -> cairosvg                       -> .pdf
     .drawio          -> drawio CLI (--export)          -> .pdf direct
     .puml            -> plantuml.jar                   -> .svg -> cairosvg -> .pdf (TBD)
+    .yaml / .yml     -> content-sniffed for a recognized diagram archetype (issue
+                        #68: layered-stack) -> generated .d2 -> d2 -> cairosvg -> .pdf.
+                        A .yaml/.yml file that does not sniff as a known archetype
+                        is skipped, same as any other unsupported extension.
 
 Usage:
     python lint/render.py <source-file>...
@@ -43,6 +47,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import layered_stack  # noqa: E402  (lint/layered_stack.py: issue #68 archetype, FR1-FR3)
 
 DRAWIO_EXE = Path(r"C:\Program Files\draw.io\draw.io.exe")
 D2_EXE = Path(r"C:\Program Files\D2\d2.exe")
@@ -242,6 +249,32 @@ def render_file(src: Path, out_dir: Path, formats: list[str]) -> bool:
             shutil.copy2(src, out_svg)
         return True
 
+    if ext in (".yaml", ".yml"):
+        # Content-sniff, not extension-sniff: most .yaml files are not diagram
+        # sources at all (FR6's dispatch idiom, reused here for the archetype's
+        # own plain-source format, not just the out-of-scope ArchiMate adapter).
+        archetype = layered_stack.sniff_archetype(src)
+        if archetype is None:
+            print(f"  SKIP    {src.name}  (unsupported extension '{ext}')")
+            return True
+        try:
+            d2_source = layered_stack.generate_d2_source(src)
+        except layered_stack.LayeredStackError as err:
+            print(f"  REJECT  {src.name}  ({err})", file=sys.stderr)
+            return False
+        generated_d2 = out_dir / f"{stem}.generated.d2"
+        generated_d2.write_text(d2_source, encoding="utf-8")
+        ok = True
+        if "svg" in formats and not render_d2(generated_d2, out_svg):
+            ok = False
+        if "pdf" in formats:
+            if not out_svg.exists():
+                if not render_d2(generated_d2, out_svg):
+                    ok = False
+            if ok and not render_svg_to_pdf(out_svg, out_pdf):
+                ok = False
+        return ok
+
     if ext == ".drawio":
         # drawio CLI direct PDF export (best fidelity)
         if "pdf" in formats:
@@ -282,7 +315,7 @@ def main() -> int:
     for s in args.sources:
         p = Path(s)
         if p.is_dir():
-            for ext in (".mmd", ".mermaid", ".d2", ".svg", ".drawio"):
+            for ext in (".mmd", ".mermaid", ".d2", ".svg", ".drawio", ".yaml", ".yml"):
                 paths.extend(p.glob(f"*{ext}"))
         elif p.is_file():
             paths.append(p)

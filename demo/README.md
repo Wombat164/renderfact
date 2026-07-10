@@ -51,8 +51,8 @@ carries the abstract baseline instead of the detailed one, and has no projection
 
 ## Branded PDF: a governance + financial deliverable
 
-Step 4 renders a second showcase, `source/agm-minutes.md` -- Meridian's Annual General
-Meeting minutes -- to a layout-native branded A4 PDF (`render pdf`, needs typst + pandoc).
+Step 4 renders a second showcase, `source/agm-minutes.md` - Meridian's Annual General
+Meeting minutes - to a layout-native branded A4 PDF (`render pdf`, needs typst + pandoc).
 One source exercises the full Track H feature set:
 
 - the **`::: attendance`** callout (present / represented-by-proxy / quorum),
@@ -74,6 +74,23 @@ Swap `--locale en` for `nl-BE` to see the same document formatted in Belgian Dut
 (`EUR 1.234,56`, `18 maart 2026`, "Handtekening / Datum"); drop `--variant financial` for
 the base theme. Add `--project <profile> --profiles demo/profiles.yaml` to render an
 audience-projected branded PDF, or `--project all` for one per profile.
+
+## Diagram archetype: a layered technology stack
+
+`diagrams/layered-stack-example.yaml` is a separate, self-contained worked example - not part of
+the Meridian Rail narrative - for the `layered-stack` diagram archetype (issue #68). Two
+interchangeable, entirely fictional vendor platform stacks ("Vendor A" / "Vendor B") each realize
+the SAME shared service interface, so client applications above and the shared transport network
+below never need to know which vendor is plugged in underneath:
+
+```sh
+python render.py diagram demo/diagrams/layered-stack-example.yaml
+```
+
+Produces `layered-stack-example.svg` / `.pdf` plus the intermediate generated `.d2` source, all
+under `renders/` (or `--output-dir`). Edit the YAML to see the layout, the interface-boundary
+markers, and the brand-token-driven colours change; see `render diagram --help` and
+`lint/layered_stack.py`'s module docstring for the full source shape.
 
 ## Adapt it into your own skin
 

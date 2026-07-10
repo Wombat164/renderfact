@@ -54,6 +54,22 @@ render provenance strip  <artifact.docx>                        # external / pub
 Strip is surgical: it only clears renderfact's own identifier, never a foreign DOI or an
 organisation's document number.
 
+## Draw a layered technology stack with interface boundaries
+
+Author a plain YAML source (no ArchiMate/Archi dependency) and render it like any other diagram:
+
+```bash
+render diagram demo/diagrams/layered-stack-example.yaml
+```
+
+`render diagram` recognizes the archetype by content, not extension: any `.yaml`/`.yml` file whose
+top level carries `archetype: layered-stack` is parsed, checked against the view-tier's element
+budget, generated to D2 (styled from your brand tokens), and rendered through the normal D2 pipeline.
+A `chains` entry in the `stack` list lays out N realizing chains side by side under one shared
+interface (N=1 is an ordinary pass-through segment); see `demo/diagrams/layered-stack-example.yaml`
+for a worked two-vendor example and `lint/layered_stack.py`'s module docstring for the full source
+shape.
+
 ## Round-trip an editable diagram
 
 Generate an editable diagram from a concept graph, hand-edit it in the app, then re-ingest:
@@ -101,6 +117,38 @@ review with `--force-review`.
 export RENDERFACT_GATE_LOG=~/.renderfact/gate.jsonl   # opt in to logging
 # ... run gated steps ...
 render gate-stats                                     # escalation rate + storm detection
+```
+
+## Annotate a document's purpose and dossier role
+
+Record WHY a paragraph or section exists, so a later prunability pass can tell "load-bearing" from
+"true but not needed" without re-deriving intent from scratch:
+
+```markdown
+<!-- PURPOSE: states the tradeoff up front so a skimming reader gets the decision before the detail -->
+
+## Cost vs lead time
+...
+```
+
+The comment never reaches a reader (verified empirically against both the DOCX and PDF render
+paths -- see [Explanation](../explanation/index.md#purpose-annotations-and-dossier-role)), so adding
+one is zero render risk.
+
+State what a whole document is FOR relative to its siblings in the same dossier, in frontmatter:
+
+```yaml
+---
+title: Onboarding overview
+dossier_role: the single-page entry point; every other document in this dossier goes deeper on one facet
+---
+```
+
+Then, optionally, check which prominent blocks still lack a purpose comment (advisory only, never
+fails):
+
+```bash
+render qa purpose onboarding.md --min-words 40
 ```
 
 ## Make your assistant renderfact-aware (harness mode)

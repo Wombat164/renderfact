@@ -23,6 +23,11 @@ accompany every subjective review). Subcommands:
   figs    <source.md> [figsdir] figure inventory + low-contrast pre-filter
                                 (adjacent-pixel luminance sampling, needs Pillow;
                                 degrades to inventory-only without it)
+  purpose <source.md>           issue #77: prominent paragraphs/headings with no
+                                preceding `<!-- PURPOSE: ... -->` annotation
+                                comment (a purely advisory nudge, never a gate:
+                                see docs/ARCHITECTURE.md "Purpose annotations and
+                                dossier role")
   all     <source.md> <render.docx> <full.txt>
 
 Probe config (--probes probes.yaml): a mapping under a top-level `probes:` key,
@@ -299,6 +304,69 @@ def cmd_figs(md_path: str, figsdir: str | None = None) -> int:
     return 0
 
 
+# -------------------------------------------------------------- purpose ----
+# issue #77: a purely advisory nudge, never a gate. Flags a prominent block
+# (a heading, or a paragraph at or above --min-words) that has no `<!--
+# PURPOSE: ... -->` comment immediately above it. Same never-fails posture as
+# the shell pipeline's QC_SCRIPT default (container/render-doc.sh): this
+# check cannot fail the run, by design -- not every document needs this level
+# of authoring rigor (see the "Non-goals" section of the issue this
+# implements: no blocking enforcement, no automatic purpose inference).
+_PURPOSE_COMMENT_RE = re.compile(r"^<!--\s*PURPOSE:.*-->\s*$", re.DOTALL)
+_SOURCE_FRONTMATTER_RE = re.compile(r"^---\n.*?\n---\n", re.DOTALL)
+
+
+def _strip_frontmatter(text: str) -> str:
+    m = _SOURCE_FRONTMATTER_RE.match(text)
+    return text[m.end():] if m else text
+
+
+def _blocks(text: str) -> list[str]:
+    """Split a markdown body on blank-line boundaries into ordered blocks,
+    dropping empty ones -- the same coarse unit `paras`-style checks reason
+    about, but read from SOURCE (purpose comments never survive to a render,
+    by design -- see cmd_purpose's docstring), not from a rendered artefact."""
+    return [b for b in re.split(r"\n\s*\n", text) if b.strip()]
+
+
+def cmd_purpose(md_path: str, min_words: int = 40) -> int:
+    with open(md_path, encoding="utf-8") as f:
+        raw = f.read()
+    blocks = _blocks(_strip_frontmatter(raw))
+
+    findings = []
+    prev_is_purpose = False
+    for block in blocks:
+        stripped = block.strip()
+        if _PURPOSE_COMMENT_RE.match(stripped):
+            prev_is_purpose = True
+            continue
+        is_heading = stripped.startswith("#")
+        # code / list / table / blockquote blocks are not narrative prose:
+        # skip them rather than false-flag structural content.
+        is_code = stripped.startswith("```") or stripped.startswith("~~~")
+        is_list = bool(re.match(r"^[-*+]\s|^\d+[.)]\s", stripped))
+        is_table = stripped.startswith("|")
+        is_quote = stripped.startswith(">")
+        if is_code or is_list or is_table or is_quote:
+            prev_is_purpose = False
+            continue
+        word_count = len(stripped.split())
+        prominent = is_heading or word_count >= min_words
+        if prominent and not prev_is_purpose:
+            preview = " ".join(stripped.split())[:90]
+            kind = "heading" if is_heading else "paragraph"
+            findings.append((kind, word_count, preview))
+        prev_is_purpose = False
+
+    print(f"== PURPOSE: {md_path} ({len(blocks)} block(s) scanned, min-words={min_words})")
+    print(f"   {len(findings)} prominent block(s) with no preceding "
+          f"<!-- PURPOSE: ... --> comment (advisory only)\n")
+    for kind, words, preview in findings:
+        print(f"[{kind:9s}] {words:4d}w  {preview}...")
+    return 0  # never fails: advisory-only by design (issue #77 non-goals)
+
+
 # ------------------------------------------------------------------ main ----
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
@@ -326,6 +394,11 @@ def main(argv: list[str] | None = None) -> int:
     p_figs.add_argument("source_md")
     p_figs.add_argument("figsdir", nargs="?", default=None)
 
+    p_purpose = sub.add_parser(
+        "purpose", help="issue #77: prominent blocks with no purpose-comment annotation (advisory)")
+    p_purpose.add_argument("source_md")
+    p_purpose.add_argument("--min-words", type=int, default=40)
+
     p_all = sub.add_parser("all", help="run every check")
     p_all.add_argument("source_md")
     p_all.add_argument("docx")
@@ -342,6 +415,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_paras(a.docx, top=a.top, limit_words=a.limit_words)
     if a.cmd == "figs":
         return cmd_figs(a.source_md, a.figsdir)
+    if a.cmd == "purpose":
+        return cmd_purpose(a.source_md, min_words=a.min_words)
     # all
     rc = cmd_leaks(a.textfile, load_probes(a.probes))
     print("\n" + "=" * 70 + "\n")
@@ -350,6 +425,8 @@ def main(argv: list[str] | None = None) -> int:
     cmd_paras(a.docx)
     print("\n" + "=" * 70 + "\n")
     cmd_figs(a.source_md)
+    print("\n" + "=" * 70 + "\n")
+    cmd_purpose(a.source_md)
     return rc
 
 

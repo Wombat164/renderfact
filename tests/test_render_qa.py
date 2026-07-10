@@ -206,6 +206,90 @@ def test_figs_reports_missing_reference(tmp_path, capsys):
     assert "MISSING" in out and "figures/missing.png" in out
 
 
+def _words(n: int) -> str:
+    return " ".join(["word"] * n)
+
+
+def test_purpose_flags_heading_with_no_preceding_comment(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(f"# Overview\n\n{_words(5)}\n", encoding="utf-8")
+    rc = render_qa.cmd_purpose(str(md))
+    out = capsys.readouterr().out
+    assert rc == 0  # advisory only: never fails, even with findings
+    assert "1 prominent block(s)" in out
+    assert "[heading  ]" in out and "Overview" in out
+
+
+def test_purpose_comment_immediately_above_heading_suppresses_the_flag(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(
+        "<!-- PURPOSE: sets the frame for everything below -->\n\n# Overview\n\nshort.\n",
+        encoding="utf-8",
+    )
+    rc = render_qa.cmd_purpose(str(md))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 prominent block(s)" in out
+
+
+def test_purpose_flags_overweight_paragraph_but_not_a_short_one(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(f"{_words(5)}\n\n{_words(45)}\n", encoding="utf-8")
+    rc = render_qa.cmd_purpose(str(md), min_words=40)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "1 prominent block(s)" in out
+    assert "[paragraph]   45w" in out
+
+
+def test_purpose_comment_above_paragraph_suppresses_the_flag(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(
+        f"<!-- PURPOSE: states the tradeoff up front -->\n\n{_words(45)}\n", encoding="utf-8"
+    )
+    rc = render_qa.cmd_purpose(str(md), min_words=40)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 prominent block(s)" in out
+
+
+def test_purpose_skips_code_list_table_and_quote_blocks(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(
+        "```\n" + _words(60) + "\n```\n\n"
+        "- " + _words(60) + "\n\n"
+        "| a | b |\n|---|---|\n| " + _words(60) + " | x |\n\n"
+        "> " + _words(60) + "\n",
+        encoding="utf-8",
+    )
+    rc = render_qa.cmd_purpose(str(md), min_words=40)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 prominent block(s)" in out
+
+
+def test_purpose_strips_frontmatter_before_scanning(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(
+        f"---\ntitle: T\ndossier_role: {_words(50)}\n---\n\n{_words(5)}\n", encoding="utf-8"
+    )
+    rc = render_qa.cmd_purpose(str(md), min_words=40)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 prominent block(s)" in out  # frontmatter body is not a scanned block
+
+
+def test_render_entrypoint_dispatches_qa_purpose_subcommand(tmp_path):
+    md = tmp_path / "src.md"
+    md.write_text("# Overview\n\nshort.\n", encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "render.py"), "qa", "purpose", str(md)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0
+    assert "1 prominent block(s)" in result.stdout
+
+
 def test_render_entrypoint_dispatches_qa_mode(tmp_path):
     txt = tmp_path / "full.txt"
     txt.write_text("has a [[leak]]\n", encoding="utf-8")
