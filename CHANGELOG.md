@@ -6,6 +6,24 @@ their hashes do not survive the history rewrite, see the publish protocol).
 `tool_version` in embedded provenance follows `git describe --tags` and picks
 up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
+## [Unreleased]
+
+### Added
+
+- **Blocking QC hook** (issue #71): `render-doc.sh`'s pre-render `QC_SCRIPT` hook (`--qc`) stays
+  advisory-only by default; `QC_BLOCKING=1` or `--qc-blocking` now makes a non-zero `QC_SCRIPT` exit
+  stop the render instead of just printing a warning.
+- **`POSTRENDER_GATE_SCRIPT` hook** (issue #71): a new post-render hook, called with the finished
+  `<docx>` path (`--postrender-gate`), after render and before the completion summary. Defaults to
+  BLOCKING, the opposite of `QC_SCRIPT`'s default, because its purpose is content-safety ("does the
+  artifact contain content it must never contain"); `POSTRENDER_GATE_ADVISORY=1` opts back into
+  advisory-only. See `docs/DECISIONS.md` D18 for the reasoning.
+- **`gates/content_scan.py`**: the generic reference implementation of the "open docx with
+  python-docx, regex over every paragraph and every table cell, exit 1 on hit" content-safety gate
+  pattern. Ships with no default pattern; the regex is a required parameter (`--pattern` /
+  `--pattern-file`, or `RENDERFACT_GATE_PATTERN` / `RENDERFACT_GATE_PATTERN_FILE` for zero-arg hook
+  invocation), keeping the public core domain-neutral.
+
 ## [0.4.0] - 2026-07-04
 
 Completes render-as-a-service and rounds out onboarding. All additive over 0.3.0.

@@ -22,12 +22,29 @@
 #                       [--template-profile <yaml>] --cover-version --cover-date
 #                       default: <repo>/docstyle/style_postprocess.py (generic
 #                       in-repo implementation); consumers override with their own
-#   QC_SCRIPT           pre-render QC script, called with <source.md> (--qc)
+#   QC_SCRIPT           pre-render QC script, called with <source.md> (--qc);
+#                       ADVISORY by default (findings print, render continues);
+#                       set QC_BLOCKING=1 (or pass --qc-blocking) so a non-zero
+#                       exit stops the render instead
+#   QC_BLOCKING         1 = QC_SCRIPT findings stop the render; default 0
+#                       (advisory-only stays the default: the more common case)
 #   NLQA_DIR            consumer lint bundle (vale config + generator) (--lint)
 #   HEADING_NUMBERING   field-numbering script, called with <docx> (--number-headings)
 #                       default: <repo>/docstyle/heading_numbering.py (generic
 #                       in-repo implementation); consumers override with their own
 #   PAGECHECK_SCRIPT    page-economy analyzer, called with <docx|pdf> (--page-check)
+#   POSTRENDER_GATE_SCRIPT   post-render content-safety gate, called with the
+#                       finished <docx> (--postrender-gate), after render and
+#                       before the completion summary. BLOCKING by default (a
+#                       non-zero exit stops the run): its purpose is "does the
+#                       artifact contain content it must never contain", so
+#                       silent-advisory is the wrong default here even though it
+#                       is right for QC_SCRIPT above (see docs/DECISIONS.md D18
+#                       for the reasoning). Set POSTRENDER_GATE_ADVISORY=1 to opt
+#                       back into advisory-only. gates/content_scan.py is the
+#                       generic (pattern-as-parameter) reference implementation.
+#   POSTRENDER_GATE_ADVISORY  1 = POSTRENDER_GATE_SCRIPT findings are advisory
+#                       only (print, do not stop the render); default 0 (blocking)
 #   PDF_CONVERTER_PS1   Windows Word-COM converter script (--pdf); without it,
 #                       LibreOffice (soffice) is used on any OS when present
 #   PROJECTION_CONFIG   ladders+profiles yaml for --project
@@ -50,8 +67,8 @@
 #
 # Usage: render-doc.sh <source.md> [--name <p>] [--profile reference|compact]
 #          [--project <profile>] [--template-profile <yaml>] [DRAFT|REVIEW|FINAL]
-#          [--pdf] [--qc] [--lint] [--number-headings] [--scheme <scheme>]
-#          [--page-check]
+#          [--pdf] [--qc] [--qc-blocking] [--lint] [--number-headings]
+#          [--scheme <scheme>] [--page-check] [--postrender-gate]
 # Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
 set -euo pipefail
 
@@ -62,8 +79,8 @@ render-doc.sh: annotated-markdown -> styled DOCX (+ optional PDF).
 
 Usage: render-doc.sh <source.md> [--name <p>] [--profile reference|compact]
          [--project <profile>] [--template-profile <yaml>] [DRAFT|REVIEW|FINAL]
-         [--pdf] [--qc] [--lint] [--number-headings] [--scheme <scheme>]
-         [--page-check]
+         [--pdf] [--qc] [--qc-blocking] [--lint] [--number-headings]
+         [--scheme <scheme>] [--page-check] [--postrender-gate]
 
 Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
 
@@ -75,10 +92,15 @@ Options:
   --scheme <scheme>     numbering/style scheme (default: modern)
   DRAFT|REVIEW|FINAL    document lifecycle suffix (default: DRAFT)
   --pdf                 also convert to PDF (Word-COM on Windows, else soffice)
-  --qc                  run the pre-render QC script (needs QC_SCRIPT)
+  --qc                  run the pre-render QC script (needs QC_SCRIPT); advisory
+                         unless --qc-blocking or QC_BLOCKING=1
+  --qc-blocking          same as --qc, but a QC_SCRIPT finding stops the render
   --lint                run the consumer lint bundle (needs NLQA_DIR)
   --number-headings     apply field-based heading numbering
   --page-check          run the page-economy analyzer
+  --postrender-gate     run the post-render content-safety gate on the finished
+                         docx (needs POSTRENDER_GATE_SCRIPT); blocking unless
+                         POSTRENDER_GATE_ADVISORY=1
   -h, --help            show this help and exit
 
 Consumer skin + tool configuration is via environment variables; see the
@@ -128,16 +150,19 @@ FILTERS_DIR="${FILTERS_DIR:-$(skin_default filters)}"
 TEMPLATE_PROFILE="${TEMPLATE_PROFILE:-$(skin_default template-profile.yaml)}"
 STYLE_POSTPROCESS="${STYLE_POSTPROCESS:-$REPO_ROOT/docstyle/style_postprocess.py}"
 QC_SCRIPT="${QC_SCRIPT:-}"
+QC_BLOCKING="${QC_BLOCKING:-0}"
 NLQA_DIR="${NLQA_DIR:-}"
 HEADING_NUMBERING="${HEADING_NUMBERING:-$REPO_ROOT/docstyle/heading_numbering.py}"
 PAGECHECK_SCRIPT="${PAGECHECK_SCRIPT:-}"
+POSTRENDER_GATE_SCRIPT="${POSTRENDER_GATE_SCRIPT:-}"
+POSTRENDER_GATE_ADVISORY="${POSTRENDER_GATE_ADVISORY:-0}"
 PDF_CONVERTER_PS1="${PDF_CONVERTER_PS1:-}"
 PROJECTION_CONFIG="${PROJECTION_CONFIG:-$REPO_ROOT/projection/profiles-example.yaml}"
 PROJECTOR="$REPO_ROOT/projection/projector.py"
 OUTPUT_DIR="${OUTPUT_DIR:-./renders}"
 
 SOURCE=""; NAME=""; PROFILE="reference"; SUFFIX="DRAFT"
-DO_PDF=0; DO_QC=0; DO_LINT=0; DO_NUMBER=0; DO_PAGECHECK=0
+DO_PDF=0; DO_QC=0; DO_LINT=0; DO_NUMBER=0; DO_PAGECHECK=0; DO_POSTRENDER_GATE=0
 SCHEME="modern"; PROJECT_PROFILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -148,9 +173,11 @@ while [ $# -gt 0 ]; do
     --scheme)           SCHEME="$2"; shift 2 ;;
     --pdf)              DO_PDF=1; shift ;;
     --qc)               DO_QC=1; shift ;;
+    --qc-blocking)      DO_QC=1; QC_BLOCKING=1; shift ;;
     --lint)             DO_LINT=1; shift ;;
     --number-headings)  DO_NUMBER=1; shift ;;
     --page-check)       DO_PAGECHECK=1; shift ;;
+    --postrender-gate)  DO_POSTRENDER_GATE=1; shift ;;
     DRAFT|REVIEW|FINAL) SUFFIX="$1"; shift ;;
     *) if [ -z "$SOURCE" ]; then SOURCE="$1"; else SUFFIX="$1"; fi; shift ;;
   esac
@@ -187,7 +214,11 @@ echo ""
 if [ "$DO_QC" = "1" ]; then
   if [ -n "$QC_SCRIPT" ] && [ -f "$QC_SCRIPT" ]; then
     echo "Pre-render QC ($(basename "$QC_SCRIPT")) on source..."
-    "$PYTHON" "$QC_SCRIPT" "$SOURCE" || echo "  (findings above are advisory, not blocking)"
+    if [ "$QC_BLOCKING" = "1" ]; then
+      "$PYTHON" "$QC_SCRIPT" "$SOURCE"
+    else
+      "$PYTHON" "$QC_SCRIPT" "$SOURCE" || echo "  (findings above are advisory, not blocking; set QC_BLOCKING=1 or --qc-blocking to fail the render on findings)"
+    fi
   else
     echo "Skipping --qc: no QC_SCRIPT configured (consumer skin supplies one)."
   fi
@@ -348,6 +379,24 @@ if [ "$DO_PAGECHECK" = "1" ]; then
     "$PYTHON" "$PAGECHECK_SCRIPT" "$PAGECHK_TARGET" || true
   else
     echo "Skipping --page-check: no PAGECHECK_SCRIPT configured (consumer skin supplies one)."
+  fi
+fi
+
+# ---- post-render content-safety gate: runs on the FINISHED docx, after every
+# step that can still touch it (style, numbering, provenance), before the
+# completion summary. Blocking by default (D18): see the POSTRENDER_GATE_SCRIPT
+# header comment for why this hook's default differs from QC_SCRIPT's.
+if [ "$DO_POSTRENDER_GATE" = "1" ]; then
+  echo ""
+  if [ -n "$POSTRENDER_GATE_SCRIPT" ] && [ -f "$POSTRENDER_GATE_SCRIPT" ]; then
+    echo "Post-render content-safety gate ($(basename "$POSTRENDER_GATE_SCRIPT")) on $(basename "$OUTPUT_FILE")..."
+    if [ "$POSTRENDER_GATE_ADVISORY" = "1" ]; then
+      "$PYTHON" "$POSTRENDER_GATE_SCRIPT" "$OUTPUT_FILE" || echo "  (findings above are advisory, not blocking; POSTRENDER_GATE_ADVISORY=1 is set)"
+    else
+      "$PYTHON" "$POSTRENDER_GATE_SCRIPT" "$OUTPUT_FILE"
+    fi
+  else
+    echo "Skipping --postrender-gate: no POSTRENDER_GATE_SCRIPT configured (consumer skin supplies one)."
   fi
 fi
 
