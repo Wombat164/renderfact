@@ -399,7 +399,49 @@ ships a currency regex, a codename list, or any other example as a default. A co
 that hardcodes its own pattern; either way the "open docx, scan every paragraph and cell, exit 1 on
 hit" mechanics stop being re-implemented per consumer, which was the issue's actual complaint.
 
-## D19 - Comprehension gate for text documents, and a D16 gate that legitimately never accepts
+## D19 - Purpose annotations and dossier role: annotative-only, never a gate
+
+A specific editorial discipline ("everything in this document should be prunable, as long as its
+stated purpose is still achieved") has no way to be checked mechanically, or even by inspection
+months later, without an explicit record of what each paragraph, section, or document was FOR. An
+author (human or LLM) ends up including detail because it is true and available, not because it is
+load-bearing for the document's actual goal, and a later editor has no record of which paragraphs
+were serving which purpose to safely decide what to cut (issue #77).
+
+**Rule: two structurally separate, purely annotative mechanisms, neither a hard gate.**
+1. Paragraph/section purpose: an HTML comment, `<!-- PURPOSE: ... -->`, stated immediately above the
+   block it explains.
+2. Document-level dossier relation: a frontmatter field, `dossier_role:`, stating what a document
+   uniquely contributes relative to its siblings in a broader dossier/collection.
+
+**Why HTML comments are safe.** Pandoc's markdown reader parses `<!-- ... -->` as a raw-HTML AST node
+that neither the DOCX writer nor the typst writer (the PDF path's markdown-to-typst-markup step, the
+only step that touches the original markdown -- typst itself never parses it) emits. Verified
+empirically (`tests/test_purpose_annotations.py` drives the real pandoc/typst subprocess pipelines
+and asserts the marker is absent from both outputs), not assumed. This is the SAME mechanism D14's
+projection-provenance header stamp already relies on (`projector.py`'s `<!-- projected: ... -->`
+line): #77 generalizes it from per-document render metadata, stamped by the tool, to per-block
+authoring intent, stated by the author.
+
+**Why `dossier_role` is freeform, not an enum.** The projection engine's clearance/distribution
+ladders already establish the precedent that this repo's engine ships no fixed classification
+vocabulary of its own (`profiles-example.yaml`'s ladders are an illustration, not a standard);
+`dossier_role` follows the same posture. Read via the repo's existing frontmatter-read idiom
+(`gates/run_gates.py`'s `run_uids`, `roundtrip/source_uid.py`), not a new parsing path.
+
+**Why this is explicitly NOT a D16 fuzzy-gate step.** D16 governs LLM-touching steps: deterministic
+result first, confidence score, gate past a threshold. Purpose annotation is deliberately outside
+that doctrine because it is not LLM-touching at all -- the issue's stated non-goal is exactly that an
+LLM summarization pass CANNOT substitute for the author stating intent explicitly (a summarizer
+reconstructs what a paragraph SAYS, not what it is FOR, and the whole point is capturing the latter
+before it is lost). The optional lint pass (`render qa purpose`) that flags an unannotated prominent
+block is a plain deterministic pattern match, not a confidence-gated step, and it never fails a run:
+the same never-fails posture as `QC_SCRIPT`'s off-when-unset default (`container/render-doc.sh`), not
+the fail-closed posture of `render gate`. Not every document needs this level of authoring rigor, and
+a document that never adopts the convention pays no penalty -- the issue explicitly rules out both a
+blocking enforcement gate and automatic purpose inference.
+
+## D20 - Comprehension gate for text documents, and a D16 gate that legitimately never accepts
 
 Issue #84: the diagram vision-review gate (chunk 3.1, D8/D16) already establishes that a fresh,
 author-independent LLM read catches subjective failures a deterministic pass structurally cannot. No

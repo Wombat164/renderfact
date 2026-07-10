@@ -3,9 +3,10 @@ Tests for lint/render_qa.py, the deterministic post-render QA gate.
 
 Covers: probe loading (defaults, consumer yaml merge, defaults-off), the leaks
 scan (hit counting, fail-on-hits exit semantics), the paras overweight ranking
-against a real python-docx document, the tables geometry scan running against a
-real table without crashing, the figs inventory MISSING path, and dispatch via
-render.py as a real subprocess.
+against a real python-docx document, the tables geometry scan (pressure and
+slack ratios, including the over-allocated-column blind spot from issue #90),
+the figs inventory MISSING path, and dispatch via render.py as a real
+subprocess.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "lint"))
@@ -96,6 +99,104 @@ def test_tables_scan_runs_on_real_table(tmp_path, capsys):
     assert "TABLES geometry" in out
 
 
+def _make_lopsided_docx(tmp_path):
+    """Worked example from issue #90: a 4-column table where an ordinal
+    (row-number) column is given generous width for single-digit content,
+    while a prose column carrying most of the real content is comparatively
+    starved. The ordinal column's content share never clears the pressure
+    eligibility floor, so the existing pressure/squeezed-col signal has
+    nothing to say about it; the new slack/wasteful-col signal should.
+    """
+    from docx import Document
+    from docx.shared import Inches
+
+    doc = Document()
+    table = doc.add_table(rows=5, cols=4)
+    table.autofit = False
+    col_widths = [Inches(2.4), Inches(1.0), Inches(1.3), Inches(1.3)]
+    for ci, w in enumerate(col_widths):
+        table.columns[ci].width = w
+    rows = [
+        ("1", "a much longer prose sentence describing the finding for row one", "note a", "note b"),
+        ("2", "another longer prose sentence describing the finding for row two", "note a", "note b"),
+        ("3", "yet another longer prose sentence for row three findings detail", "note a", "note b"),
+        ("4", "a fourth longer prose sentence describing row four in more detail", "note a", "note b"),
+        ("5", "a fifth longer prose sentence with the row five description text", "note a", "note b"),
+    ]
+    for ri, rowdata in enumerate(rows):
+        for ci, val in enumerate(rowdata):
+            table.rows[ri].cells[ci].width = col_widths[ci]
+            table.rows[ri].cells[ci].text = val
+    path = tmp_path / "lopsided.docx"
+    doc.save(str(path))
+    return path
+
+
+def test_slack_signal_flags_over_allocated_column_pressure_misses(tmp_path, capsys):
+    path = _make_lopsided_docx(tmp_path)
+    rc = render_qa.cmd_tables(str(path), top=5)
+    out = capsys.readouterr().out
+    assert rc == 0
+    # the starved prose column (index 1) is what the existing pressure signal
+    # catches
+    assert "squeezed-col=1" in out
+    # the over-allocated ordinal column (index 0) never clears the pressure
+    # eligibility floor, so pressure alone never names it; the new slack
+    # signal is the only one that does
+    assert "squeezed-col=0" not in out
+    assert "wasteful-col=0" in out
+
+
+def test_slack_ratio_flags_over_allocated_tiny_content_column():
+    # single-digit content (near-zero cshare) given a full quarter of the
+    # table's width: clearly wasteful, should read well above 1.0
+    ratio = render_qa._slack_ratio(wshare=0.25, cshare=0.01)
+    assert ratio > 1.8
+
+
+def test_slack_ratio_does_not_flag_genuinely_proportional_small_column():
+    # a small column given a proportionally small width: the shared floor
+    # keeps this at or below 1.0, not flagged
+    ratio = render_qa._slack_ratio(wshare=0.03, cshare=0.03)
+    assert ratio <= 1.0
+
+
+def test_slack_ratio_floor_bounds_near_zero_content():
+    # as cshare approaches zero the ratio must not blow up to infinity; it is
+    # capped by wshare / SLACK_CSHARE_FLOOR
+    ratio = render_qa._slack_ratio(wshare=0.10, cshare=0.0)
+    assert ratio == pytest.approx(0.10 / render_qa.SLACK_CSHARE_FLOOR)
+
+
+def test_slack_and_pressure_ratios_are_inverse_shaped():
+    # same share pair: pressure rewards high cshare/low wshare, slack rewards
+    # the opposite (high wshare/low cshare)
+    wshare, cshare = 0.30, 0.02
+    pressure = render_qa._pressure_ratio(wshare, cshare)
+    slack = render_qa._slack_ratio(wshare, cshare)
+    assert slack > 1.8
+    assert pressure < 1.0  # this column is over-allocated, not squeezed
+
+
+def test_single_column_table_is_never_flagged(tmp_path, capsys):
+    # degenerate case: one column carries 100% of both width and content, so
+    # both ratios must land exactly at 1.0 (never flagged)
+    from docx import Document
+
+    doc = Document()
+    table = doc.add_table(rows=2, cols=1)
+    table.rows[0].cells[0].text = "only column, only content here"
+    table.rows[1].cells[0].text = "more content in the only column"
+    path = tmp_path / "single_col.docx"
+    doc.save(str(path))
+
+    rc = render_qa.cmd_tables(str(path), top=5)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "pressure= 1.0" in out
+    assert "slack= 1.0" in out
+
+
 def test_figs_reports_missing_reference(tmp_path, capsys):
     md = tmp_path / "src.md"
     md.write_text("intro\n\n![diagram](figures/missing.png)\n", encoding="utf-8")
@@ -103,6 +204,90 @@ def test_figs_reports_missing_reference(tmp_path, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "MISSING" in out and "figures/missing.png" in out
+
+
+def _words(n: int) -> str:
+    return " ".join(["word"] * n)
+
+
+def test_purpose_flags_heading_with_no_preceding_comment(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(f"# Overview\n\n{_words(5)}\n", encoding="utf-8")
+    rc = render_qa.cmd_purpose(str(md))
+    out = capsys.readouterr().out
+    assert rc == 0  # advisory only: never fails, even with findings
+    assert "1 prominent block(s)" in out
+    assert "[heading  ]" in out and "Overview" in out
+
+
+def test_purpose_comment_immediately_above_heading_suppresses_the_flag(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(
+        "<!-- PURPOSE: sets the frame for everything below -->\n\n# Overview\n\nshort.\n",
+        encoding="utf-8",
+    )
+    rc = render_qa.cmd_purpose(str(md))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 prominent block(s)" in out
+
+
+def test_purpose_flags_overweight_paragraph_but_not_a_short_one(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(f"{_words(5)}\n\n{_words(45)}\n", encoding="utf-8")
+    rc = render_qa.cmd_purpose(str(md), min_words=40)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "1 prominent block(s)" in out
+    assert "[paragraph]   45w" in out
+
+
+def test_purpose_comment_above_paragraph_suppresses_the_flag(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(
+        f"<!-- PURPOSE: states the tradeoff up front -->\n\n{_words(45)}\n", encoding="utf-8"
+    )
+    rc = render_qa.cmd_purpose(str(md), min_words=40)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 prominent block(s)" in out
+
+
+def test_purpose_skips_code_list_table_and_quote_blocks(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(
+        "```\n" + _words(60) + "\n```\n\n"
+        "- " + _words(60) + "\n\n"
+        "| a | b |\n|---|---|\n| " + _words(60) + " | x |\n\n"
+        "> " + _words(60) + "\n",
+        encoding="utf-8",
+    )
+    rc = render_qa.cmd_purpose(str(md), min_words=40)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 prominent block(s)" in out
+
+
+def test_purpose_strips_frontmatter_before_scanning(tmp_path, capsys):
+    md = tmp_path / "src.md"
+    md.write_text(
+        f"---\ntitle: T\ndossier_role: {_words(50)}\n---\n\n{_words(5)}\n", encoding="utf-8"
+    )
+    rc = render_qa.cmd_purpose(str(md), min_words=40)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 prominent block(s)" in out  # frontmatter body is not a scanned block
+
+
+def test_render_entrypoint_dispatches_qa_purpose_subcommand(tmp_path):
+    md = tmp_path / "src.md"
+    md.write_text("# Overview\n\nshort.\n", encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "render.py"), "qa", "purpose", str(md)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0
+    assert "1 prominent block(s)" in result.stdout
 
 
 def test_render_entrypoint_dispatches_qa_mode(tmp_path):

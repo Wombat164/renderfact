@@ -34,7 +34,7 @@ UNCONDITIONALLY: this step always escalates. That is not a departure from D16;
 D16 already treats "no deterministic signal" as a legitimate outcome
 (vision-review's own confidence() returns 0.0 when neither of its two metrics
 fired) -- this is simply the first step where that is the PERMANENT case, not
-one branch of a heuristic. See docs/DECISIONS.md D19 for the recorded decision.
+one branch of a heuristic. See docs/DECISIONS.md D20 for the recorded decision.
 """
 
 from __future__ import annotations
@@ -300,7 +300,7 @@ def validate_output(obj: dict) -> tuple[bool, list[str]]:
 
 # --------------------------------------------------------------- D16 gate --
 # See the module docstring for why confidence() is pinned at 0.0 unconditionally
-# (docs/DECISIONS.md D19): comprehension has no deterministic sufficiency proxy,
+# (docs/DECISIONS.md D20): comprehension has no deterministic sufficiency proxy,
 # so this step always escalates rather than pretending a structural heuristic
 # could stand in for a fresh read.
 
@@ -319,7 +319,7 @@ def confidence(input_obj: dict):
     }
     return Confidence(
         0.0, signals,
-        reason="comprehension has no deterministic sufficiency proxy; always escalate (D19)")
+        reason="comprehension has no deterministic sufficiency proxy; always escalate (D20)")
 
 
 def gate(input_obj: dict, threshold: float = DEFAULT_THRESHOLD) -> tuple[str, object]:
@@ -371,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
                     "channel) read them in order, reporting per-snippet purpose/confusion/"
                     "fluff/cuttable content plus a whole-document synthesis. Report-only -- "
                     "it never rewrites the document. Comprehension has no deterministic "
-                    "accept path (docs/DECISIONS.md D19): this always escalates unless "
+                    "accept path (docs/DECISIONS.md D20): this always escalates unless "
                     "--threshold <= 0.",
     )
     ap.add_argument("path", type=Path, help="rendered document to review (.md or .docx)")
@@ -383,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--threshold", type=float,
                     default=float(os.environ.get("RENDERFACT_COMPREHENSION_THRESHOLD", DEFAULT_THRESHOLD)),
                     help=f"D16 gate (default {DEFAULT_THRESHOLD}; env "
-                         "RENDERFACT_COMPREHENSION_THRESHOLD). Confidence is always 0.0 (D19), "
+                         "RENDERFACT_COMPREHENSION_THRESHOLD). Confidence is always 0.0 (D20), "
                          "so any positive threshold always escalates; <= 0 accepts the "
                          "unreviewed stub.")
     ap.add_argument("--escalate", choices=("copy-paste", "api"), default=None,

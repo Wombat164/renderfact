@@ -64,6 +64,35 @@ This is the FrugalGPT cascade / RouteLLM operating-point pattern, tuned per step
 log (`render gate-stats`) so thresholds become evidence-based rather than hand-set. Full plan:
 [`docs/2026-07-04-fuzzy-gate-architecture-plan.md`](https://github.com/Wombat164/renderfact/blob/main/docs/2026-07-04-fuzzy-gate-architecture-plan.md).
 
+## Purpose annotations and dossier role
+
+A specific editorial discipline -- "everything in this document should be prunable, as long as its
+stated purpose is still achieved" -- cannot be checked mechanically, or even by inspection months
+later, without an explicit record of what each paragraph, section, or document was FOR. Without one, a
+later editor cannot tell "this is here on purpose, cutting it loses something" from "this is here
+because it was true, not because it was needed" (#77, D19).
+
+Two mechanisms, both purely annotative -- **neither is a new hard gate**:
+
+- **`<!-- PURPOSE: ... -->` comments** immediately above a paragraph or heading. Safe by construction:
+  pandoc's markdown reader parses an HTML comment as a raw-HTML node that neither the DOCX writer nor
+  the typst writer emits, so it never reaches a reader -- the SAME mechanism the D14 projection-
+  provenance header stamp already relies on, generalized from render metadata to authoring intent.
+  This is verified empirically (a real pandoc/typst render of a fixture asserting the marker's
+  absence), not assumed.
+- **`dossier_role:` frontmatter**, stating what a document uniquely contributes relative to its
+  siblings in a dossier. Freeform, no fixed vocabulary -- the same non-enum posture as the projection
+  engine's clearance/distribution ladders.
+
+**Why this is not a D16 fuzzy-gate step.** D16 governs LLM-touching steps: a deterministic result,
+a confidence score, a gate past a threshold. Purpose annotation sits deliberately outside that
+doctrine, because the whole point is that an LLM summarization pass CANNOT substitute for it -- a
+summarizer reconstructs what a paragraph says, not what it was written FOR, and that intent is exactly
+what would otherwise be lost. The optional `render qa purpose` lint pass is a plain deterministic
+pattern match (an unannotated prominent block), never gated, and it never fails a run -- the same
+never-fails posture as `QC_SCRIPT`'s off-when-unset default, not `render gate`'s fail-closed one. Not
+every document needs this rigor, and one that never adopts the convention pays no penalty.
+
 ## Round-trip and provenance
 
 Editable artifacts (DOCX, and diagrams via draw.io / Visio) carry hidden provenance -- what source,

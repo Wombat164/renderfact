@@ -14,12 +14,20 @@ accompany every subjective review). Subcommands:
                                 internal note titles). Consumer-specific probes
                                 (codenames, internal paths) come from --probes.
   tables  <render.docx>         per-table column-geometry badness: content share
-                                vs width share per column, wrap-pressure ranking
+                                vs width share per column, wrap-pressure ranking,
+                                plus a "slack" signal for over-allocated columns
+                                (the inverse of pressure, catches a wide column
+                                with negligible content that pressure ignores)
   paras   <render.docx>         overweight-paragraph ranking (simplification
                                 candidates)
   figs    <source.md> [figsdir] figure inventory + low-contrast pre-filter
                                 (adjacent-pixel luminance sampling, needs Pillow;
                                 degrades to inventory-only without it)
+  purpose <source.md>           issue #77: prominent paragraphs/headings with no
+                                preceding `<!-- PURPOSE: ... -->` annotation
+                                comment (a purely advisory nudge, never a gate:
+                                see docs/ARCHITECTURE.md "Purpose annotations and
+                                dossier role")
   all     <source.md> <render.docx> <full.txt>
 
 Probe config (--probes probes.yaml): a mapping under a top-level `probes:` key,
@@ -108,6 +116,44 @@ def _cell_texts(row_xml: str) -> list[str]:
     return ["".join(re.findall(r"<w:t[^>]*>(.*?)</w:t>", c, re.S)) for c in cells]
 
 
+# pressure eligibility: a column must clear this share of table content before
+# it is scored as squeezed at all (a genuinely tiny column should not register
+# as squeezed just because its width happens to be small too).
+PRESSURE_CSHARE_FLOOR = 0.05
+# pressure denominator floor: keeps the ratio bounded when a column's width
+# share is near zero.
+PRESSURE_WSHARE_FLOOR = 0.01
+# slack denominator floor: unlike PRESSURE_CSHARE_FLOOR this is not an
+# eligibility gate (every column is scored, including ones below the pressure
+# floor), it just caps how far a near-zero content share can drive the ratio
+# up, so a small column given a proportionally small width is not flagged.
+SLACK_CSHARE_FLOOR = 0.05
+
+
+def _pressure_ratio(wshare: float, cshare: float) -> float:
+    """Squeeze-pressure ratio: content share against a floored width share.
+
+    >1.0 means the column carries more content than its width would suggest
+    (squeezed); the caller only scores this once cshare clears
+    PRESSURE_CSHARE_FLOOR, so a trivially small column is never squeezed just
+    because its width is small too.
+    """
+    return cshare / max(wshare, PRESSURE_WSHARE_FLOOR)
+
+
+def _slack_ratio(wshare: float, cshare: float) -> float:
+    """Over-allocation ratio: width share against a floored content share.
+
+    The inverse relationship to _pressure_ratio. >1.0 means the column has
+    more width than its content share would suggest (wasteful). Every column
+    is scored, no eligibility cutoff: a genuinely small column given a
+    proportionally small width still lands at or below 1.0 thanks to the
+    shared SLACK_CSHARE_FLOOR, while one given a generous width for negligible
+    content spikes well above it.
+    """
+    return wshare / max(cshare, SLACK_CSHARE_FLOOR)
+
+
 def cmd_tables(docx_path: str, top: int = 15) -> int:
     xml = _docx_xml(docx_path)
     # walk body in order so each table gets its nearest preceding heading
@@ -141,25 +187,38 @@ def cmd_tables(docx_path: str, top: int = 15) -> int:
         total_c = sum(sumlen) or 1
         worst = 0.0
         worst_col = -1
+        worst_slack = 0.0
+        worst_slack_col = -1
         for ci in range(ncol):
             wshare = widths[ci] / total_w
             cshare = sumlen[ci] / total_c
-            if cshare > 0.05:  # ignore trivially small columns
-                pressure = cshare / max(wshare, 0.01)
+            if cshare > PRESSURE_CSHARE_FLOOR:  # ignore trivially small columns
+                pressure = _pressure_ratio(wshare, cshare)
                 if pressure > worst:
                     worst, worst_col = pressure, ci
+            # slack: the inverse ratio, scored for every column (no
+            # eligibility floor) so an over-allocated column with negligible
+            # content still gets flagged even though it never clears the
+            # pressure eligibility floor above.
+            slack = _slack_ratio(wshare, cshare)
+            if slack > worst_slack:
+                worst_slack, worst_slack_col = slack, ci
         # secondary signal: a very long single cell in a narrow column
         wrapscore = max(
             (maxlen[ci] / max(widths[ci] / 120.0, 1))  # rough chars per line
             for ci in range(ncol)
         )
-        results.append((worst, wrapscore, tbl_idx, ncol, len(rows), heading, worst_col, widths, maxlen))
-    results.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    print(f"== TABLES geometry: {tbl_idx} tables scanned; top {top} by content-vs-width pressure")
-    print("   pressure 1.0 = column width matches its content share; >1.8 = squeezed column\n")
-    for worst, wrap, i, ncol, nrows, hd, wc, widths, maxlen in results[:top]:
-        print(f"tbl#{i:02d} pressure={worst:4.1f} wrap~{wrap:5.0f} cols={ncol} rows={nrows}  under: {hd}")
-        print(f"        widths={widths}  maxcell={maxlen}  squeezed-col={wc}")
+        results.append((
+            max(worst, worst_slack), worst, worst_slack, wrapscore, tbl_idx,
+            ncol, len(rows), heading, worst_col, worst_slack_col, widths, maxlen,
+        ))
+    results.sort(key=lambda x: (x[0], x[3]), reverse=True)
+    print(f"== TABLES geometry: {tbl_idx} tables scanned; top {top} by content-vs-width pressure/slack")
+    print("   pressure 1.0 = column width matches its content share; >1.8 = squeezed column")
+    print("   slack    1.0 = column width matches its content share; >1.8 = over-allocated (wasteful) column\n")
+    for _, worst, worst_slack, wrap, i, ncol, nrows, hd, wc, wsc, widths, maxlen in results[:top]:
+        print(f"tbl#{i:02d} pressure={worst:4.1f} slack={worst_slack:4.1f} wrap~{wrap:5.0f} cols={ncol} rows={nrows}  under: {hd}")
+        print(f"        widths={widths}  maxcell={maxlen}  squeezed-col={wc}  wasteful-col={wsc}")
     return 0
 
 
@@ -245,6 +304,69 @@ def cmd_figs(md_path: str, figsdir: str | None = None) -> int:
     return 0
 
 
+# -------------------------------------------------------------- purpose ----
+# issue #77: a purely advisory nudge, never a gate. Flags a prominent block
+# (a heading, or a paragraph at or above --min-words) that has no `<!--
+# PURPOSE: ... -->` comment immediately above it. Same never-fails posture as
+# the shell pipeline's QC_SCRIPT default (container/render-doc.sh): this
+# check cannot fail the run, by design -- not every document needs this level
+# of authoring rigor (see the "Non-goals" section of the issue this
+# implements: no blocking enforcement, no automatic purpose inference).
+_PURPOSE_COMMENT_RE = re.compile(r"^<!--\s*PURPOSE:.*-->\s*$", re.DOTALL)
+_SOURCE_FRONTMATTER_RE = re.compile(r"^---\n.*?\n---\n", re.DOTALL)
+
+
+def _strip_frontmatter(text: str) -> str:
+    m = _SOURCE_FRONTMATTER_RE.match(text)
+    return text[m.end():] if m else text
+
+
+def _blocks(text: str) -> list[str]:
+    """Split a markdown body on blank-line boundaries into ordered blocks,
+    dropping empty ones -- the same coarse unit `paras`-style checks reason
+    about, but read from SOURCE (purpose comments never survive to a render,
+    by design -- see cmd_purpose's docstring), not from a rendered artefact."""
+    return [b for b in re.split(r"\n\s*\n", text) if b.strip()]
+
+
+def cmd_purpose(md_path: str, min_words: int = 40) -> int:
+    with open(md_path, encoding="utf-8") as f:
+        raw = f.read()
+    blocks = _blocks(_strip_frontmatter(raw))
+
+    findings = []
+    prev_is_purpose = False
+    for block in blocks:
+        stripped = block.strip()
+        if _PURPOSE_COMMENT_RE.match(stripped):
+            prev_is_purpose = True
+            continue
+        is_heading = stripped.startswith("#")
+        # code / list / table / blockquote blocks are not narrative prose:
+        # skip them rather than false-flag structural content.
+        is_code = stripped.startswith("```") or stripped.startswith("~~~")
+        is_list = bool(re.match(r"^[-*+]\s|^\d+[.)]\s", stripped))
+        is_table = stripped.startswith("|")
+        is_quote = stripped.startswith(">")
+        if is_code or is_list or is_table or is_quote:
+            prev_is_purpose = False
+            continue
+        word_count = len(stripped.split())
+        prominent = is_heading or word_count >= min_words
+        if prominent and not prev_is_purpose:
+            preview = " ".join(stripped.split())[:90]
+            kind = "heading" if is_heading else "paragraph"
+            findings.append((kind, word_count, preview))
+        prev_is_purpose = False
+
+    print(f"== PURPOSE: {md_path} ({len(blocks)} block(s) scanned, min-words={min_words})")
+    print(f"   {len(findings)} prominent block(s) with no preceding "
+          f"<!-- PURPOSE: ... --> comment (advisory only)\n")
+    for kind, words, preview in findings:
+        print(f"[{kind:9s}] {words:4d}w  {preview}...")
+    return 0  # never fails: advisory-only by design (issue #77 non-goals)
+
+
 # ------------------------------------------------------------------ main ----
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
@@ -272,6 +394,11 @@ def main(argv: list[str] | None = None) -> int:
     p_figs.add_argument("source_md")
     p_figs.add_argument("figsdir", nargs="?", default=None)
 
+    p_purpose = sub.add_parser(
+        "purpose", help="issue #77: prominent blocks with no purpose-comment annotation (advisory)")
+    p_purpose.add_argument("source_md")
+    p_purpose.add_argument("--min-words", type=int, default=40)
+
     p_all = sub.add_parser("all", help="run every check")
     p_all.add_argument("source_md")
     p_all.add_argument("docx")
@@ -288,6 +415,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_paras(a.docx, top=a.top, limit_words=a.limit_words)
     if a.cmd == "figs":
         return cmd_figs(a.source_md, a.figsdir)
+    if a.cmd == "purpose":
+        return cmd_purpose(a.source_md, min_words=a.min_words)
     # all
     rc = cmd_leaks(a.textfile, load_probes(a.probes))
     print("\n" + "=" * 70 + "\n")
@@ -296,6 +425,8 @@ def main(argv: list[str] | None = None) -> int:
     cmd_paras(a.docx)
     print("\n" + "=" * 70 + "\n")
     cmd_figs(a.source_md)
+    print("\n" + "=" * 70 + "\n")
+    cmd_purpose(a.source_md)
     return rc
 
 

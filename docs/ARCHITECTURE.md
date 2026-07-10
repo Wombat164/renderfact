@@ -17,13 +17,13 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `project` | one profiled source -> one governed render per audience/clearance/disclosure profile | shipped |
 | `docx` | annotated markdown -> styled DOCX (plus optional PDF) | shipped |
 | `docstyle` | standalone house-style DOCX post-processor (font/heading/table styling, `--table-widths`, `--cover-version`/`--cover-date`); the same engine `docx` calls internally, exposed directly (issue #74) | shipped |
-| `diagram` | mermaid / d2 rendering with pre-render lint and visual-QA metrics | shipped |
+| `diagram` | mermaid / d2 rendering with pre-render lint, visual-QA metrics, and (issue #68) the `layered-stack` archetype generator | shipped |
 | `tokens` | `brand.yaml` -> per-engine themes (mermaid JSON, marp CSS, pandoc profile, typst tokens) | shipped |
 | `init-ai` | install D8 step instructions into the user's own assistant | shipped |
 | `copy-paste` | run a D8 step with no harness: assemble a prompt, paste the reply back | shipped |
 | `provenance` | embed / extract / adopt / retarget hidden source provenance across DOCX/XLSX/PPTX | shipped |
 | `import-template` | derive a template profile (theme, fonts, geometry) from a branded DOCX, with an idempotency gate | shipped |
-| `qa` | deterministic post-render gate (leaks / tables / paras / figs) | shipped |
+| `qa` | deterministic post-render gate (leaks / tables / paras / figs / purpose) | shipped |
 | `gate` | fail-closed pre-publish QA gate chain (vale / lychee / verapdf / uids / plainlang) | shipped |
 | `comprehension-review` | fresh-reader comprehension gate for a rendered text document (D16-gated, always escalates); the text peer of the diagram vision-review gate (issue #84) | shipped |
 | `serve` | localhost HTTP API plus opt-in thin reference UI | shipped |
@@ -222,6 +222,132 @@ would be silently stomped. So the editor and any save-path never refresh provena
 `render` or `retarget` stamps it. A `source_commit` field, stamped at render time only when the
 source sits in a clean git work tree, makes ancestor recovery a direct `git show`.
 
+## Purpose annotations and dossier role
+
+A purely annotative authoring convention (#77): a structural place to record WHY a paragraph, section,
+or whole document exists, so a later editor (human or LLM) can tell "this is here on purpose, cutting
+it loses something" from "this is here because it was true, not because it was needed." Neither piece
+below is a new hard gate; both degrade to nothing for a consumer who ignores them, which is what makes
+them safe to adopt gradually or not at all.
+
+**Paragraph/section purpose comments.** An HTML comment stated immediately above the paragraph or
+heading it explains:
+
+```markdown
+<!-- PURPOSE: states the tradeoff up front so a skimming reader gets the decision before the detail -->
+
+## Cost vs lead time
+
+...
+```
+
+Pandoc's markdown reader parses `<!-- ... -->` as a raw-HTML AST node that neither the DOCX writer nor
+the typst writer (the PDF path's markdown-to-typst-markup step) ever emits: a raw HTML comment is
+simply dropped. This is verified EMPIRICALLY, not assumed: `tests/test_purpose_annotations.py` drives
+the real `render docx` pipeline (subprocess pandoc) and `pdf/typst_backend.md_to_typst` (the same
+pandoc call the PDF backend makes; typst itself never parses the original markdown, so this is the
+correct checkpoint) over a fixture containing the marker, and asserts it is absent from both outputs.
+The same mechanism already backs D14's projection-provenance header stamp (`projector.py`'s
+`<!-- projected: ... -->` line) -- this convention is the same trick, generalized from per-document
+render metadata to per-block authoring intent. Zero render risk: a consumer who never adopts the
+convention loses nothing, and an adopter's comments never reach a reader.
+
+**Document-level dossier role.** A frontmatter field, `dossier_role:`, stating what a document
+uniquely contributes relative to its siblings in a broader dossier/collection: what would be lost if
+this document did not exist, that no sibling already covers.
+
+```yaml
+---
+title: Onboarding overview
+dossier_role: the single-page entry point; every other document in this dossier goes deeper on one facet
+---
+```
+
+Freeform, consumer-defined text, not an enum -- the same non-enum posture as the projection engine's
+clearance/distribution ladders: the engine ships no fixed dossier-role vocabulary of its own, so any
+string is accepted verbatim. Read via `roundtrip/dossier_role.read_dossier_role()`, following the
+repo's existing frontmatter-read idiom (the same regex-then-`yaml.safe_load` pattern as
+`gates/run_gates.py`'s `run_uids` and `roundtrip/source_uid.py`) rather than a new parsing path:
+locate the `---`-delimited body, read the one key, write nothing back.
+
+**Optional advisory lint (`render qa purpose`).** Flags a paragraph or heading with no purpose comment
+immediately above it, when a paragraph's word count is at or above `--min-words` (default 40) or the
+block is a heading (a section boundary is always considered prominent). Report-only, the SAME
+never-fails posture as `QC_SCRIPT`'s default (off/advisory, never blocking): the command always exits
+0. This is a nudge, not a gate -- not every document needs this level of authoring rigor.
+
+**Non-goals, by design.** No blocking enforcement of missing annotations (a document that never adopts
+the convention pays no penalty), and no automatic purpose inference (e.g. an LLM summarization pass
+over existing prose): the discipline's whole value is the author stating intent explicitly, which a
+summarizer cannot reconstruct after the fact from text that was never written with that intent.
+
+## Diagram archetypes
+
+`lint/layered_stack.py` is the first entry in a diagram-archetype family (ROADMAP.md Track C1a):
+a purpose-built generator for one recurring architecture shape, as opposed to a hand-drawn mermaid/d2
+diagram. `render diagram` dispatches to it by CONTENT sniff, not a new subcommand: a `.yaml`/`.yml`
+file whose top level carries `archetype: layered-stack` is parsed, validated, and rendered to D2
+(then through the existing D2 -> svg -> pdf pipeline, unchanged); any other `.yaml`/`.yml` file is
+skipped, the same as any unsupported extension.
+
+- **Shape (issue #68, FR1-FR3):** an ordered technology stack, top to bottom, with an explicit,
+  visually distinct INTERFACE boundary between adjacent layers (D2 `shape: oval`, a fixed status.info
+  fill, and a thicker stroke - ArchiMate's ball-and-socket convention as the visual precedent,
+  not drawn literally), and a `chains` segment supporting N parallel REALIZING CHAINS laid out side
+  by side under one shared interface via a D2 `grid-columns` container (N=1 is the degenerate,
+  default case: an ordinary pass-through segment of the stack). The source is plain, hand-authored
+  renderfact YAML - no dependency on Archi or any ArchiMate file.
+- **Styling:** brand.yaml ROLES (colour.brand.fill/primary/ink, colour.status.info, the colour.data
+  Wong-8 categorical palette for distinguishing parallel chains) are resolved to literal D2
+  `style.*` values at generation time - the same resolution pattern `tokens/gen/mermaid_theme.py`
+  uses for Mermaid, adapted for D2's inline styling since D2 has no external theme-file injection
+  mechanism to target the way `mmdc --configFile` does. D2's built-in renderer only ships a small
+  fixed font set and rejects arbitrary family names outright, so `type.body_font` is deliberately NOT
+  applied - documented as an engine limitation, the same honesty `mermaid_theme.py` already applies
+  to its own theme-system gaps, rather than silently dropped.
+- **NFR6 element budget:** the model's semantic element count (every layer box, interface marker, and
+  per-chain layer box) is checked against `lint/element_budget.py`'s EXISTING tier budgets - the same
+  table the generic `.d2`/`.mmd`/`.svg` line-count linter already enforces - and fails closed with an
+  actionable "split this into multiple views" message before any D2 is generated.
+- **Deliberately out of scope:** the issue's own FR4-FR7 (an optional ArchiMate Exchange-XML adapter:
+  stdlib-only XML parsing, ArchiMate layer/element-type mapping, fail-closed on an unsupported
+  construct, content-sniff dispatch alongside the plain-YAML source) is tracked as its own follow-up
+  issue, not built here. The core archetype has zero ArchiMate awareness and no optional dependency of
+  any kind.
+
+**Text-delta normalization (issue #72).** `roundtrip/reingest.py`'s `## 4. Text delta` /
+`## 5. Fast-forward plan` compare canonical-markdown lines against DOCX paragraph text, so any
+pandoc source syntax that never renders as literal DOCX text must be stripped from the markdown
+side first, or its absence reads as a false reviewer deletion. Two tiers: a pre-split, whole-block
+regex pass in `md_plaintext()` (frontmatter, HTML comments, and raw-attribute OOXML blocks such as
+a manual page break's ` ```{=openxml} ... ``` `, which spans multiple lines and cannot be stripped
+per-line) and a per-line pass in `_norm()` (non-breaking spaces, list bullets, auto-numbered
+headings, fenced-div `::: {...}` / `:::` lines, the blockquote `> ` marker). `render reingest
+--strip-pattern <regex>` (repeatable) adds caller-supplied patterns at the same per-line tier, for
+a project's own structural-noise conventions renderfact has no reason to special-case itself.
+
+**Table-width apply path + page-break reporting (issue #73).** The `## 3. Table column widths`
+section detects reviewer-applied column widths from the edited DOCX's `w:tblGrid`/`w:tcW` (twips),
+but pipe-table markdown carries no width information pandoc will honor, so there is no markdown-side
+apply. `render reingest --apply-widths <out.yaml>` instead emits a sidecar in the exact shape
+`docstyle/style_postprocess.py`'s `_load_table_widths()` already parses: a top-level `tables:` list of
+per-column-width lists in twips, matched to document tables by ordinal position on the next render
+(the same ordinal `apply_table_widths()` uses). Each entry carries a YAML comment keyed by header text
++ row count + column count (per the issue's own suggestion: two tables can share an identical header)
+for human/audit stability across re-ingestion runs; the comment is not part of the consumed shape, so
+the sidecar stays directly compatible with the flag `--table-widths` already wires into `render
+docstyle`, no new parallel format. Written unconditionally (not gated on FAST_FORWARD/DIVERGED like
+`--apply`): it captures the reviewer's current widths, a fact about the returned DOCX, not an edit to
+the canonical source.
+Page breaks (the pandoc `\newpage` token or a raw-openxml `<w:br w:type="page"/>`) get their own `## 3b`
+report section rather than folding into the generic manual-review list: `source_page_breaks()` scans
+the canonical markdown text directly for both marker forms (line numbers), and `docx_page_breaks()`
+walks the edited DOCX's body paragraphs directly for a literal `<w:br w:type="page"/>` (paragraph
+offsets), deliberately excluding Word's own `w:lastRenderedPageBreak` (a layout-cache marker Word
+regenerates on every open, not a deliberate edit). A page-break-only paragraph carries no visible text,
+so `walk_structure()`'s existing text filter (`if not txt: continue`) already keeps it out of the
+text-delta/manual-review path; the direct body walk is what makes it visible to a report at all.
+
 ## Pre-publish QA gate chain (B3)
 
 `gates/run_gates.py` (`render gate`) is the fail-closed sibling to the post-render `qa` gate below:
@@ -268,9 +394,17 @@ BEFORE any vision/LLM pass (hard numbers accompany every subjective review):
 - `leaks <full.txt>`: an audience-leak scan on rendered text for internal remnants that should never
   survive projection. Consumer-specific probes (codenames, internal paths) come from a `--probes`
   config merged over generic defaults.
-- `tables <render.docx>`: per-table column-geometry pressure (content share vs width share).
+- `tables <render.docx>`: per-table column-geometry ranking, content share vs width share. Reports
+  two complementary per-table signals: pressure (a column squeezed under its content, the
+  `squeezed-col`) and slack (a column over-allocated relative to its content, the `wasteful-col`,
+  the inverse ratio). Pressure only scores columns clearing a content-share floor, so a genuinely
+  tiny column (a row-number or ordinal column) never registers there; slack scores every column,
+  so an over-allocated tiny-content column still gets flagged.
 - `paras <render.docx>`: overweight-paragraph ranking (simplification candidates).
 - `figs <source.md>`: figure inventory plus a low-contrast pre-filter.
+- `purpose <source.md>`: prominent paragraphs/headings with no preceding `<!-- PURPOSE: ... -->`
+  comment (#77). Read from SOURCE, not a rendered artifact -- purpose comments never survive
+  rendering, by design. Report-only; never fails (see "Purpose annotations and dossier role" above).
 
 Report-only by default; `leaks --fail-on-hits` exits non-zero for CI gating.
 
@@ -358,7 +492,8 @@ projection/  the projection engine: profiled blocks -> one governed render per p
 docstyle/    generic DOCX house-style post-processor + field-based heading numbering
 api/         stdlib HTTP API (step contracts + projection over localhost) + thin reference UI
 container/   OCI image (Containerfile) + render wrapper + render-doc.sh + bundle-annex-linux.py + verify-pins.sh
-lint/        diagram render harness + pre-render linters + visual-QA metrics + the D8 step contract + render_qa
+lint/        diagram render harness + pre-render linters + visual-QA metrics + the D8 step contract +
+             render_qa + the diagram archetype family (layered_stack.py, issue #68)
 tokens/      brand.yaml token mechanism + per-engine generators (tokens/gen/)
 contracts/   the generic D8 I/O-contract validator + harness-mode installer + copy-paste fallback
 gates/       fail-closed QA gate chain (run_gates.py, B3) + content_scan.py, the generic

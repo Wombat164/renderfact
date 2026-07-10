@@ -363,8 +363,9 @@ def run_serve(args: list[str]) -> int:
 def run_qa(args: list[str]) -> int:
     """Dispatch to lint/render_qa.py, the deterministic post-render QA gate:
     leak scan on rendered text, table-geometry pressure, overweight paragraphs,
-    figure contrast pre-filter. Report-only by default; leaks --fail-on-hits
-    turns it into a CI gate."""
+    figure contrast pre-filter, purpose-comment coverage (#77). Report-only by
+    default; leaks --fail-on-hits turns it into a CI gate (purpose never
+    fails: it is advisory-only by design)."""
     sys.path.insert(0, str(LINT_DIR))
     import render_qa
 
