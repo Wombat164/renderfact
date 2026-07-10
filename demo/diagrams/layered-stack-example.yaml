@@ -1,0 +1,41 @@
+# Demo source for the layered-stack diagram archetype (issue #68, FR1-FR3).
+#
+# A fully generic scenario: two interchangeable vendor platform stacks
+# ("Vendor A" and "Vendor B") each realizing the SAME shared service
+# interface, so client applications above and the transport network below
+# never need to know which vendor is plugged in underneath. This is the
+# archetype's own worked example - deliberately abstract, not a description
+# of any real deployment. See demo/README.md for how to render it.
+archetype: layered-stack
+title: "Generic multivendor platform stack"
+view-tier: programme-planning
+stack:
+  - type: layer
+    id: client-apps
+    label: "Client Applications"
+
+  - type: interface
+    id: iface-service
+    label: "Service interface"
+
+  - type: chains
+    id: platform-tier
+    chains:
+      - id: vendor-a
+        label: "Vendor A"
+        layers:
+          - { id: platform-a, label: "Platform Service" }
+          - { id: runtime-a, label: "Runtime" }
+      - id: vendor-b
+        label: "Vendor B"
+        layers:
+          - { id: platform-b, label: "Platform Service" }
+          - { id: runtime-b, label: "Runtime" }
+
+  - type: interface
+    id: iface-infra
+    label: "Infrastructure interface"
+
+  - type: layer
+    id: transport
+    label: "Shared Transport Network"
