@@ -19,11 +19,14 @@ or stripped (external / publish).
 ## Gate artifacts before publishing
 
 ```bash
-render gate <files...> --stages vale,lychee,verapdf,uids
+render gate <files...> --stages vale,lychee,verapdf,uids,plainlang
 ```
 
 Fail-closed: any finding fails, and a requested stage whose tool is not installed fails with exit 2.
-Stages self-scope by file type.
+Stages self-scope by file type. Exception: `plainlang` (repeated-phrase-across-sections scan, issue
+#76) is report-only by default, since a hit is often legitimate repeated terminology rather than a
+defect; add `--plainlang-fail-on-hits` once you have tuned `--plainlang-min-words` /
+`--plainlang-min-count` for your corpus.
 
 ## Embed, inspect, or strip provenance
 

@@ -16,7 +16,7 @@ title: Reference
 | `render import-template <docx>` | Derive a brand skin from any branded DOCX. |
 | `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight). |
 | `render serve [--enable-ui]` | Localhost HTTP API + thin reference UI. |
-| `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids). |
+| `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids, plainlang). |
 | `render doctor [--json]` | Host tools vs `tools.lock`: report OK/DRIFT/MISSING; always exit 0. |
 | `render provenance embed\|extract\|strip\|adopt\|retarget` | D11 provenance operations on DOCX/XLSX/PPTX/VSDX. |
 | `render reingest <edited.docx> --source <md>` | Mechanical re-ingestion of an edited document. |

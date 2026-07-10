@@ -23,6 +23,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `provenance` | embed / extract / adopt / retarget hidden source provenance across DOCX/XLSX/PPTX | shipped |
 | `import-template` | derive a template profile (theme, fonts, geometry) from a branded DOCX, with an idempotency gate | shipped |
 | `qa` | deterministic post-render gate (leaks / tables / paras / figs) | shipped |
+| `gate` | fail-closed pre-publish QA gate chain (vale / lychee / verapdf / uids / plainlang) | shipped |
 | `serve` | localhost HTTP API plus opt-in thin reference UI | shipped |
 | `container` | raw passthrough to the OCI render wrapper | shipped |
 | `doctor` | native version-drift check against `tools.lock` | stub, not built |
@@ -182,7 +183,45 @@ would be silently stomped. So the editor and any save-path never refresh provena
 `render` or `retarget` stamps it. A `source_commit` field, stamped at render time only when the
 source sits in a clean git work tree, makes ancestor recovery a direct `git show`.
 
-## QA gates
+## Pre-publish QA gate chain (B3)
+
+`gates/run_gates.py` (`render gate`) is the fail-closed sibling to the post-render `qa` gate below:
+findings fail the run, AND a requested stage whose tool is not installed also fails the run (exit 2)
+-- a gate you cannot execute is not a gate you passed. Every stage is a deterministic CLI subprocess
+or dependency-free Python, no LLM anywhere. Default chain: `vale,lychee,verapdf,uids,plainlang`,
+each stage self-scoping by file type so one `render gate <dir>` run applies each stage to the files
+it understands.
+
+- `vale`: text hygiene on markdown sources (errata-ai/vale). The generic-core default
+  (`gates/vale/vale.ini`) ships only Vale's built-in checks (repetition blocks, spelling warns);
+  a consumer's writing doctrine is private-skin config (`--vale-config` / `RENDERFACT_VALE_CONFIG`).
+  The demo skin (`demo/skin/vale/vale.ini`) is the worked example: `GoldenRules` (the deterministic
+  slice of a house writing style), `AiTells` (vendored authorial-AI-tell detection: filler phrases,
+  hedging, formal register, and so on), and `PlainLanguage` (issue #76: reader-facing plain-language
+  quality, a distinct concern from AiTells -- sentence length and nominalisation density, both
+  warning-level advisory rather than blocking, since both are tunable heuristics rather than
+  clear-cut defects). `BeNl` (BE-NL lexical checks) is opt-in via a separate `vale.be-nl.ini`.
+- `lychee`: link integrity on markdown sources (lycheeverse/lychee), offline by default (relative
+  file links and anchors only, so the verdict is deterministic); `--online` opts into checking
+  external URLs.
+- `verapdf`: PDF/A and PDF/UA conformance on rendered PDFs (veraPDF, invoked as a CLI subprocess per
+  the dual GPL/MPL licence election). Validates against each PDF's declared standard by default;
+  `--pdf-flavour` forces one.
+- `uids`: duplicate `renderfact_uid` detection across a source tree. A file copy duplicates identity
+  (uuid4 generation cannot collide, but a fork or template carrying an existing uid claims the
+  original's lineage), which corrupts every provenance-anchored round-trip at organisational scale.
+  Dependency-free.
+- `plainlang`: repeated-phrase-across-sections scan (issue #76), a cheap n-gram/exact-match scan
+  over markdown sources (`docstyle/plain_language.py`) for the same multi-word phrase recurring
+  near-verbatim 3+ times in one document. The one PlainLanguage check that is NOT a Vale rule: Vale's
+  rule types all match a pattern fixed at authoring time, and this check needs the document's own
+  text as the source of the pattern to search for, which the DSL cannot express. UNLIKE every other
+  stage here, a finding does not fail the run by default (`--plainlang-fail-on-hits` opts in): a
+  repeated phrase is very often legitimate (a programme or component name used consistently), so
+  fail-closed-by-default would make it noise rather than signal, in the same
+  `render qa leaks --fail-on-hits` report-only shape used below.
+
+## Post-render QA gate
 
 `lint/render_qa.py` (`render qa`) is a deterministic, zero-LLM gate over rendered artifacts, run
 BEFORE any vision/LLM pass (hard numbers accompany every subjective review):
