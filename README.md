@@ -225,7 +225,7 @@ The **[documentation site](https://wombat164.github.io/renderfact/)** (built wit
 the command reference, and the architecture explanations.
 
 In-repo, start at **[docs/README.md](docs/README.md)**: the decision record ([`DECISIONS.md`](docs/DECISIONS.md),
-D1-D17), the forward roadmap with adopt/imitate/build tags ([`ROADMAP.md`](docs/ROADMAP.md)), and the
+D1-D22), the forward roadmap with adopt/imitate/build tags ([`ROADMAP.md`](docs/ROADMAP.md)), and the
 prior-art research passes.
 
 ## Contributing

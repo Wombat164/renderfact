@@ -90,7 +90,25 @@ vale,lychee,verapdf,uids,plainlang. plainlang is the one stage that does NOT fai
 programme/component name, so blocking-by-default would make it noise rather than signal, matching
 `render qa leaks --fail-on-hits`'s existing report-only precedent rather than this track's usual
 fail-closed default.
-- **B4 - Visual-QA for all families.** NEXT.
+**B3e - The gate-hook contract for render-doc.sh, deliberately opposite defaults (issue #71, D18)
+DONE:** `QC_SCRIPT` (pre-render, against the SOURCE markdown) stays advisory-only by default
+(`QC_BLOCKING=1` / `--qc-blocking` opts a consumer into fail-closed); a new `POSTRENDER_GATE_SCRIPT`
+(post-render, against the FINISHED `<docx>`, after style/numbering/provenance have all touched it)
+defaults to BLOCKING, because its purpose is "does the artifact contain content it must never
+contain", not a lint pass a human might skim past in scrollback (`POSTRENDER_GATE_ADVISORY=1` opts
+back into report-only). `gates/content_scan.py` is the generic reference implementation a consumer
+skin points either hook at: opens the DOCX with python-docx, regex-scans every paragraph and table
+cell (recursively into nested tables), exits 1 on any hit. Ships with NO default pattern (the
+regex is a required parameter via `--pattern`/`--pattern-file` or `RENDERFACT_GATE_PATTERN[_FILE]`
+for zero-arg hook invocation), keeping the public core domain-neutral.
+- **B4 - Visual-QA for all families.** NEXT. **Partial DONE (issue #90):** `render qa tables`
+  (post-render, not the B3 pre-publish chain) gained a complementary `slack`/`wasteful-col` signal
+  alongside the existing squeeze-`pressure`/`squeezed-col` one: the original scan only flagged
+  under-allocated columns and excluded any column below a content-share floor from scoring at all, so
+  an over-allocated column (a short ordinal/index column given generous width) never surfaced.
+  `slack = wshare / max(cshare, floor)`, the inverse ratio, scored for every column with no
+  eligibility cutoff, closes that blind spot without reintroducing false positives on genuinely
+  proportional small columns.
 
 ## Track C - Add
 
@@ -156,7 +174,17 @@ fail-closed default.
   probe-render style-diff idempotency gate, and per-named-style font derivation, issue #97: a
   template that uses distinct fonts on distinct paragraph styles gets a `styles:` block in the derived
   profile carrying only the genuine overrides, not just the single global `font` key a template with
-  one uniform font still gets). Remaining `[build]`: the PPTX and XLSX importers and
+  one uniform font still gets). **Custom-style font fidelity (issue #98, D21) DONE alongside #97:**
+  the house body font/size pass used to stamp itself onto every non-heading paragraph regardless of
+  style, including one carrying a genuinely custom style whose OWN `w:rPr` already defines a font/size
+  in `reference.docx`'s `styles.xml`: the paragraph got the right `w:pStyle` but a direct-formatting
+  run override shadowed the style's own definition. The default now respects a custom style's own
+  font/size (`is_custom_style_paragraph()`); the pre-#98 blanket override is an explicit opt-in
+  (`--override-custom-style-fonts` / `override_custom_style_fonts: true`) for a consumer who genuinely
+  wants one uniform house font regardless of custom styles. The two features compose: a per-style
+  `styles:` override (#97) still applies whenever a style IS styled (built-in categories, or a custom
+  style with the override flag forcing it); a respected custom style's own font (#98) wins outright
+  when it is not. Remaining `[build]`: the PPTX and XLSX importers and
   the content-skeleton axis: derive the
   skin config FROM an imported branded template so the FIRST render is idempotent with the template's
   look (a shared OOXML DrawingML theme extractor plus per-format derivation, a derived
@@ -322,6 +350,22 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   maps each reingest tuple (no `kind` field) to reword (descriptive) vs add/delete/replace/heading
   (intent-bearing) via reingest's now-exported sentinel constants; the confidence formula, gate,
   sink, and CLI are decision-capture's. Registered for harness exposure. 25 tests.
+- **G7 - Comprehension gate for text documents, the first D16 step with no accept path (#84).**
+  `[build]` **DONE:** `lint/comprehension_review_contract.py` + `render comprehension-review
+  <docx-or-md>`, the text-document peer of the diagram vision-review gate (G1): chunks the document
+  into reader-sized snippets at section (and, when needed, paragraph) boundaries and has an
+  author-independent LLM read them in order via the same D8 contract machinery (harness / copy-paste
+  / the D17 direct-API channel), reporting per-snippet purpose/confusion/fluff/cuttable content plus a
+  whole-document synthesis. Report-only. `confidence()` returns a CONSTANT 0.0: comprehension has no
+  deterministic sufficiency proxy the way vision-review's geometry/contrast numbers or
+  decision-capture's change-kind taxonomy do, so the step always escalates unless an operator
+  explicitly sets `--threshold <= 0` (an honest "not reviewed" stub, never a fabricated verdict). This
+  was checked explicitly against the concrete plain-language signals that landed alongside it (issue
+  #76: sentence-length, nominalisation density, repeated-phrase detection) and found NOT to
+  substitute for a comprehension-confidence proxy either: a style finding is not a comprehension
+  finding. Recorded as D20: a legitimate D16 outcome (the gate's own vision-review worked example
+  already treats "no deterministic signal" as valid), not an exception to it, simply the first step
+  where that is the PERMANENT case rather than one branch of a heuristic. 26 tests.
 
 ---
 
