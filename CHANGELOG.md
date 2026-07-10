@@ -10,6 +10,14 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`render qa tables` slack signal** (issue #90): the column-geometry scan reported only a single
+  squeeze-pressure score per table (`squeezed-col`), and any column with 5% or less of a table's
+  content share was excluded from that scoring entirely, so a genuinely tiny but over-allocated
+  column (a row-number/ordinal column given generous width) never surfaced as a problem. `qa tables`
+  now also reports a complementary `slack` ratio and `wasteful-col` (the inverse relationship,
+  `wshare / max(cshare, floor)`, scored for every column with its own floor so proportionally-sized
+  small columns are not flagged), printed alongside the existing pressure line, and both signals now
+  drive which tables surface in the ranked top-N output.
 - **PlainLanguage Vale style + `plainlang` gate stage** (issue #76): `render gate --stages vale` now
   also carries a reader-facing plain-language/KISS check, distinct from the existing `AiTells`
   authorial-tell detection. `demo/skin/vale/styles/PlainLanguage/`: `SentenceLength` (tunable

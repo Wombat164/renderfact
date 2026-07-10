@@ -14,7 +14,10 @@ accompany every subjective review). Subcommands:
                                 internal note titles). Consumer-specific probes
                                 (codenames, internal paths) come from --probes.
   tables  <render.docx>         per-table column-geometry badness: content share
-                                vs width share per column, wrap-pressure ranking
+                                vs width share per column, wrap-pressure ranking,
+                                plus a "slack" signal for over-allocated columns
+                                (the inverse of pressure, catches a wide column
+                                with negligible content that pressure ignores)
   paras   <render.docx>         overweight-paragraph ranking (simplification
                                 candidates)
   figs    <source.md> [figsdir] figure inventory + low-contrast pre-filter
@@ -108,6 +111,44 @@ def _cell_texts(row_xml: str) -> list[str]:
     return ["".join(re.findall(r"<w:t[^>]*>(.*?)</w:t>", c, re.S)) for c in cells]
 
 
+# pressure eligibility: a column must clear this share of table content before
+# it is scored as squeezed at all (a genuinely tiny column should not register
+# as squeezed just because its width happens to be small too).
+PRESSURE_CSHARE_FLOOR = 0.05
+# pressure denominator floor: keeps the ratio bounded when a column's width
+# share is near zero.
+PRESSURE_WSHARE_FLOOR = 0.01
+# slack denominator floor: unlike PRESSURE_CSHARE_FLOOR this is not an
+# eligibility gate (every column is scored, including ones below the pressure
+# floor), it just caps how far a near-zero content share can drive the ratio
+# up, so a small column given a proportionally small width is not flagged.
+SLACK_CSHARE_FLOOR = 0.05
+
+
+def _pressure_ratio(wshare: float, cshare: float) -> float:
+    """Squeeze-pressure ratio: content share against a floored width share.
+
+    >1.0 means the column carries more content than its width would suggest
+    (squeezed); the caller only scores this once cshare clears
+    PRESSURE_CSHARE_FLOOR, so a trivially small column is never squeezed just
+    because its width is small too.
+    """
+    return cshare / max(wshare, PRESSURE_WSHARE_FLOOR)
+
+
+def _slack_ratio(wshare: float, cshare: float) -> float:
+    """Over-allocation ratio: width share against a floored content share.
+
+    The inverse relationship to _pressure_ratio. >1.0 means the column has
+    more width than its content share would suggest (wasteful). Every column
+    is scored, no eligibility cutoff: a genuinely small column given a
+    proportionally small width still lands at or below 1.0 thanks to the
+    shared SLACK_CSHARE_FLOOR, while one given a generous width for negligible
+    content spikes well above it.
+    """
+    return wshare / max(cshare, SLACK_CSHARE_FLOOR)
+
+
 def cmd_tables(docx_path: str, top: int = 15) -> int:
     xml = _docx_xml(docx_path)
     # walk body in order so each table gets its nearest preceding heading
@@ -141,25 +182,38 @@ def cmd_tables(docx_path: str, top: int = 15) -> int:
         total_c = sum(sumlen) or 1
         worst = 0.0
         worst_col = -1
+        worst_slack = 0.0
+        worst_slack_col = -1
         for ci in range(ncol):
             wshare = widths[ci] / total_w
             cshare = sumlen[ci] / total_c
-            if cshare > 0.05:  # ignore trivially small columns
-                pressure = cshare / max(wshare, 0.01)
+            if cshare > PRESSURE_CSHARE_FLOOR:  # ignore trivially small columns
+                pressure = _pressure_ratio(wshare, cshare)
                 if pressure > worst:
                     worst, worst_col = pressure, ci
+            # slack: the inverse ratio, scored for every column (no
+            # eligibility floor) so an over-allocated column with negligible
+            # content still gets flagged even though it never clears the
+            # pressure eligibility floor above.
+            slack = _slack_ratio(wshare, cshare)
+            if slack > worst_slack:
+                worst_slack, worst_slack_col = slack, ci
         # secondary signal: a very long single cell in a narrow column
         wrapscore = max(
             (maxlen[ci] / max(widths[ci] / 120.0, 1))  # rough chars per line
             for ci in range(ncol)
         )
-        results.append((worst, wrapscore, tbl_idx, ncol, len(rows), heading, worst_col, widths, maxlen))
-    results.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    print(f"== TABLES geometry: {tbl_idx} tables scanned; top {top} by content-vs-width pressure")
-    print("   pressure 1.0 = column width matches its content share; >1.8 = squeezed column\n")
-    for worst, wrap, i, ncol, nrows, hd, wc, widths, maxlen in results[:top]:
-        print(f"tbl#{i:02d} pressure={worst:4.1f} wrap~{wrap:5.0f} cols={ncol} rows={nrows}  under: {hd}")
-        print(f"        widths={widths}  maxcell={maxlen}  squeezed-col={wc}")
+        results.append((
+            max(worst, worst_slack), worst, worst_slack, wrapscore, tbl_idx,
+            ncol, len(rows), heading, worst_col, worst_slack_col, widths, maxlen,
+        ))
+    results.sort(key=lambda x: (x[0], x[3]), reverse=True)
+    print(f"== TABLES geometry: {tbl_idx} tables scanned; top {top} by content-vs-width pressure/slack")
+    print("   pressure 1.0 = column width matches its content share; >1.8 = squeezed column")
+    print("   slack    1.0 = column width matches its content share; >1.8 = over-allocated (wasteful) column\n")
+    for _, worst, worst_slack, wrap, i, ncol, nrows, hd, wc, wsc, widths, maxlen in results[:top]:
+        print(f"tbl#{i:02d} pressure={worst:4.1f} slack={worst_slack:4.1f} wrap~{wrap:5.0f} cols={ncol} rows={nrows}  under: {hd}")
+        print(f"        widths={widths}  maxcell={maxlen}  squeezed-col={wc}  wasteful-col={wsc}")
     return 0
 
 
