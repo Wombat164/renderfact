@@ -111,6 +111,34 @@ COVER = {
 # body and headers/footers. Disable with `normalize_punctuation: false`.
 NORMALIZE_PUNCTUATION = True
 
+# Template-fidelity gate for the body-styling pass (issue #98). The body branch of
+# main()'s per-paragraph loop used to call set_para_font() unconditionally on every
+# non-Title/Subtitle/Heading paragraph, including one carrying a genuinely custom
+# style (e.g. via a pandoc `::: {custom-style="X"} ... :::` fenced div) that already
+# defines its OWN font/size in reference.docx's styles.xml: the paragraph got the
+# right w:pStyle but a direct-formatting run override shadowed the style's own
+# rPr, so it rendered in the house body font instead of its own. Sane default:
+# respect a custom style's own font/size (skip the override for it), because
+# "apply style X" reasonably means "look like style X". Set true (CLI
+# --override-custom-style-fonts, or profile key override_custom_style_fonts) to
+# restore the old blanket-override behaviour for callers who genuinely want one
+# uniform house font everywhere regardless of custom styles. Built-in categories
+# (Title/Subtitle/Heading 1-4) are unaffected either way: they keep getting the
+# house style unconditionally, as before.
+OVERRIDE_CUSTOM_STYLE_FONTS = False
+
+# Style names treated as "not custom" for the template-fidelity gate above: the
+# categories already styled explicitly by the main() loop, plus the generic
+# default-body style names pandoc/python-docx/Word commonly use when a paragraph
+# carries no genuinely custom style. A style outside this set is a candidate for
+# "custom"; it only actually counts as custom once _style_defines_font() confirms
+# it explicitly sets its own w:rFonts/w:sz (see is_custom_style_paragraph).
+KNOWN_NON_CUSTOM_STYLE_NAMES = {
+    '', 'Normal', 'Default Paragraph Font', 'Body Text', 'Body Text 2', 'Body Text 3',
+    'No Spacing', 'List Paragraph', 'Compact', 'First Paragraph',
+    'Title', 'Subtitle', 'Heading 1', 'Heading 2', 'Heading 3', 'Heading 4',
+}
+
 
 def apply_template_profile(path):
     """Merge a template-profile yaml over the built-in defaults and re-derive the
@@ -122,10 +150,15 @@ def apply_template_profile(path):
                       strip_cover_banner_prefixes / strip_cover_banner_contains
       cover:          part_heading_prefix, version_label
       normalize_punctuation: bool (default true)
+      override_custom_style_fonts: bool (default false, see issue #98) -- when
+                      true, restores the pre-#98 blanket-override behaviour: the
+                      house body font/size is stamped onto every non-heading
+                      paragraph even one carrying a custom style with its own
+                      font. Default false respects a custom style's own font.
     Unknown keys are ignored. Call BEFORE styling. With no profile, the neutral
     built-in defaults apply."""
     global NAVY, GREY_BODY, GREY_TABLE, BODY_DARK, FONT_NAME, ZEBRA_FILL, HDR_FILL
-    global NORMALIZE_PUNCTUATION
+    global NORMALIZE_PUNCTUATION, OVERRIDE_CUSTOM_STYLE_FONTS
     import yaml
     with open(path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f) or {}
@@ -154,6 +187,8 @@ def apply_template_profile(path):
                 COVER[key] = cov[key]
     if 'normalize_punctuation' in data:
         NORMALIZE_PUNCTUATION = bool(data['normalize_punctuation'])
+    if 'override_custom_style_fonts' in data:
+        OVERRIDE_CUSTOM_STYLE_FONTS = bool(data['override_custom_style_fonts'])
 
 
 def set_para_spacing(para, line=None, space_after=None, space_before=None):
@@ -332,6 +367,36 @@ def set_para_font(para, size_pt, color, bold=None, alignment=None):
         set_run_style(run, size_pt, color, bold)
     if alignment is not None:
         para.alignment = alignment
+
+
+def _style_defines_font(style):
+    """True if THIS specific paragraph style (not a base/inherited style; python-docx
+    Font getters only read a style's own w:rPr, they do not walk basedOn) explicitly
+    sets its own run font (w:rFonts) and/or size (w:sz). Used to distinguish a
+    genuinely custom, template-fidelity style from one that merely inherits its look
+    from Normal (which resolves to no direct w:rPr entries of its own)."""
+    if style is None:
+        return False
+    style_el = getattr(style, 'element', None)
+    if style_el is None:
+        return False
+    rPr = style_el.find(qn('w:rPr'))
+    if rPr is None:
+        return False
+    return rPr.find(qn('w:rFonts')) is not None or rPr.find(qn('w:sz')) is not None
+
+
+def is_custom_style_paragraph(para):
+    """True if `para` carries a style outside the known built-in/default-body set
+    AND that style explicitly defines its own font/size (issue #98). Such a
+    paragraph is the template-fidelity case: the body-styling pass should leave its
+    runs alone so they fall through to pure style inheritance rather than being
+    stomped with the house body font/size."""
+    style = para.style
+    name = style.name if style and style.name else ''
+    if name in KNOWN_NON_CUSTOM_STYLE_NAMES:
+        return False
+    return _style_defines_font(style)
 
 
 def add_page_break_before(para):
@@ -771,20 +836,26 @@ def main(argv=None):
     if '-h' in args or '--help' in args:
         print("Usage: python style_postprocess.py <input.docx> [output.docx]\n"
               "    [--profile compact|reference] [--template-profile <yaml>]\n"
-              "    [--table-widths <yaml>] [--cover-version <v>] [--cover-date <d>]\n\n"
+              "    [--table-widths <yaml>] [--cover-version <v>] [--cover-date <d>]\n"
+              "    [--override-custom-style-fonts]\n\n"
               "Applies the house style (font, headings, tables, page geometry, header/\n"
               "footer handling, punctuation normalization) to a pandoc-rendered DOCX, in\n"
               "place unless [output.docx] is given.\n\n"
-              "  --profile compact|reference   style profile (default: compact)\n"
-              "  --template-profile <yaml>     override theme/marking/cover from a profile yaml\n"
-              "  --table-widths <yaml>         operator-fitted column widths (see apply_table_widths)\n"
-              "  --cover-version <v>           cover version-line value (reference profile)\n"
-              "  --cover-date <d>              cover date-line value (reference profile)")
+              "  --profile compact|reference     style profile (default: compact)\n"
+              "  --template-profile <yaml>       override theme/marking/cover from a profile yaml\n"
+              "  --table-widths <yaml>           operator-fitted column widths (see apply_table_widths)\n"
+              "  --cover-version <v>             cover version-line value (reference profile)\n"
+              "  --cover-date <d>                cover date-line value (reference profile)\n"
+              "  --override-custom-style-fonts   stamp the house body font/size onto every\n"
+              "                                   paragraph, even one carrying a custom style\n"
+              "                                   with its own font (pre-#98 behaviour; default\n"
+              "                                   is to respect a custom style's own font)")
         return 0
     table_widths_path = None
     profile_name = 'compact'
     cover_version = None
     cover_date = None
+    override_custom_style_fonts_flag = False
     positional = []
     i = 0
     while i < len(args):
@@ -798,8 +869,15 @@ def main(argv=None):
             cover_version = args[i + 1]; i += 2; continue
         if args[i] == '--cover-date':
             cover_date = args[i + 1]; i += 2; continue
+        if args[i] == '--override-custom-style-fonts':
+            override_custom_style_fonts_flag = True; i += 1; continue
         positional.append(args[i]); i += 1
     prof = PROFILES.get(profile_name, PROFILES['compact'])
+    if override_custom_style_fonts_flag:
+        # CLI flag wins over --template-profile's override_custom_style_fonts key,
+        # applied after the arg loop regardless of flag order in argv.
+        global OVERRIDE_CUSTOM_STYLE_FONTS
+        OVERRIDE_CUSTOM_STYLE_FONTS = True
 
     if len(positional) < 1:
         print("Usage: python style_postprocess.py <input.docx> [output.docx] "
@@ -876,7 +954,10 @@ def main(argv=None):
             set_para_font(p, prof['h4'], NAVY, bold=True)
 
         elif text and not style_name.startswith('Heading'):
-            set_para_font(p, prof['body'], prof['body_color'])
+            if OVERRIDE_CUSTOM_STYLE_FONTS or not is_custom_style_paragraph(p):
+                set_para_font(p, prof['body'], prof['body_color'])
+            # else: paragraph carries a custom style with its own font/size
+            # (issue #98) -- respect it, no run-level override injected.
             if prof['justify'] and len(text) > 80:
                 p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             elif not prof['justify']:

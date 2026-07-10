@@ -5,7 +5,7 @@ a governed markdown source, plus a skin-supplied signature block, becomes a
 directly-openable RFC822 email instead of a rendered document a person has to
 manually copy into a mail client and re-sign by hand.
 
-Scope decision (docs/DECISIONS.md D21): this backend emits `.eml` (RFC822,
+Scope decision (docs/DECISIONS.md D22): this backend emits `.eml` (RFC822,
 plain text, stdlib `email` module) rather than the binary Outlook `.msg`/MAPI
 format, and rather than driving a mail client's compose window through a
 platform-specific automation interface. `.eml` is openable/importable by

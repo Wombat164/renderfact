@@ -51,7 +51,7 @@ Usage:
     render eml <source.md> [-o out.eml] [--signature <yaml>] [--recipient R]
                                                [--subject S] [--sender F]  # #95 plain-text,
                                                # sendable RFC822 email output with a skin-supplied
-                                               # signature block (see DECISIONS.md D21)
+                                               # signature block (see DECISIONS.md D22)
 
 Modes not yet wired: deck (marp path), poster, tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).

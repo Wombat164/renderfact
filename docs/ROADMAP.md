@@ -423,7 +423,7 @@ Filed as issue #95: closing the gap where the actual deliverable is an email rat
 document. Core-vs-adapter split (the same pattern issue #68's diagram-archetype work used): the
 general core (`.eml`, plain text, stdlib-only) ships here; the narrower, heavier adapters (a binary
 `.msg`/MAPI writer, mail-client compose-window automation) are named follow-ups, not built. See
-`docs/DECISIONS.md` D21 for the full reasoning.
+`docs/DECISIONS.md` D22 for the full reasoning.
 
 - **J1 - `.eml` backend with a skin signature block (#95).** `[build]` **DONE:**
   `mail/eml_backend.py`, wired as `render eml <src> [-o out.eml] [--signature <yaml>] [--recipient R]
@@ -436,13 +436,13 @@ general core (`.eml`, plain text, stdlib-only) ships here; the narrower, heavier
   and a deterministic, non-host-leaking `Message-ID:` are stamped on every render. Pandoc discovery
   reuses `pdf/typst_backend.find_pandoc()` directly. 40 tests (unit + real end-to-end pandoc renders,
   parsed back with the stdlib `email` parser).
-- **J2 - `.msg` (MAPI) writer.** `[build]` NEXT, not started. Deliberately deferred (D21): `.msg` is a
+- **J2 - `.msg` (MAPI) writer.** `[build]` NEXT, not started. Deliberately deferred (D22): `.msg` is a
   binary Compound File Binary / MAPI property-stream format unrelated to the OOXML machinery
   `docstyle/style_postprocess.py` already has, and real-world producers lean on Windows COM automation
   or a native MAPI library, neither portable nor CI-testable the way this repo's other backends are.
   Worth doing only if a consumer's mail client genuinely cannot import `.eml` (rare in practice).
 - **J3 - Mail-client compose-window automation.** `[build]` NEXT, not started. Deliberately deferred
-  (D21): platform-specific (Outlook COM on Windows, AppleScript on macOS, no Linux equivalent),
+  (D22): platform-specific (Outlook COM on Windows, AppleScript on macOS, no Linux equivalent),
   untestable in a cross-platform CI matrix, and couples the toolchain to a running, licensed desktop
   application, a different kind of dependency than anything else here. `.eml` already solves
   delivery (one double-click/import away from a compose window in every mail client tested).

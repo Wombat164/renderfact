@@ -132,7 +132,7 @@ narrower adapter as an explicit, separately-tracked follow-up rather than build 
   `multipart/alternative` HTML signature, which remains real, useful, separately-tracked follow-up
   work (`docs/ROADMAP.md` Track J), not a natural extension of this change's scope.
 
-Full reasoning: `docs/DECISIONS.md` D21.
+Full reasoning: `docs/DECISIONS.md` D22.
 
 ## Round-trip and provenance
 

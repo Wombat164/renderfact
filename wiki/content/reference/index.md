@@ -11,7 +11,7 @@ title: Reference
 | `render docx <src> --profile <p>` | Project one source to a governed DOCX for one audience profile. |
 | `render docstyle <in.docx> [out.docx] [--table-widths <yaml>]` | Standalone house-style DOCX post-processor: font/heading/table styling, punctuation normalization, `--cover-version`/`--cover-date`, operator-fitted `--table-widths`. The same engine `render docx` calls internally, exposed directly. |
 | `render pdf <src> [--engine typst]` | Render a source to a layout-native branded A4 PDF via typst (a peer of the DOCX path, no LibreOffice). |
-| `render eml <src> [--signature <yaml>] [--recipient R] [--subject S] [--sender F]` | Render a source to a plain-text, sendable RFC822 `.eml`, with an optional skin-supplied signature block (freeform text lines, plus PNG images as inline MIME parts). Frontmatter `recipient:`/`to:` and `subject:`/`title:` map to `To:`/`Subject:`. A peer of the docx/pdf paths (issue #95, `docs/DECISIONS.md` D21). |
+| `render eml <src> [--signature <yaml>] [--recipient R] [--subject S] [--sender F]` | Render a source to a plain-text, sendable RFC822 `.eml`, with an optional skin-supplied signature block (freeform text lines, plus PNG images as inline MIME parts). Frontmatter `recipient:`/`to:` and `subject:`/`title:` map to `To:`/`Subject:`. A peer of the docx/pdf paths (issue #95, `docs/DECISIONS.md` D22). |
 | `render diagram ...` | Render a diagram from its source (mermaid, d2, svg, drawio; and the `layered-stack` archetype from a plain YAML source, content-sniffed). |
 | `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
 | `render tokens ...` | Compile brand tokens to per-engine themes. |
@@ -56,6 +56,7 @@ render docstyle draft.docx styled.docx --profile reference --table-widths widths
 | `--template-profile <yaml>` | Override the whole theme (palette/font/geometry/marking/cover) from a profile yaml. |
 | `--table-widths <yaml>` | Operator-fitted column widths (twips), matched to tables by ordinal, scaled proportionally to fill the actual section text width (`apply_table_widths()`). |
 | `--cover-version <v>` / `--cover-date <d>` | Cover version/date line overrides (`--profile reference`). |
+| `--override-custom-style-fonts` | Restore the pre-#98 blanket house font/size override even on paragraphs carrying a custom style with its own font (default: a custom style's own font/size wins). Same effect as the `override_custom_style_fonts: true` template-profile key. |
 
 ## Purpose annotations and dossier role (#77)
 
@@ -208,7 +209,7 @@ plain-text RFC822 `.eml`, with an optional skin-supplied signature block reused 
 skin produces (the email analogue of a letterhead). See
 [Explanation](../explanation/index.md#eml-vs-msg-a-core-vs-adapter-split) for why this is `.eml`
 rather than the binary Outlook `.msg`/MAPI format or mail-client compose-window automation
-(`docs/DECISIONS.md` D21), and the [how-to recipe](../how-to/index.md#render-a-governed-source-to-a-sendable-eml)
+(`docs/DECISIONS.md` D22), and the [how-to recipe](../how-to/index.md#render-a-governed-source-to-a-sendable-eml)
 for a worked example.
 
 ```bash

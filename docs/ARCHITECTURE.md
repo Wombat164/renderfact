@@ -168,6 +168,14 @@ document out of the box, and consumers override with `--template-profile`.
   punctuation normalization) is plain data in an optional profile YAML. The profile mechanism is
   purely additive: with no profile the neutral defaults apply and no marking edits are made. A profile
   can be hand-written, or (roadmap C7) derived from an imported corporate template.
+  - **Custom-style font fidelity (issue #98, D21).** The house body font/size pass respects a
+    paragraph's own custom style by default: a paragraph carrying a style outside the built-in/default
+    set (e.g. reached via a pandoc `::: {custom-style="X"} ... :::` fenced div) whose OWN `w:rPr`
+    already defines a font/size is left with no direct-formatting run override, so it falls through to
+    pure style inheritance instead of being stomped with the house look. Built-in categories
+    (Title/Subtitle/Heading 1-4) and the generic default-body case are unaffected. The pre-#98 blanket
+    override is available as an explicit opt-in: `--override-custom-style-fonts` (CLI) or
+    `override_custom_style_fonts: true` (template-profile.yaml).
 - **heading_numbering** injects field-based heading numbering AFTER pandoc, because pandoc regenerates
   the numbering part on every render and drops custom list definitions imported from a reference doc.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that
@@ -186,7 +194,7 @@ without going through the full DOCX pipeline.
 source becomes a directly-openable, plain-text RFC822 `.eml`, closing the gap where the actual
 deliverable is an email rather than a rendered document (previously bridged by hand: copy the
 rendered body into a mail client, re-add the signature, with no reconciliation path back to source
-the way DOCX has `reingest`). See `docs/DECISIONS.md` D21 for why this is `.eml` (RFC822) rather than
+the way DOCX has `reingest`). See `docs/DECISIONS.md` D22 for why this is `.eml` (RFC822) rather than
 the binary Outlook `.msg`/MAPI format or mail-client compose-window automation.
 
 - **Body.** The markdown body is translated with pandoc's plain-text writer, over the same shared
@@ -230,7 +238,7 @@ the binary Outlook `.msg`/MAPI format or mail-client compose-window automation.
 - **Out of scope, by design (this PR).** A binary `.msg`/MAPI writer, and driving a local mail
   client's compose window through a platform-specific automation interface: both are heavier,
   platform-specific follow-up work that would not add anything `.eml` does not already deliver for
-  the "sendable, reconcilable email" need (`docs/DECISIONS.md` D21 has the full reasoning).
+  the "sendable, reconcilable email" need (`docs/DECISIONS.md` D22 has the full reasoning).
 
 ## The D8 dual-mode step contract
 

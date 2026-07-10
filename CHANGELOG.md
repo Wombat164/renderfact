@@ -8,6 +8,20 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Custom-style paragraphs now keep their own font/size instead of the house-style default** (issue
+  #98, D21): `docstyle/style_postprocess.py`'s body-styling pass in `main()` called `set_para_font()`
+  unconditionally on every non-Title/Subtitle/Heading paragraph, including one carrying a custom Word
+  style (e.g. via a pandoc `::: {custom-style="X"} ... :::` fenced div) that already defines its own
+  font and size in `reference.docx`'s `styles.xml`. The paragraph got the right `w:pStyle` but a
+  direct-formatting run-level override shadowed the style's own definition. The default now respects a
+  custom style's own font/size (new `is_custom_style_paragraph()` gate); the old blanket-override
+  behaviour is available as an explicit opt-in via `--override-custom-style-fonts` (CLI, standalone
+  `render docstyle`) or `override_custom_style_fonts: true` (`--template-profile` yaml). Built-in
+  categories (Title/Subtitle/Heading 1-4) and the generic default-body case are unaffected: they still
+  get the house font/size unconditionally, as before.
+
 ### Added
 
 - **`render eml`: plain-text sendable email output with a skin signature block** (issue #95): closes
@@ -23,7 +37,7 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   `mail/eml_backend.py`, `mail/signature-example.yaml` (entirely fictional example data),
   `tests/test_eml_backend.py` (40 tests). A `.msg`/MAPI writer and mail-client compose-window
   automation are deliberately out of scope for this change (the issue's own two named alternatives to
-  `.eml`); see `docs/DECISIONS.md` D21 and `docs/ROADMAP.md` Track J for the reasoning and the named
+  `.eml`); see `docs/DECISIONS.md` D22 and `docs/ROADMAP.md` Track J for the reasoning and the named
   follow-ups.
 - **OOXML `raw_attribute` escape hatch** (issue #96): `pandoc_markdown.MARKDOWN_FROM`, the one shared
   pandoc `--from` spec every markdown-reading call site builds on (DOCX via `container/render-doc.sh`,
