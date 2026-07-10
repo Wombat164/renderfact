@@ -228,7 +228,7 @@ def walk_structure(body) -> list[tuple]:
 # a false-positive "reviewer edit" for every fenced-div/blockquote line.
 #   - fenced-div open/close lines (`::: {custom-style="Title"}` / bare `:::`):
 #     dropped whole (the whole line is markup, no comparable content survives).
-#   - blockquote marker (`> `): stripped, not dropped -- the quoted text itself
+#   - blockquote marker (`> `): stripped, not dropped: the quoted text itself
 #     is real content and already matches the docx side once dequoted.
 _FENCED_DIV_LINE = re.compile(r"^:::\s*(\{.*\})?\s*$")
 _BLOCKQUOTE_MARKER = re.compile(r"^>\s+")
@@ -239,7 +239,7 @@ _STRUCTURAL_STRIP_PATTERNS: tuple[re.Pattern, ...] = (_FENCED_DIV_LINE, _BLOCKQU
 # reviewer in Word. Unlike the line-level patterns above, the block spans
 # multiple lines (open fence, raw XML body, close fence), so it cannot be
 # stripped per-line: it is dropped whole, before line-splitting, in
-# md_plaintext() -- the same pre-split tier already used there for frontmatter
+# md_plaintext(), the same pre-split tier already used there for frontmatter
 # and HTML-comment stripping.
 _RAW_ATTR_BLOCK = re.compile(r"^```\{=[^}]*\}\n.*?\n```[ \t]*$\n?", re.DOTALL | re.MULTILINE)
 

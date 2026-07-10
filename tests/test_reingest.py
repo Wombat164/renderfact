@@ -321,7 +321,7 @@ def test_apply_preserves_leading_list_marker(tmp_path):
 
 def test_apply_preserves_leading_ordered_list_marker(tmp_path):
     """Regression guard (issue #72): ordered-list markers ('1.', '2.', ...) are
-    NOT stripped by _norm (unlike bullet markers) -- the fast-forward planner
+    NOT stripped by _norm (unlike bullet markers): the fast-forward planner
     already handles this correctly because _norm_source_line() and the diff's
     own normalization agree on keeping the digit marker, so the two sides still
     match uniquely; _LEADING_MARKER then strips it only for the write-back.
@@ -405,7 +405,7 @@ def test_reingest_report_has_no_structural_false_deletions(tmp_path):
 
 def test_genuine_edit_near_structural_noise_still_surfaces(tmp_path):
     """A real reviewer edit sitting right next to fenced-div/raw-attribute/
-    blockquote noise must still be caught, and caught ALONE -- no adjacent
+    blockquote noise must still be caught, and caught ALONE: no adjacent
     structural noise should also show up in the delta."""
     src = _make_structural_noise_source(tmp_path)
     art = _make_structural_noise_docx(tmp_path, src, "The plan starts in March.")
