@@ -494,3 +494,42 @@ deterministic proxy should follow this pattern rather than inventing a superfici
 D16's shape: state the absence explicitly, pin confidence at 0.0, and record the reasoning in a decision
 entry (this one). D16's "Scope" paragraph already anticipated this kind of retrofit; this is the first
 step in the repo where it applies to the step's ENTIRE lifetime, not a transitional phase.
+
+## D21 - Custom-style fonts win by default over the house-style body pass
+
+Issue #98: `docstyle/style_postprocess.py`'s per-paragraph body-styling loop in `main()` called
+`set_para_font()` unconditionally on every paragraph that was not Title/Subtitle/Heading 1-4, including
+one carrying a genuinely custom Word style (reached via a pandoc `::: {custom-style="X"} ... :::` fenced
+div) that already defines its OWN font and size in `reference.docx`'s `styles.xml`. The paragraph came
+out with the right `w:pStyle` (pandoc resolves the style name correctly) but a direct-formatting
+run-level `w:rFonts`/`w:sz` override, injected by the post-processor, shadowed the style's own
+definition: a Word-rendering fact (direct run formatting always outranks paragraph-style formatting),
+not a pandoc writer bug. Confirmed by reproduction: a fixture `reference.docx` with a `PullQuote` style
+set to Georgia 16pt in its own `w:rPr`, run through the real pandoc + style_postprocess pipeline,
+produced a `PullQuote`-styled paragraph whose runs carried Arial at the house body size instead.
+
+**The default changes: a custom style's own font/size now wins.** `is_custom_style_paragraph()` treats a
+paragraph as template-fidelity-worthy when its style name falls outside a known built-in/default-body
+set (Title, Subtitle, Heading 1-4, Normal, Body Text, and similar) AND that style's own `w:rPr` (not an
+inherited base style; python-docx's `Font` getters only read a style's own direct properties) explicitly
+sets `w:rFonts` and/or `w:sz`. For such a paragraph, the body-styling loop now skips `set_para_font()`
+entirely, leaving the run with no direct formatting so it falls through to pure Word style inheritance.
+Chosen as the default rather than an opt-in because "apply style X" reasonably means "look like style
+X": a caller who references a custom style by name is expressing a template-fidelity intent, and silently
+overriding it with the house look is the surprising behaviour, not the other way round. Built-in
+categories (Title/Subtitle/Heading 1-4) and the generic default-body case (Normal / no style) are
+UNCHANGED: they still get the house font/size unconditionally, matching renderfact's primary use case
+(an opinionated house typography over otherwise-plain source content).
+
+**The old blanket-override behaviour is kept as an explicit opt-in**, for callers who genuinely want one
+uniform house font everywhere regardless of any custom style a source paragraph names: a CLI flag
+(`--override-custom-style-fonts`, standalone `render docstyle` surface, same shape as `--table-widths` /
+`--cover-version`) and a `template-profile.yaml` key (`override_custom_style_fonts: true`, same shape as
+`normalize_punctuation`) both set the same module-level gate; the CLI flag wins when both are present.
+Scope note: this is narrower than the issue's own follow-up comment, which also flagged built-in styles
+(Title, numbered headings) as unconditionally overridden. That is true but out of scope here by design:
+overriding a BUILT-IN category is exactly the documented primary use case (a consistent house look over
+plain content), so changing that default would break the common case to fix an uncommon one. A future
+issue can add a broader `preserve_reference_styles` escape hatch (skip ALL font/size injection, not only
+for custom styles) if a template-fidelity use case needs the built-in categories left alone too; this
+decision deliberately does not reach for that yet.
