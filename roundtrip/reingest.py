@@ -213,9 +213,52 @@ def walk_structure(body) -> list[tuple]:
                 "rows": rows,
                 "cm": [round(c / TWIPS_PER_CM, 2) for c in cols],
                 "pct": [round(100 * c / tot) for c in cols],
+                "twips": cols,
                 "header": rows[0] if rows else [],
             }))
     return items
+
+
+# ---------------------------------------------------------------- page breaks --
+
+# A deliberate manual page break is <w:br w:type="page"/>: the same construct
+# the raw-openxml mechanism documented in md_plaintext() emits. Word's own
+# w:lastRenderedPageBreak is a layout-cache marker Word regenerates on every
+# open (not a deliberate edit) and is never counted here.
+_MD_NEWPAGE_LINE = re.compile(r"^\\newpage\s*$")
+_PAGE_BREAK_XML = re.compile(r'<w:br\b[^>]*\bw:type="page"[^>]*/?>')
+
+
+def source_page_breaks(md_text: str) -> list[int]:
+    """1-based line numbers in the canonical markdown carrying a deliberate page
+    break marker: the pandoc `\\newpage` token, or a raw-openxml block carrying
+    a literal <w:br w:type="page"/>. Both are dropped whole from the text-diff
+    (issue #72's structural-noise stripping), so this is a separate, deliberate
+    scan of the source text, not a byproduct of that path (issue #73)."""
+    offsets = []
+    for i, ln in enumerate(md_text.split("\n"), start=1):
+        s = ln.strip()
+        if _MD_NEWPAGE_LINE.match(s) or _PAGE_BREAK_XML.search(s):
+            offsets.append(i)
+    return offsets
+
+
+def docx_page_breaks(body) -> list[int]:
+    """0-based offsets (among the body's direct paragraph children) where a
+    manual <w:br w:type="page"/> occurs in the edited DOCX. Walks the body
+    directly rather than the text-filtered items list from walk_structure():
+    a page-break-only paragraph carries no visible text and is dropped by that
+    filter (`if not txt: continue`), so today such a break is simply invisible
+    to the report, neither surfaced nor reported as noise (issue #73)."""
+    offsets = []
+    for idx, el in enumerate(list(body)):
+        if el.tag.split("}")[-1] != "p":
+            continue
+        for br in el.iter(f"{W}br"):
+            if br.get(f"{W}type") == "page":
+                offsets.append(idx)
+                break
+    return offsets
 
 
 # ------------------------------------------------------------- normalization --
@@ -421,11 +464,60 @@ def apply_fast_forward(source_path: Path, safe_edits: list) -> int:
     return len(safe_edits)
 
 
+# ---------------------------------------------------------- table-width spec --
+
+def build_table_width_entries(tables: list[dict]) -> list[dict]:
+    """Build the width-spec entries from the ## 3 table-column-widths detection,
+    in document order (the same order apply_table_widths() itself matches by
+    ordinal, see docstyle/style_postprocess.py). Each entry is keyed, for
+    human/audit stability across re-ingestion runs, by header text + column
+    count + row count (issue #73's own suggestion: two tables can share an
+    identical header, so column and row count disambiguate them)."""
+    entries = []
+    for t in tables:
+        entries.append({
+            "header": t["header"],
+            "rows": len(t["rows"]),
+            "cols": len(t["twips"]),
+            "widths": t["twips"],
+        })
+    return entries
+
+
+def render_width_spec_yaml(entries: list[dict]) -> str:
+    """Render the width-spec entries as the YAML shape
+    docstyle/style_postprocess.py's `_load_table_widths()` / `apply_table_widths()`
+    already expect: a top-level `tables:` list of column-width lists in twips,
+    matched to document tables by ordinal position on the next render. The
+    header/row/column identity that keys each entry for stability is not part
+    of the consumed shape (apply_table_widths() only reads twips by ordinal),
+    so it is carried as a per-entry YAML comment instead: informative for a
+    human/audit trail, invisible to the YAML parser, no new incompatible shape."""
+    lines = [
+        "# renderfact reingest --apply-widths sidecar (issue #73).",
+        "# Column widths in twips (1/1440 inch), captured from the reviewer-edited",
+        "# DOCX. Consumed directly by 'render docstyle --table-widths <this-file>'",
+        "# (docstyle/style_postprocess.py's apply_table_widths()), which matches",
+        "# tables by ordinal document position: entries below stay in document",
+        "# order so that ordinal match holds on the next render.",
+    ]
+    if not entries:
+        lines.append("tables: []")
+        return "\n".join(lines) + "\n"
+    lines.append("tables:")
+    for i, e in enumerate(entries, 1):
+        hdr = " | ".join(h[:18] for h in e["header"])
+        lines.append(f"  - {e['widths']}  # T{i} ({e['rows']} rows) [{hdr}]")
+    return "\n".join(lines) + "\n"
+
+
 # ------------------------------------------------------------------- report --
 
 def build_report(artifact: Path, prov, verdict: str, comments, ins, dele,
                  items, delta_lines: list[str], safe, manual, applied: int | None,
-                 embedded: list[dict] | None = None) -> str:
+                 embedded: list[dict] | None = None,
+                 src_breaks: list[int] | None = None, dx_breaks: list[int] | None = None,
+                 widths_path: Path | None = None) -> str:
     tables = [p for k, p in items if k == "table"]
     R = [f"# Re-ingestion extract: {artifact.name}\n"]
     R.append(f"## 0. Provenance verdict: {verdict}\n")
@@ -467,6 +559,26 @@ def build_report(artifact: Path, prov, verdict: str, comments, ins, dele,
         hdr = " | ".join(h[:18] for h in t["header"])
         R.append(f"- T{i} ({len(t['rows'])} rows) [{hdr}]")
         R.append(f"    widths %: {t['pct']}   cm: {t['cm']}")
+    if not tables:
+        R.append("- (none)")
+    if widths_path is not None:
+        R.append(f"- wrote width spec to {widths_path} "
+                 f"(apply via: render docstyle --table-widths {widths_path})")
+    R.append("")
+    src_breaks = src_breaks or []
+    dx_breaks = dx_breaks or []
+    R.append("## 3b. Page breaks (structural, not text noise)\n")
+    R.append(f"- source markdown: {len(src_breaks)} manual page break(s)" +
+             (f" at line(s) {src_breaks}" if src_breaks else ""))
+    R.append(f"- edited DOCX: {len(dx_breaks)} manual page break(s)" +
+             (f" at paragraph offset(s) {dx_breaks}" if dx_breaks else ""))
+    delta_count = len(dx_breaks) - len(src_breaks)
+    if delta_count > 0:
+        R.append(f"- delta: +{delta_count} (reviewer likely ADDED {delta_count} page break(s))")
+    elif delta_count < 0:
+        R.append(f"- delta: {delta_count} (reviewer likely REMOVED {-delta_count} page break(s))")
+    else:
+        R.append("- delta: 0 (same count; a moved break can still change the offsets above)")
     R.append("")
     R.append("## 4. Text delta vs canonical markdown\n")
     R.append("> `+` = in the edited DOCX (reviewer ADDED); `-` = only in the md "
@@ -506,6 +618,15 @@ def main(argv: list[str] | None = None) -> int:
                          "fenced-div/blockquote-marker/list-bullet stripping, for a project's own "
                          "structural-noise conventions (e.g. a custom heading-anchor sigil) that "
                          "renderfact itself has no reason to special-case (issue #72)")
+    ap.add_argument("--apply-widths", type=Path, default=None, metavar="OUT_YAML",
+                    help="write a table column-width sidecar (YAML) capturing the ## 3 detection's "
+                         "widths from the edited DOCX, keyed for stability by header text + column "
+                         "count + row count, in the exact shape 'render docstyle --table-widths' "
+                         "already consumes (docstyle/style_postprocess.py's apply_table_widths()). "
+                         "Does not modify the markdown source: pipe tables carry no width "
+                         "information pandoc will honor, so widths live in this sidecar instead "
+                         "(issue #73). Written regardless of the provenance verdict: it captures "
+                         "the reviewer's current widths, not a canonical-source edit")
     args = ap.parse_args(argv)
 
     try:
@@ -541,6 +662,10 @@ def main(argv: list[str] | None = None) -> int:
 
         safe, manual = plan_fast_forward(md_text, md_lines, dx_lines, dx_raw, extra_patterns)
 
+        tables = [p for k, p in items if k == "table"]
+        src_breaks = source_page_breaks(md_text)
+        dx_breaks = docx_page_breaks(body)
+
         applied = None
         if args.apply:
             if verdict != "FAST_FORWARD":
@@ -549,6 +674,11 @@ def main(argv: list[str] | None = None) -> int:
                     "(DIVERGED); three-way merge is not built yet (chunk 4.6)"
                 )
             applied = apply_fast_forward(args.source, safe)
+
+        width_entries = build_table_width_entries(tables)
+        if args.apply_widths:
+            args.apply_widths.write_text(render_width_spec_yaml(width_entries),
+                                         encoding="utf-8", newline="\n")
 
         if args.json:
             print(json.dumps({
@@ -562,11 +692,17 @@ def main(argv: list[str] | None = None) -> int:
                 "safe_edits": [{"line": i, "new": n, "old": o} for i, _m, n, o in safe],
                 "manual": [list(m) for m in manual],
                 "applied": applied,
+                "table_width_spec": width_entries,
+                "table_width_spec_path": str(args.apply_widths) if args.apply_widths else None,
+                "source_page_breaks": src_breaks,
+                "docx_page_breaks": dx_breaks,
             }, indent=2))
             return 0
 
         report = build_report(args.artifact, prov, verdict, comments, ins, dele,
-                              items, delta, safe, manual, applied, embedded=embedded)
+                              items, delta, safe, manual, applied, embedded=embedded,
+                              src_breaks=src_breaks, dx_breaks=dx_breaks,
+                              widths_path=args.apply_widths)
         if args.report:
             args.report.write_text(report, encoding="utf-8", newline="\n")
             print(f"wrote {args.report}")

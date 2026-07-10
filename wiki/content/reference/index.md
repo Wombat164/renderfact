@@ -20,7 +20,7 @@ title: Reference
 | `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids, plainlang). |
 | `render doctor [--json]` | Host tools vs `tools.lock`: report OK/DRIFT/MISSING; always exit 0. |
 | `render provenance embed\|extract\|strip\|adopt\|retarget` | D11 provenance operations on DOCX/XLSX/PPTX/VSDX. |
-| `render reingest <edited.docx> --source <md> [--strip-pattern <re>]` | Mechanical re-ingestion of an edited document; `--strip-pattern` (repeatable) strips extra project-specific structural-noise regexes from the text-diff. |
+| `render reingest <edited.docx> --source <md> [--strip-pattern <re>] [--apply-widths <yaml>]` | Mechanical re-ingestion of an edited document; `--strip-pattern` (repeatable) strips extra project-specific structural-noise regexes from the text-diff; `--apply-widths` emits a table column-width sidecar (consumed by `render docstyle --table-widths`) from the `## 3` detection, and page-break adds/removals get their own `## 3b` report section. |
 | `render drawio generate\|reingest` | Editable-diagram round-trip, draw.io adapter (C8.1). |
 | `render vsdx generate\|reingest` | Editable-diagram round-trip, Visio adapter (C8.2; needs `vsdx`). |
 | `render decision-capture --source <g> --reingest <j>` | Capture diagram-edit intent; deterministic first, LLM past the gate (C8.3). |

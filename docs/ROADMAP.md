@@ -182,6 +182,18 @@ canonical-markdown side before the diff, at the same normalization tier as the p
 list-bullet/auto-numbered-heading stripping (ordered-list markers were already handled correctly
 and are unaffected). `render reingest --strip-pattern <regex>` (repeatable) lets a project add its
 own structural-noise conventions without renderfact special-casing them.
+**Table-width apply path + page-break reporting (issue #73) DONE:** the `## 3. Table column widths`
+detection had no equivalent of the text delta's `--apply`, so `render reingest --apply-widths
+<out.yaml>` now emits a table column-width sidecar in the exact shape `docstyle/style_postprocess.py`'s
+`apply_table_widths()` / `--table-widths` already consume (ordinal-matched twips), keyed in a YAML
+comment by header text + row count + column count for stability across re-ingestion runs. It never
+touches the markdown source (pipe tables carry no width information pandoc will honor) and is written
+regardless of the FAST_FORWARD/DIVERGED verdict, since it captures a fact about the returned DOCX, not
+a source edit. Page-break adds/removals (the `\newpage` token or a raw-openxml `<w:br
+w:type="page"/>`) previously surfaced only as generic manual-review noise (or not at all, since a
+page-break-only paragraph carries no visible text); they now get a dedicated `## 3b. Page breaks`
+section with source-line and DOCX-paragraph offsets, excluding Word's own `w:lastRenderedPageBreak`
+layout-cache marker.
 Remaining in Track D: 4.2 split-plus-embed dual output, 4.5 LLM contextualize (rides D8), 4.6
 three-way merge, 4.7 git finalize.
 

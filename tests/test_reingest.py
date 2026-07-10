@@ -553,3 +553,255 @@ def test_legacy_payload_without_source_commit_extracts(tmp_path):
     prov = provenance.extract(art)
     assert prov.source_uid == "abc"
     assert prov.source_commit is None
+
+
+# ---- table-width sidecar (--apply-widths, issue #73) ----
+
+def _add_table(doc, header, rows, col_widths_twips):
+    from docx.oxml.ns import qn as _qn
+
+    table = doc.add_table(rows=1 + len(rows), cols=len(header))
+    for ci, h in enumerate(header):
+        table.rows[0].cells[ci].text = h
+    for ri, row in enumerate(rows, start=1):
+        for ci, cell in enumerate(row):
+            table.rows[ri].cells[ci].text = cell
+    grid = table._tbl.find(_qn("w:tblGrid"))
+    for gc, w in zip(grid.findall(_qn("w:gridCol")), col_widths_twips):
+        gc.set(_qn("w:w"), str(w))
+    return table
+
+
+def test_build_table_width_entries_keys_by_header_cols_rows():
+    tables = [
+        {"header": ["#", "Item"], "rows": [["#", "Item"], ["1", "Widget"]],
+         "twips": [227, 5443], "cm": [0.4, 9.6], "pct": [4, 96]},
+    ]
+    entries = reingest.build_table_width_entries(tables)
+    assert entries == [{"header": ["#", "Item"], "rows": 2, "cols": 2, "widths": [227, 5443]}]
+
+
+def test_render_width_spec_yaml_matches_load_table_widths_shape(tmp_path):
+    """The emitted sidecar must parse via _load_table_widths() into exactly the
+    'tables: [[...], ...]' shape apply_table_widths() consumes: same repo,
+    same function, not a parallel incompatible format."""
+    sys.path.insert(0, str(REPO_ROOT / "docstyle"))
+    import style_postprocess as sp
+
+    entries = [
+        {"header": ["#", "Item"], "rows": 9, "cols": 2, "widths": [227, 5443]},
+        {"header": ["A", "B", "C"], "rows": 4, "cols": 3, "widths": [1000, 1000, 1000]},
+    ]
+    text = reingest.render_width_spec_yaml(entries)
+    assert "T1 (9 rows) [# | Item]" in text
+    assert "T2 (4 rows) [A | B | C]" in text
+
+    out = tmp_path / "widths.yaml"
+    out.write_text(text, encoding="utf-8")
+    specs = sp._load_table_widths(str(out))
+    assert specs == [[227, 5443], [1000, 1000, 1000]]
+
+
+def test_render_width_spec_yaml_empty_tables():
+    text = reingest.render_width_spec_yaml([])
+    assert "tables: []" in text
+
+
+def test_apply_widths_end_to_end_round_trips_through_style_postprocess(tmp_path):
+    """Full proof, not just 'a YAML file was written': reingest --apply-widths
+    on a reviewer-widened table emits a sidecar that, fed to
+    'render docstyle --table-widths', actually reproduces the reviewer's
+    column-width ratio on a real render."""
+    sys.path.insert(0, str(REPO_ROOT / "docstyle"))
+    import style_postprocess as sp
+
+    src = tmp_path / "doc.md"
+    src.write_text(
+        "---\ntitle: T\n---\n\n# Overview\n\n| # | Item |\n|---|---|\n| 1 | Widget |\n",
+        encoding="utf-8",
+    )
+    doc = Document()
+    doc.add_heading("Overview", level=1)
+    # reviewer narrowed column 1, widened column 2 (9:1 ratio, mirrors the issue's
+    # own worked example: widths %: [4, 96])
+    _add_table(doc, ["#", "Item"], [["1", "Widget"]], [227, 5443])
+    art = tmp_path / "rendered.docx"
+    doc.save(str(art))
+    provenance.embed(art, provenance.build_provenance(src))
+
+    widths_out = tmp_path / "widths.yaml"
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src),
+         "--apply-widths", str(widths_out)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert widths_out.exists()
+    assert "wrote width spec to" in result.stdout
+    assert "render docstyle --table-widths" in result.stdout
+
+    # a NEW document, standing in for "the next render" of the same source
+    next_render = Document()
+    _add_table(next_render, ["#", "Item"], [["1", "Widget"]], [4500, 4500])  # default-ish 1:1
+    next_path = tmp_path / "next.docx"
+    next_render.save(str(next_path))
+    styled_out = tmp_path / "next-styled.docx"
+
+    rc = sp.main([str(next_path), str(styled_out), "--table-widths", str(widths_out)])
+    assert rc == 0
+
+    styled = Document(str(styled_out))
+    grid = styled.tables[0]._tbl.find(sp.qn("w:tblGrid"))
+    final_widths = [int(gc.get(sp.qn("w:w"))) for gc in grid.findall(sp.qn("w:gridCol"))]
+    text_w = sp._section_text_width_twips(styled)
+    assert sum(final_widths) == text_w  # scaled to fill the section, full-width intent preserved
+    # the reviewer's 227:5443 ratio (~24x) survives the scale-to-text-width step
+    assert final_widths[1] / final_widths[0] == pytest.approx(5443 / 227, rel=0.02)
+
+
+# ---- page-break report section (## 3b, issue #73) ----
+
+def _pagebreak_paragraph(doc):
+    from docx.oxml.ns import qn as _qn
+    from lxml import etree
+
+    p = doc.add_paragraph()
+    r = p.add_run()
+    br = etree.SubElement(r._r, _qn("w:br"))
+    br.set(_qn("w:type"), "page")
+    return p
+
+
+def test_source_page_breaks_finds_newpage_and_raw_openxml_lines():
+    md = (
+        "---\ntitle: T\n---\n\n# H\n\nBefore.\n\n\\newpage\n\nMiddle.\n\n"
+        '```{=openxml}\n<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n```\n\nAfter.\n'
+    )
+    offsets = reingest.source_page_breaks(md)
+    lines = md.split("\n")
+    assert [lines[i - 1].strip() for i in offsets] == [
+        "\\newpage",
+        '<w:p><w:r><w:br w:type="page"/></w:r></w:p>',
+    ]
+
+
+def test_docx_page_breaks_finds_offset_ignores_lastrenderedpagebreak():
+    from docx.oxml.ns import qn as _qn
+    from lxml import etree
+
+    doc = Document()
+    doc.add_paragraph("Kept text.")  # offset 0
+    _pagebreak_paragraph(doc)  # offset 1: real manual break
+    p2 = doc.add_paragraph("More text.")  # offset 2
+    # Word's own layout-cache marker: must NOT be counted as a deliberate break
+    r2 = p2.add_run()
+    etree.SubElement(r2._r, _qn("w:lastRenderedPageBreak"))
+
+    import io
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    z = zipfile.ZipFile(buf)
+    root = ET.fromstring(z.read("word/document.xml"))
+    body = root.find(f"{reingest.W}body")
+    offsets = reingest.docx_page_breaks(body)
+    assert offsets == [1]
+
+
+def test_pagebreak_added_appears_in_3b_and_not_in_generic_manual_list(tmp_path):
+    """A page break the reviewer added must show up distinctly in the new
+    docx_page_breaks/source_page_breaks JSON fields (the ## 3b section's data),
+    and must NOT also appear in the generic manual-review noise list: the
+    page-break-only paragraph carries no visible text, so it was never able to
+    reach the text-delta/manual path in the first place (see docx_page_breaks()
+    docstring); this test locks that behaviour."""
+    src = tmp_path / "doc.md"
+    src.write_text(
+        "---\ntitle: T\n---\n\n# H\n\nBefore.\n\nAfter.\n",
+        encoding="utf-8",
+    )
+    doc = Document()
+    doc.add_heading("H", level=1)
+    doc.add_paragraph("Before.")
+    doc.add_paragraph("After.")
+    art = tmp_path / "rendered.docx"
+    doc.save(str(art))
+    provenance.embed(art, provenance.build_provenance(src))
+
+    # reviewer inserts a manual page break between the two paragraphs
+    d = Document(str(art))
+    body = d.element.body
+    new_p = body.makeelement(f"{reingest.W}p", {})
+    body.insert(2, new_p)  # after "Before." (index 1, heading is 0)
+    from docx.oxml.ns import qn as _qn
+    from lxml import etree
+    r = etree.SubElement(new_p, f"{reingest.W}r")
+    br = etree.SubElement(r, f"{reingest.W}br")
+    br.set(f"{reingest.W}type", "page")
+    d.save(str(art))
+
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src), "--json"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["verdict"] == "FAST_FORWARD"
+    assert payload["source_page_breaks"] == []
+    assert len(payload["docx_page_breaks"]) == 1
+    # not folded into the generic noise list
+    assert payload["delta"] == []
+    assert payload["manual"] == []
+
+
+def test_pagebreak_removed_reports_source_count_higher(tmp_path):
+    """Source has a manual page break the edited DOCX no longer carries: the
+    ## 3b section must show source > docx (a removal), independent of the
+    generic text delta."""
+    src = tmp_path / "doc.md"
+    src.write_text(
+        "---\ntitle: T\n---\n\n# H\n\nBefore.\n\n" + "\\newpage" + "\n\nAfter.\n",
+        encoding="utf-8",
+    )
+    doc = Document()
+    doc.add_heading("H", level=1)
+    doc.add_paragraph("Before.")
+    doc.add_paragraph("After.")  # reviewer deleted the break paragraph entirely
+    art = tmp_path / "rendered.docx"
+    doc.save(str(art))
+    provenance.embed(art, provenance.build_provenance(src))
+
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src), "--json"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert len(payload["source_page_breaks"]) == 1
+    assert payload["docx_page_breaks"] == []
+
+
+def test_report_has_3b_section_with_counts_and_offsets(tmp_path):
+    src = tmp_path / "doc.md"
+    src.write_text(
+        "---\ntitle: T\n---\n\n# H\n\nBefore.\n\nAfter.\n",
+        encoding="utf-8",
+    )
+    doc = Document()
+    doc.add_heading("H", level=1)
+    doc.add_paragraph("Before.")
+    _pagebreak_paragraph(doc)
+    doc.add_paragraph("After.")
+    art = tmp_path / "rendered.docx"
+    doc.save(str(art))
+    provenance.embed(art, provenance.build_provenance(src))
+
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "## 3b. Page breaks" in result.stdout
+    assert "source markdown: 0 manual page break(s)" in result.stdout
+    assert "edited DOCX: 1 manual page break(s)" in result.stdout
+    assert "delta: +1" in result.stdout
