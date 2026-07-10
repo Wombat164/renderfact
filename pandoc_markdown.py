@@ -21,6 +21,20 @@ single source of truth every call site imports (Python) or shells out to
 (Bash), so the extension cannot drift out of one path while staying in
 another.
 
+`raw_attribute` (issue #96) is pinned here for the same reason as the
+`_PINNED_DEFAULTS` extensions below: it is the reader-side extension that
+turns a fenced code block tagged ` ```{=openxml} ` into a genuine `RawBlock`
+AST node instead of an inert, literal `Code` block. That RawBlock is filtered
+by the WRITER on the target format tag (a docx writer emits `openxml`-tagged
+raw content verbatim into the OOXML tree; any other writer, e.g. the typst
+writer on the PDF path, silently drops a RawBlock whose tag it does not
+recognise, the same filtering behaviour as `raw_html`/`raw_tex`), so pinning
+it in the one shared constant is safe for every call site, not just the DOCX
+one, and needs no path-specific carve-out. This is a manual, advanced escape
+hatch only: it does not add any native markdown syntax for the two gaps that
+motivated it (Word content controls / merged table cells), see #96's own
+follow-up issue for that.
+
 Usage:
     from pandoc_markdown import MARKDOWN_FROM, markdown_from
     subprocess.run([pandoc, "--from", MARKDOWN_FROM, ...])
@@ -42,8 +56,13 @@ WIKILINK_EXTENSION = "wikilinks_title_after_pipe"
 # already defaults them on (verified with `pandoc --list-extensions=markdown`),
 # so a call site's behaviour stays stable even if pandoc's own defaults change
 # upstream. wikilinks_title_after_pipe is the one extension that is NOT on by
-# default and is the reason this module exists.
-_PINNED_DEFAULTS = ("pipe_tables", "yaml_metadata_block", "grid_tables", "fenced_divs")
+# default and is the reason this module exists. raw_attribute (issue #96) is
+# also on by default in pandoc >=3, but is pinned for the same defensiveness:
+# without it, a ```{=openxml} fenced block reads as an inert Code block, not a
+# RawBlock, and the manual OOXML escape hatch it provides silently stops
+# existing if a future pandoc version, or an older one, ever defaults it off.
+_PINNED_DEFAULTS = ("pipe_tables", "yaml_metadata_block", "grid_tables", "fenced_divs",
+                     "raw_attribute")
 
 MARKDOWN_FROM_EXTENSIONS = ("markdown", WIKILINK_EXTENSION) + _PINNED_DEFAULTS
 
