@@ -39,6 +39,12 @@ Usage:
     render vsdx generate|reingest ...          # C8.2 editable-diagram round-trip, Visio adapter
     render decision-capture --source <g> --reingest <j>  # C8.3 capture edit intent (deterministic+gate)
     render contextualize --source <md> --reingest <j>    # 4.5 capture document-edit intent (deterministic+gate)
+    render docstyle <input.docx> [output.docx] [--profile compact|reference]
+                                               [--template-profile <yaml>] [--table-widths <yaml>]
+                                               [--cover-version <v>] [--cover-date <d>]
+                                               # standalone house-style DOCX post-processor CLI (issue
+                                               # #74): the same engine `render docx` already invokes
+                                               # internally, exposed as its own documented entry point
 
 Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
@@ -407,6 +413,22 @@ def run_vsdx(args: list[str]) -> int:
     return visio.main(args)
 
 
+def run_docstyle(args: list[str]) -> int:
+    """Dispatch to docstyle/style_postprocess.py's main(): the house-style DOCX
+    post-processor's own standalone CLI surface (--profile, --template-profile,
+    --table-widths, --cover-version, --cover-date). `render docx` (render-doc.sh)
+    invokes this same module directly as a subprocess for its own internal
+    house-style pass, unchanged by this; this subcommand only ADDS a documented,
+    directly reachable entry point for callers who want the post-processor's
+    capabilities (e.g. --table-widths, which render-doc.sh does not pass through
+    today) without going through the full docx pipeline (issue #74)."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from docstyle import style_postprocess
+
+    style_postprocess.main(args)
+    return 0
+
+
 def run_gate(args: list[str]) -> int:
     """Dispatch to gates/run_gates.py: the deterministic fail-closed QA gate
     chain (B3). Findings fail; a requested stage with no tool installed fails."""
@@ -418,6 +440,7 @@ def run_gate(args: list[str]) -> int:
 
 MODES = {
     "docx": run_docx,
+    "docstyle": run_docstyle,
     "pdf": run_pdf,
     "diagram": run_diagram,
     "tokens": run_tokens,
