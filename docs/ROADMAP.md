@@ -118,6 +118,20 @@ fail-closed default.
   a deterministic shape-classifier rule base plus concept-graph converters. Exposes engine gaps that
   feed B1: PlantUML / C4-PlantUML, the Typst packages (fletcher / cetz / cetz-plot), a charting
   engine, and the poster mode.
+- **C1a - Diagram archetype family.** `[build]` Purpose-built diagram generators (a plain
+  hand-authored renderfact YAML source -> D2, styled by resolving the brand-token system's roles at
+  generation time) for common architecture shapes, as opposed to ad-hoc hand-drawn diagrams. **DONE:**
+  `layered-stack` (issue #68, FR1-FR3) - an ordered technology stack with an explicit, visually
+  distinct interface boundary between adjacent layers, and N parallel realizing chains laid out side
+  by side under one shared interface (N=1 is the degenerate default). `lint/layered_stack.py`; wired
+  into `render diagram` via content-sniff dispatch on `.yaml`/`.yml` (no new subcommand); NFR6
+  element-budget discipline reuses `lint/element_budget.py`'s existing tier table. **NEXT:** the
+  optional ArchiMate Exchange-XML adapter for the same archetype (issue #68's own FR4-FR7: accept an
+  Open Group Exchange File as an alternate source via stdlib-only `xml.etree.ElementTree`, map
+  ArchiMate layer/element types onto the archetype's layer + boundary model, fail closed on an
+  unsupported construct) - deliberately out of scope for the core-archetype PR and filed as its own
+  follow-up issue, since the issue's own UX analysis splits it cleanly from the core (invisible when
+  unused, no new heavy dependency in the core install).
 - **C2 - Projection / clearance gate for decks and diagrams (today the projection engine gates the
   DOCX path).** **[imitate]** Asciidoctor's `ifdef` / `ifndef` / `ifeval` preprocessor-level
   exclusion as the SECURITY model (excluded content never enters the parsed tree); **[imitate]**
@@ -329,7 +343,7 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
   `::: {.statement data="finance.yaml"}` block source its rows from YAML or CSV and COMPUTE its
   subtotals (section sums), totals/balances (a safe `+ - * /` formula over subtotal ids, or the running
   sum of all items). A computed row may also STATE an amount; if it disagrees with the computed value to
-  the cent, the render FAILS with a reconciliation error -- removing the silent-transcription error
+  the cent, the render FAILS with a reconciliation error - removing the silent-transcription error
   class. `expand_markdown` turns the data-bound block into a plain #33 `::: statement` with computed,
   formatted amounts before pandoc, so the entire render path is reused; all computation lives in tested
   Python. 30 tests. (Amount formatting is data-stated here; H5 makes it a project `locale`.)
@@ -355,12 +369,12 @@ UI into an authoring surface. Filed as issues #42-#46.
   `application/pdf` or a first-page `image/png` preview, with the same options as `render pdf`
   (title/subtitle/org/date/variant/locale/paper/brand). The typst backend gained `fmt='png'` (first
   page via a zero-padded page template), `ppi`, and a `data_root` jail so statement `data=` paths stay
-  under the server root (source mode) or the render temp dir (inline mode) -- an untrusted document
+  under the server root (source mode) or the render temp dir (inline mode) - an untrusted document
   cannot read server files. Origin/Host guard + path jail + size cap apply. OpenAPI + `/docs` extended.
   12 tests (validation/guard always-on + tool-gated real renders incl. the sandbox-escape check).
 - **I2 - Studio UI live preview (#45).** `[build]` **DONE (core):** `api/ui.py` now leads with a render
-  studio -- markdown editor + debounced live PNG preview (`POST /render/pdf?format=png`, embedded
-  same-origin) + variant/locale controls + PDF download -- over the whole Track H pipeline. Still one
+  studio - markdown editor + debounced live PNG preview (`POST /render/pdf?format=png`, embedded
+  same-origin) + variant/locale controls + PDF download - over the whole Track H pipeline. Still one
   self-contained page, vanilla JS, no build. (Remaining #45/#46 polish: block-scaffold buttons, a live
   statement-reconciliation panel over a future `POST /statement/check`, a doctor status badge.)
 - **I2b - Render endpoint `POST /render/docx`.** `[build]` **DONE:** the DOCX peer of `/render/pdf`,
@@ -370,7 +384,7 @@ UI into an authoring surface. Filed as issues #42-#46.
   never mutates a server file (a test asserts the original is byte-identical); `RESOURCE_PATH` keeps
   relative images resolving. Studio gains a Download DOCX button. 9 tests.
 - **I3 - `POST /statement/check` (#43).** `[build]` **DONE:** reconcile a statement spec (a YAML/JSON
-  `data` string, a `spec` object, or a jailed `source` path) over HTTP with no render -- computed rows
+  `data` string, a `spec` object, or a jailed `source` path) over HTTP with no render - computed rows
   out, or a 400 with the reconciliation error. An optional `locale` supplies default formatting. Lets
   CI gate financial correctness without typst.
 - **I4 - Capability-discovery endpoints (#44).** `[build]` **DONE:** `GET /doctor` (tool availability +

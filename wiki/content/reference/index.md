@@ -11,7 +11,7 @@ title: Reference
 | `render docx <src> --profile <p>` | Project one source to a governed DOCX for one audience profile. |
 | `render docstyle <in.docx> [out.docx] [--table-widths <yaml>]` | Standalone house-style DOCX post-processor: font/heading/table styling, punctuation normalization, `--cover-version`/`--cover-date`, operator-fitted `--table-widths`. The same engine `render docx` calls internally, exposed directly. |
 | `render pdf <src> [--engine typst]` | Render a source to a layout-native branded A4 PDF via typst (a peer of the DOCX path, no LibreOffice). |
-| `render diagram ...` | Render a diagram from its source. |
+| `render diagram ...` | Render a diagram from its source (mermaid, d2, svg, drawio; and the `layered-stack` archetype from a plain YAML source, content-sniffed). |
 | `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
 | `render tokens ...` | Compile brand tokens to per-engine themes. |
 | `render import-template <docx>` | Derive a brand skin from any branded DOCX. |
