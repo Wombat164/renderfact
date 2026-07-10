@@ -18,6 +18,20 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   (the same either-one-is-enough interaction as `QC_BLOCKING` / `--qc-blocking`). Default stays on
   (today's behavior), so this is a pure opt-out. New:
   `tests/test_render_doc_toc_opt_out.py`.
+- **OOXML `raw_attribute` escape hatch** (issue #96): `pandoc_markdown.MARKDOWN_FROM`, the one shared
+  pandoc `--from` spec every markdown-reading call site builds on (DOCX via `container/render-doc.sh`,
+  PDF via `pdf/typst_backend.py`), now pins the `raw_attribute` extension. A hand-authored
+  ` ```{=openxml} ` fenced code block is read as a genuine `RawBlock` AST node instead of an inert,
+  literal code block, so it now reaches the DOCX writer and lands in `word/document.xml` as raw OOXML
+  verbatim: verified end-to-end through a real `render docx` run, plus a negative control with the
+  extension explicitly disabled proving the fenced block really was inert before this change. On the
+  PDF/typst path the same block is present in the AST but silently dropped by the typst writer (it
+  does not recognise the `openxml` format tag), so the shared constant is safe for every call site
+  without a path-specific carve-out. This is a manual, advanced escape hatch only, honestly not a new
+  markdown feature: it does not add native syntax for Word content controls (checkbox/dropdown
+  `w:sdt`) or merged/spanned table cells (`gridSpan`), both of which have no markdown representation
+  today and remain a separate follow-up issue. New: `tests/test_raw_attribute_escape_hatch.py`, plus
+  a regression test in `tests/test_typst_backend.py` confirming the PDF path drops the block cleanly.
 - **`render qa tables` slack signal** (issue #90): the column-geometry scan reported only a single
   squeeze-pressure score per table (`squeezed-col`), and any column with 5% or less of a table's
   content share was excluded from that scoring entirely, so a genuinely tiny but over-allocated

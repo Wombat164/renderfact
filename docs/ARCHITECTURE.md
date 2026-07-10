@@ -77,6 +77,19 @@ single source of truth for `wikilinks_title_after_pipe`, the extension that make
 `[[target|Display Text]]` bracket links resolve to their display text: without it, pandoc's plain
 `markdown` reader treats the brackets as literal punctuation rather than a `Link` node (issue #69).
 
+The same shared string also pins `raw_attribute` (issue #96): the reader extension that turns a
+fenced code block tagged ` ```{=openxml} ` into a genuine `RawBlock` AST node instead of an inert,
+literal code block. This is a manual, advanced escape hatch, DONE and verified end-to-end into the
+DOCX pipeline (a hand-authored ` ```{=openxml} ` block containing raw OOXML now reaches
+`word/document.xml` verbatim), not a first-class markdown feature: authoring OOXML by hand is fragile
+and requires no validation from the toolchain. It exists specifically because two structural gaps have
+no markdown syntax at all today: Word content controls (`w:sdt` checkboxes/dropdowns) and
+merged/spanned table cells (`gridSpan`). Native, ergonomic markdown syntax for either is
+roadmap-only, tracked as a follow-up to #96, not part of this escape hatch. On the PDF/typst path the
+same RawBlock is present in the AST but is silently dropped by the typst writer (it does not recognise
+the `openxml` format tag), the same filtering pandoc already applies to an unrecognised `raw_html`
+block, so the shared constant needs no path-specific carve-out.
+
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.
 
