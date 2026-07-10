@@ -41,11 +41,13 @@ def step_contracts() -> list[tuple[str, object]]:
     import vision_review_contract  # lint/vision_review_contract.py
     import decision_capture  # roundtrip/decision_capture.py (C8.3)
     import contextualize  # roundtrip/contextualize.py (Track D 4.5)
+    import comprehension_review_contract  # lint/comprehension_review_contract.py (#84)
 
     return [
         ("vision-review", vision_review_contract),
         ("decision-capture", decision_capture),
         ("contextualize", contextualize),
+        ("comprehension-review", comprehension_review_contract),
     ]
 
 

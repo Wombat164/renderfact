@@ -25,6 +25,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `import-template` | derive a template profile (theme, fonts, geometry) from a branded DOCX, with an idempotency gate | shipped |
 | `qa` | deterministic post-render gate (leaks / tables / paras / figs) | shipped |
 | `gate` | fail-closed pre-publish QA gate chain (vale / lychee / verapdf / uids / plainlang) | shipped |
+| `comprehension-review` | fresh-reader comprehension gate for a rendered text document (D16-gated, always escalates); the text peer of the diagram vision-review gate (issue #84) | shipped |
 | `serve` | localhost HTTP API plus opt-in thin reference UI | shipped |
 | `container` | raw passthrough to the OCI render wrapper | shipped |
 | `doctor` | native version-drift check against `tools.lock` | stub, not built |
@@ -272,6 +273,38 @@ BEFORE any vision/LLM pass (hard numbers accompany every subjective review):
 - `figs <source.md>`: figure inventory plus a low-contrast pre-filter.
 
 Report-only by default; `leaks --fail-on-hits` exits non-zero for CI gating.
+
+## Comprehension gate: a fresh reader for text documents (issue #84)
+
+`lint/comprehension_review_contract.py` (`render comprehension-review`) is the TEXT-document peer of
+`lint/vision_review_contract.py`'s diagram vision-review gate. Where `render qa` above is deterministic
+and zero-LLM by design, and Vale/AiTells catch phrasing patterns, neither can answer "does a reader who
+has never seen this document understand what each section is for, and where does the flow break down."
+That is a comprehension question, downstream of style and structure, and needs an actual fresh read --
+the same author-independence principle the diagram gate already relies on for its own review to mean
+anything.
+
+- **Chunking.** The rendered document (`.md` or `.docx`, python-docx extracts the latter into the same
+  markdown-ish shape) is split into reader-sized snippets, first at ATX heading (leaf-section) boundaries
+  and only then, when a section runs long, at paragraph boundaries within it -- fence-aware, so a `#`
+  inside a code fence or a `:::` block is never mistaken for a boundary. A single paragraph over budget
+  stays whole rather than being cut mid-sentence; `render qa paras` already flags it deterministically.
+- **The D8 contract.** One INPUT_SCHEMA (task intent, doc title, the ordered chunk list) and one
+  OUTPUT_SCHEMA (a status, one finding per chunk -- purpose / confusing / fluff / cuttable -- plus a
+  whole-document synthesis: doc purpose, worst-flow snippet, what a length-budget cut removes first),
+  identical across harness, copy-paste, and the D17 direct-API channel, reusing
+  `contracts/schema_utils.py` / `contracts/copy_paste.py` / `contracts/init_ai.py` exactly as vision-review
+  does.
+- **The D16 gate, with no accept path.** Every other gated step (vision-review, decision-capture,
+  contextualize) has a deterministic proxy for "the model's judgment probably is not needed here."
+  Comprehension does not: document length, section count, and similar structural signals predict review
+  COST, not comprehension risk, in either direction. `confidence()` is therefore pinned at a CONSTANT
+  0.0 rather than dressing up a guess as a measurement -- this step always escalates unless an operator
+  explicitly sets `--threshold <= 0`, in which case an honest "not reviewed" stub is emitted
+  (`reviewer_mode: deterministic`, `status: WARN`), never a fabricated verdict. See `docs/DECISIONS.md`
+  D19 for the recorded decision and why this is a legitimate D16 outcome, not a departure from it.
+- **Report-only.** Findings are printed (or emitted as JSON); nothing is rewritten. The cut/rewrite
+  decision stays with a human, per the same propose-only contract every gated step in this repo follows.
 
 ## API security posture
 

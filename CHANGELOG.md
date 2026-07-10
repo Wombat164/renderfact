@@ -20,6 +20,14 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   rule (the DSL cannot search for a pattern it does not know in advance) and ships instead as
   `docstyle/plain_language.py`, wired into `render gate` as a new `plainlang` stage; unlike the
   other gate stages this one is report-only by default (`--plainlang-fail-on-hits` opts in).
+- **`render comprehension-review`** (issue #84): a fresh-reader comprehension gate for rendered text
+  documents (`.md` or `.docx`), the text peer of the diagram vision-review gate. Chunks the document
+  into reader-sized snippets at section (and, when needed, paragraph) boundaries and has an
+  author-independent LLM read them in order (harness / copy-paste / the D17 direct-API channel),
+  reporting per-snippet purpose/confusion/fluff/cuttable content plus a whole-document synthesis.
+  Report-only. The D16 gate is deliberately constant here: comprehension has no deterministic
+  sufficiency proxy the way vision-review or decision-capture do, so `confidence()` always returns 0.0
+  and the step always escalates unless `--threshold <= 0` -- see `docs/DECISIONS.md` D19.
 - **`render docstyle`** (issue #74): the house-style DOCX post-processor's standalone CLI surface
   (`--profile`, `--template-profile`, `--table-widths`, `--cover-version`, `--cover-date`) is now a
   documented top-level subcommand, in addition to being invoked internally by `render docx`. Fixes the

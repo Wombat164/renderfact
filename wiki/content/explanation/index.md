@@ -53,6 +53,12 @@ The confidence heuristic is per step and lives in code, not the model. Two worke
   cannot supply).
 - **vision-review** is **U-shaped**: a confident PASS and a confident BLOCK both stand on the metrics
   alone; the vision LLM is spent only on the uncertain WARN band, where the eye adds the most.
+- **comprehension-review** (issue #84) is the one step whose confidence is a CONSTANT 0.0: it always
+  escalates. Document length, section count, and similar structural signals predict review COST, not
+  comprehension risk, in either direction -- a single dense paragraph can bury its point as badly as a
+  long, well-structured document reads cleanly. There is no deterministic proxy for "a cold reader will
+  follow this" the way there is for diagram geometry or an edit's descriptive-vs-intent split, so the
+  gate says so rather than dressing up a guess as a measurement. See `docs/DECISIONS.md` D19.
 
 This is the FrugalGPT cascade / RouteLLM operating-point pattern, tuned per step, with an append-only
 log (`render gate-stats`) so thresholds become evidence-based rather than hand-set. Full plan:
