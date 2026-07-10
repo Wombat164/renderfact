@@ -350,8 +350,7 @@ backpressure) applies to it. Implementation is sequenced last in the fuzzy-gate 
 (docs/2026-07-04-fuzzy-gate-architecture-plan.md, item G5) because it is the largest surface and the
 only one that touches the D8 trust boundary.
 
-## D18 - The gate-hook contract: QC_SCRIPT stays advisory-by-default, the new POSTRENDER_GATE_SCRIPT
-defaults to blocking, and the generic regex-scan pattern ships as a real gates/ module
+## D18 - The gate-hook contract: QC_SCRIPT advisory-by-default, POSTRENDER_GATE_SCRIPT blocking-by-default, generic regex-scan as a real gates/ module
 
 Issue #71: a consumer with a hard content-safety requirement (its own example: a render must never
 carry a currency figure once it is bound for an external vendor, because disclosing an internal

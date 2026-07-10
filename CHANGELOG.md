@@ -10,6 +10,11 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`render docstyle`** (issue #74): the house-style DOCX post-processor's standalone CLI surface
+  (`--profile`, `--template-profile`, `--table-widths`, `--cover-version`, `--cover-date`) is now a
+  documented top-level subcommand, in addition to being invoked internally by `render docx`. Fixes the
+  discoverability gap where `apply_table_widths()` and its sibling flags were only findable by reading
+  `docstyle/style_postprocess.py` source end to end.
 - **Blocking QC hook** (issue #71): `render-doc.sh`'s pre-render `QC_SCRIPT` hook (`--qc`) stays
   advisory-only by default; `QC_BLOCKING=1` or `--qc-blocking` now makes a non-zero `QC_SCRIPT` exit
   stop the render instead of just printing a warning.
