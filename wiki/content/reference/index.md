@@ -55,6 +55,7 @@ render docstyle draft.docx styled.docx --profile reference --table-widths widths
 | `--template-profile <yaml>` | Override the whole theme (palette/font/geometry/marking/cover) from a profile yaml. |
 | `--table-widths <yaml>` | Operator-fitted column widths (twips), matched to tables by ordinal, scaled proportionally to fill the actual section text width (`apply_table_widths()`). |
 | `--cover-version <v>` / `--cover-date <d>` | Cover version/date line overrides (`--profile reference`). |
+| `--override-custom-style-fonts` | Restore the pre-#98 blanket house font/size override even on paragraphs carrying a custom style with its own font (default: a custom style's own font/size wins). Same effect as the `override_custom_style_fonts: true` template-profile key. |
 
 ## Purpose annotations and dossier role (#77)
 
