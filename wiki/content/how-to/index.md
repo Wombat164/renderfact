@@ -16,6 +16,48 @@ render docx <source.md> --profile <profile>
 The profile decides the disclosure rules, the brand skin, and whether provenance is embedded (internal)
 or stripped (external / publish).
 
+## Escape into raw OOXML for anything markdown can't express
+
+```markdown
+Some ordinary paragraph.
+
+```{=openxml}
+<w:p/>
+```
+
+More ordinary paragraph.
+```
+
+`raw_attribute` (issue #96) lets a fenced code block tagged `{=openxml}` pass through verbatim into
+the docx writer as raw OOXML, instead of being read as an inert, literal code block. This is a manual,
+advanced escape hatch, not new markdown syntax -- reach for it only when nothing else in this guide
+covers your case (a genuinely empty spacer paragraph, a one-off structure no fenced div expresses). It
+does **not** give you native syntax for Word content controls (checkboxes/dropdowns) or merged/spanned
+table cells; both remain open gaps (see the tracking issues) because a hand-authored raw block for
+either is fragile enough that it needs its own worked recipe, not a one-liner. Malformed XML here fails
+at the pandoc step with a clear error, not a silent corrupt docx.
+
+## Insert a genuinely empty paragraph (spacer)
+
+```markdown
+Title text.
+
+```{=openxml}
+<w:p/>
+```
+
+## First heading
+```
+
+Plain markdown has no way to author a genuinely empty paragraph: consecutive blank lines are pure
+block separators (they produce zero extra paragraphs, not spacers), and common workarounds like a
+lone `&nbsp;` or a trailing `\` both leave a residual character behind rather than a true empty `<w:p>`
+-- usually invisible on screen, but a real mismatch if you're reproducing an existing document's exact
+layout (e.g. matching a corporate template's own spacer paragraphs paragraph-for-paragraph). The raw
+OOXML block above is the tested, working pattern (see `tests/test_raw_attribute_escape_hatch.py` and
+`tests/test_empty_paragraph_recipe.py`) -- reach for it specifically when paragraph-count fidelity to
+a reference document matters, not as a general substitute for markdown's own blank-line spacing.
+
 ## Render a governed source to a sendable .eml
 
 ```bash
