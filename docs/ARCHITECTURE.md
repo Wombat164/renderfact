@@ -77,6 +77,19 @@ single source of truth for `wikilinks_title_after_pipe`, the extension that make
 `[[target|Display Text]]` bracket links resolve to their display text: without it, pandoc's plain
 `markdown` reader treats the brackets as literal punctuation rather than a `Link` node (issue #69).
 
+The same shared string also pins `raw_attribute` (issue #96): the reader extension that turns a
+fenced code block tagged ` ```{=openxml} ` into a genuine `RawBlock` AST node instead of an inert,
+literal code block. This is a manual, advanced escape hatch, DONE and verified end-to-end into the
+DOCX pipeline (a hand-authored ` ```{=openxml} ` block containing raw OOXML now reaches
+`word/document.xml` verbatim), not a first-class markdown feature: authoring OOXML by hand is fragile
+and requires no validation from the toolchain. It exists specifically because two structural gaps have
+no markdown syntax at all today: Word content controls (`w:sdt` checkboxes/dropdowns) and
+merged/spanned table cells (`gridSpan`). Native, ergonomic markdown syntax for either is
+roadmap-only, tracked as a follow-up to #96, not part of this escape hatch. On the PDF/typst path the
+same RawBlock is present in the AST but is silently dropped by the typst writer (it does not recognise
+the `openxml` format tag), the same filtering pandoc already applies to an unrecognised `raw_html`
+block, so the shared constant needs no path-specific carve-out.
+
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.
 
@@ -166,6 +179,18 @@ document out of the box, and consumers override with `--template-profile`.
   left out, keeping the derived profile minimal rather than padding it with redundant per-style
   entries. When no style differs, the generated profile carries a one-line note instead of an empty
   block, the same honesty-over-guessing posture the theme keys already follow.
+- **Custom-style font fidelity (issue #98, D21).** The house body font/size pass respects a
+  paragraph's own custom style by default: a paragraph carrying a style outside the built-in/default
+  set (e.g. reached via a pandoc `::: {custom-style="X"} ... :::` fenced div) whose OWN `w:rPr`
+  already defines a font/size is left with no direct-formatting run override, so it falls through to
+  pure style inheritance instead of being stomped with the house look. Built-in categories
+  (Title/Subtitle/Heading 1-4) and the generic default-body case are unaffected. The pre-#98 blanket
+  override is available as an explicit opt-in: `--override-custom-style-fonts` (CLI) or
+  `override_custom_style_fonts: true` (template-profile.yaml). Note (#97+#98 interaction): when a
+  custom style is respected (this bullet), its own font wins outright; when it is NOT respected (the
+  paragraph is in the known-non-custom set, or `--override-custom-style-fonts` forces it), the
+  per-style `styles:` override above still applies to it if one is configured for that style name,
+  falling back to the global `font` otherwise.
 - **heading_numbering** injects field-based heading numbering AFTER pandoc, because pandoc regenerates
   the numbering part on every render and drops custom list definitions imported from a reference doc.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that

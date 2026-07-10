@@ -378,6 +378,138 @@ def test_cover_version_and_date_render_the_cover_line(tmp_path):
     assert any("1.2" in t and "2026-07-10" in t for t in texts)
 
 
+# ---------- (j) custom-style font/size fidelity (issue #98) ----------
+
+def _add_custom_style(doc, name="PullQuote", font_name="Georgia", size_pt=16):
+    """A genuinely custom paragraph style whose OWN w:rPr explicitly sets a
+    distinct font + size, mirroring a style pandoc would resolve from a
+    --reference-doc's styles.xml when a source uses
+    `::: {custom-style="PullQuote"} ... :::`."""
+    from docx.enum.style import WD_STYLE_TYPE
+    from docx.shared import Pt as _Pt
+
+    style = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    style.base_style = doc.styles["Normal"]
+    style.font.name = font_name
+    style.font.size = _Pt(size_pt)
+    return style
+
+
+def test_custom_style_paragraph_keeps_its_own_font_by_default(tmp_path, monkeypatch):
+    # Root-cause reproduction for issue #98: a paragraph carrying a custom style
+    # with its own explicit font/size definition must NOT get a run-level house
+    # font/size override stamped onto it by default -- it should fall through to
+    # pure style inheritance (no direct rFonts/sz on the run at all).
+    doc = Document()
+    _add_custom_style(doc)
+    doc.add_heading("First Section", level=1)
+    quote = doc.add_paragraph("A quote that should keep the PullQuote style's own font.")
+    quote.style = doc.styles["PullQuote"]
+    doc.add_paragraph("A plain body paragraph with no custom style at all.")
+    src = tmp_path / "custom-style-in.docx"
+    doc.save(str(src))
+    out = tmp_path / "custom-style-out.docx"
+
+    _run_style(monkeypatch, [str(src), str(out)])
+
+    styled = Document(str(out))
+    quote_p = next(p for p in styled.paragraphs if p.style.name == "PullQuote")
+    for r in quote_p.runs:
+        assert r.font.name is None          # no direct-formatting override injected
+        assert r.font.size is None
+
+    # Regression: a plain (non-custom-style) body paragraph is untouched by the fix
+    # and still gets the house body font/size stamped on, exactly as before.
+    body_p = next(p for p in styled.paragraphs
+                  if p.text and p.style.name not in ("Heading 1", "PullQuote"))
+    assert body_p.runs[0].font.name == "Arial"
+    assert body_p.runs[0].font.size.pt == sp.PROFILES["compact"]["body"]
+
+
+def test_override_custom_style_fonts_flag_restores_blanket_override(tmp_path, monkeypatch):
+    # The explicit opt-in (--override-custom-style-fonts) restores the pre-#98
+    # behaviour for callers who genuinely want one uniform house font everywhere.
+    doc = Document()
+    _add_custom_style(doc)
+    quote = doc.add_paragraph("A quote paragraph.")
+    quote.style = doc.styles["PullQuote"]
+    src = tmp_path / "override-in.docx"
+    doc.save(str(src))
+    out = tmp_path / "override-out.docx"
+
+    _run_style(monkeypatch, [str(src), str(out), "--override-custom-style-fonts"])
+
+    styled = Document(str(out))
+    quote_p = next(p for p in styled.paragraphs if p.style.name == "PullQuote")
+    assert quote_p.runs[0].font.name == "Arial"
+    assert quote_p.runs[0].font.size.pt == sp.PROFILES["compact"]["body"]
+
+
+def test_override_custom_style_fonts_profile_key(tmp_path, monkeypatch):
+    # Same opt-in, reachable via a template-profile.yaml key instead of the CLI flag.
+    doc = Document()
+    _add_custom_style(doc)
+    quote = doc.add_paragraph("A quote paragraph.")
+    quote.style = doc.styles["PullQuote"]
+    src = tmp_path / "override-profile-in.docx"
+    doc.save(str(src))
+    profile = tmp_path / "override.yaml"
+    profile.write_text("override_custom_style_fonts: true\n", encoding="utf-8")
+    out = tmp_path / "override-profile-out.docx"
+
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile)])
+
+    styled = Document(str(out))
+    quote_p = next(p for p in styled.paragraphs if p.style.name == "PullQuote")
+    assert quote_p.runs[0].font.name == "Arial"
+
+
+def test_style_without_its_own_font_definition_still_gets_house_font(tmp_path, monkeypatch):
+    # A style OUTSIDE the known built-in/default-body set that does NOT itself
+    # define a font (pure inheritance from Normal, no explicit rPr) is not
+    # "custom" for the purposes of this gate: it still gets the house body
+    # font/size, same as before. Guards against over-broadly treating any
+    # unrecognised style name as template-fidelity-worthy.
+    from docx.enum.style import WD_STYLE_TYPE
+
+    doc = Document()
+    bare = doc.styles.add_style("BareCustom", WD_STYLE_TYPE.PARAGRAPH)
+    bare.base_style = doc.styles["Normal"]
+    # No explicit font/size set on `bare`: its own w:rPr stays empty/absent.
+    p = doc.add_paragraph("Text in a bare custom style with no font of its own.")
+    p.style = bare
+    src = tmp_path / "bare-in.docx"
+    doc.save(str(src))
+    out = tmp_path / "bare-out.docx"
+
+    _run_style(monkeypatch, [str(src), str(out)])
+
+    styled = Document(str(out))
+    bare_p = next(p for p in styled.paragraphs if p.style.name == "BareCustom")
+    assert bare_p.runs[0].font.name == "Arial"
+    assert bare_p.runs[0].font.size.pt == sp.PROFILES["compact"]["body"]
+
+
+def test_is_custom_style_paragraph_helper(tmp_path):
+    # Direct unit coverage of the detector itself.
+    from docx.enum.style import WD_STYLE_TYPE
+
+    doc = Document()
+    _add_custom_style(doc)
+    quote = doc.add_paragraph("quote")
+    quote.style = doc.styles["PullQuote"]
+    normal = doc.add_paragraph("plain")
+
+    bare = doc.styles.add_style("BareCustom2", WD_STYLE_TYPE.PARAGRAPH)
+    bare.base_style = doc.styles["Normal"]
+    bare_p = doc.add_paragraph("bare")
+    bare_p.style = bare
+
+    assert sp.is_custom_style_paragraph(quote) is True
+    assert sp.is_custom_style_paragraph(normal) is False
+    assert sp.is_custom_style_paragraph(bare_p) is False
+
+
 def test_caption_matching_uses_raw_pstyle_id(tmp_path):
     # Backport regression (2026-07-03): pandoc references pStyle id
     # 'ImageCaption', usually undefined in reference.docx, so p.style resolves

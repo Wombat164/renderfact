@@ -8,6 +8,20 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Custom-style paragraphs now keep their own font/size instead of the house-style default** (issue
+  #98, D21): `docstyle/style_postprocess.py`'s body-styling pass in `main()` called `set_para_font()`
+  unconditionally on every non-Title/Subtitle/Heading paragraph, including one carrying a custom Word
+  style (e.g. via a pandoc `::: {custom-style="X"} ... :::` fenced div) that already defines its own
+  font and size in `reference.docx`'s `styles.xml`. The paragraph got the right `w:pStyle` but a
+  direct-formatting run-level override shadowed the style's own definition. The default now respects a
+  custom style's own font/size (new `is_custom_style_paragraph()` gate); the old blanket-override
+  behaviour is available as an explicit opt-in via `--override-custom-style-fonts` (CLI, standalone
+  `render docstyle`) or `override_custom_style_fonts: true` (`--template-profile` yaml). Built-in
+  categories (Title/Subtitle/Heading 1-4) and the generic default-body case are unaffected: they still
+  get the house font/size unconditionally, as before.
+
 ### Added
 
 - **`import-template` per-style font derivation** (issue #97): the derived `template-profile.yaml`
@@ -23,6 +37,20 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   reads that block and applies the per-style font to a paragraph carrying that named style, falling
   back to the global font otherwise, so the derived data actually affects rendered output rather than
   being inert.
+- **OOXML `raw_attribute` escape hatch** (issue #96): `pandoc_markdown.MARKDOWN_FROM`, the one shared
+  pandoc `--from` spec every markdown-reading call site builds on (DOCX via `container/render-doc.sh`,
+  PDF via `pdf/typst_backend.py`), now pins the `raw_attribute` extension. A hand-authored
+  ` ```{=openxml} ` fenced code block is read as a genuine `RawBlock` AST node instead of an inert,
+  literal code block, so it now reaches the DOCX writer and lands in `word/document.xml` as raw OOXML
+  verbatim: verified end-to-end through a real `render docx` run, plus a negative control with the
+  extension explicitly disabled proving the fenced block really was inert before this change. On the
+  PDF/typst path the same block is present in the AST but silently dropped by the typst writer (it
+  does not recognise the `openxml` format tag), so the shared constant is safe for every call site
+  without a path-specific carve-out. This is a manual, advanced escape hatch only, honestly not a new
+  markdown feature: it does not add native syntax for Word content controls (checkbox/dropdown
+  `w:sdt`) or merged/spanned table cells (`gridSpan`), both of which have no markdown representation
+  today and remain a separate follow-up issue. New: `tests/test_raw_attribute_escape_hatch.py`, plus
+  a regression test in `tests/test_typst_backend.py` confirming the PDF path drops the block cleanly.
 - **`render qa tables` slack signal** (issue #90): the column-geometry scan reported only a single
   squeeze-pressure score per table (`squeezed-col`), and any column with 5% or less of a table's
   content share was excluded from that scoring entirely, so a genuinely tiny but over-allocated
