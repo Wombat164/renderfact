@@ -48,8 +48,12 @@ Usage:
     render comprehension-review <docx-or-md> [--escalate copy-paste|api]  # #84 fresh-reader
                                                # comprehension gate for rendered text documents
                                                # (D16-gated, always escalates -- see DECISIONS.md D20)
+    render eml <source.md> [-o out.eml] [--signature <yaml>] [--recipient R]
+                                               [--subject S] [--sender F]  # #95 plain-text,
+                                               # sendable RFC822 email output with a skin-supplied
+                                               # signature block (see DECISIONS.md D22)
 
-Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
+Modes not yet wired: deck (marp path), poster, tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
 """
 
@@ -130,6 +134,16 @@ def run_pdf(args: list[str]) -> int:
     import typst_backend  # pdf/typst_backend.py
 
     return typst_backend.main(args)
+
+
+def run_eml(args: list[str]) -> int:
+    """Dispatch to mail/eml_backend.py (issue #95): markdown -> pandoc plain-text
+    writer -> a skin-supplied signature block -> a plain-text RFC822 .eml, a
+    peer of the DOCX/PDF paths (no LibreOffice, no MAPI)."""
+    sys.path.insert(0, str(REPO_ROOT / "mail"))
+    import eml_backend  # mail/eml_backend.py
+
+    return eml_backend.main(args)
 
 
 def run_container(args: list[str]) -> int:
@@ -462,6 +476,7 @@ MODES = {
     "docx": run_docx,
     "docstyle": run_docstyle,
     "pdf": run_pdf,
+    "eml": run_eml,
     "diagram": run_diagram,
     "tokens": run_tokens,
     "init-ai": run_init_ai,

@@ -420,6 +420,48 @@ UI into an authoring surface. Filed as issues #42-#46.
 
 ---
 
+## Track J - Sendable email output (`.eml`, plain-text signature block)
+
+Filed as issue #95: closing the gap where the actual deliverable is an email rather than a rendered
+document. Core-vs-adapter split (the same pattern issue #68's diagram-archetype work used): the
+general core (`.eml`, plain text, stdlib-only) ships here; the narrower, heavier adapters (a binary
+`.msg`/MAPI writer, mail-client compose-window automation) are named follow-ups, not built. See
+`docs/DECISIONS.md` D22 for the full reasoning.
+
+- **J1 - `.eml` backend with a skin signature block (#95).** `[build]` **DONE:**
+  `mail/eml_backend.py`, wired as `render eml <src> [-o out.eml] [--signature <yaml>] [--recipient R]
+  [--subject S] [--sender F]`. Markdown -> pandoc's plain-text writer (the shared
+  `pandoc_markdown.MARKDOWN_FROM` `--from`, `--reference-links` so a link's URL survives instead of
+  being silently dropped) -> an optional skin `signature.yaml` (freeform `lines:`, the sig-dash `-- `
+  delimiter, PNG `images:` as inline `multipart/mixed` parts) -> a stdlib `email.message.EmailMessage`
+  serialized to a valid RFC822 `.eml`. Frontmatter `recipient:`/`to:` and `subject:`/`title:` map to
+  `To:`/`Subject:`; a missing recipient is advisory (a WARNING, no `To:` header), not fatal. `Date:`
+  and a deterministic, non-host-leaking `Message-ID:` are stamped on every render. Pandoc discovery
+  reuses `pdf/typst_backend.find_pandoc()` directly. 40 tests (unit + real end-to-end pandoc renders,
+  parsed back with the stdlib `email` parser).
+- **J2 - `.msg` (MAPI) writer.** `[build]` NEXT, not started. Deliberately deferred (D22): `.msg` is a
+  binary Compound File Binary / MAPI property-stream format unrelated to the OOXML machinery
+  `docstyle/style_postprocess.py` already has, and real-world producers lean on Windows COM automation
+  or a native MAPI library, neither portable nor CI-testable the way this repo's other backends are.
+  Worth doing only if a consumer's mail client genuinely cannot import `.eml` (rare in practice).
+- **J3 - Mail-client compose-window automation.** `[build]` NEXT, not started. Deliberately deferred
+  (D22): platform-specific (Outlook COM on Windows, AppleScript on macOS, no Linux equivalent),
+  untestable in a cross-platform CI matrix, and couples the toolchain to a running, licensed desktop
+  application, a different kind of dependency than anything else here. `.eml` already solves
+  delivery (one double-click/import away from a compose window in every mail client tested).
+- **J4 - MIME-multipart HTML signature.** `[build]` NEXT, not started. v1 (J1) ships plain text plus
+  inline PNG image parts (a logo genuinely travels embedded in the `.eml`), but no HTML: a styled
+  signature (coloured text, a clickable button, an inline-`cid:`-referenced logo sitting inside
+  markup) needs a `multipart/alternative` + `multipart/related` structure and an HTML-authoring
+  surface for the signature block this repo has no existing pattern for yet.
+- **J5 - `.eml` reconciliation / reingest path.** `[build]` NEXT, not started. The issue's own framing
+  named the DOCX `reingest` round-trip as the precedent an email deliverable currently lacks; J1 closes
+  the FORWARD direction (source -> sendable email) but does not touch round-trip. A real reconciliation
+  path (sent `.eml` back to a source diff, the way `roundtrip/reingest.py` does for an edited DOCX)
+  is real, separable follow-up work, not a natural extension of J1's render-only scope.
+
+---
+
 ## Open questions carried forward
 
 - **OQ1 - schema-driven gate chain vs bespoke Python.** Should the gate chain move to a formally

@@ -11,6 +11,7 @@ title: Reference
 | `render docx <src> --profile <p>` | Project one source to a governed DOCX for one audience profile. |
 | `render docstyle <in.docx> [out.docx] [--table-widths <yaml>]` | Standalone house-style DOCX post-processor: font/heading/table styling, punctuation normalization, `--cover-version`/`--cover-date`, operator-fitted `--table-widths`. The same engine `render docx` calls internally, exposed directly. |
 | `render pdf <src> [--engine typst]` | Render a source to a layout-native branded A4 PDF via typst (a peer of the DOCX path, no LibreOffice). |
+| `render eml <src> [--signature <yaml>] [--recipient R] [--subject S] [--sender F]` | Render a source to a plain-text, sendable RFC822 `.eml`, with an optional skin-supplied signature block (freeform text lines, plus PNG images as inline MIME parts). Frontmatter `recipient:`/`to:` and `subject:`/`title:` map to `To:`/`Subject:`. A peer of the docx/pdf paths (issue #95, `docs/DECISIONS.md` D22). |
 | `render diagram ...` | Render a diagram from its source (mermaid, d2, svg, drawio; and the `layered-stack` archetype from a plain YAML source, content-sniffed). |
 | `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
 | `render tokens ...` | Compile brand tokens to per-engine themes. |
@@ -200,6 +201,49 @@ rows:
 - With `--locale`, the separators + currency placement come from the locale, so the data file need only
   state the `currency` (or nothing) -- amounts and dates are supplied as raw values and formatted per
   locale. An explicit `format` key in the data still overrides the locale.
+
+## `render eml`: plain-text sendable email output (issue #95)
+
+The email peer of the DOCX and PDF paths: a governed markdown source becomes a directly-openable,
+plain-text RFC822 `.eml`, with an optional skin-supplied signature block reused across every email a
+skin produces (the email analogue of a letterhead). See
+[Explanation](../explanation/index.md#eml-vs-msg-a-core-vs-adapter-split) for why this is `.eml`
+rather than the binary Outlook `.msg`/MAPI format or mail-client compose-window automation
+(`docs/DECISIONS.md` D22), and the [how-to recipe](../how-to/index.md#render-a-governed-source-to-a-sendable-eml)
+for a worked example.
+
+```bash
+render eml status-update.md --signature mail/signature-example.yaml
+# -> renders/status-update.eml
+```
+
+| Flag | Meaning |
+|---|---|
+| `<source.md>` | Markdown source; `recipient:`/`to:` and `subject:`/`title:` frontmatter map to the `To:`/`Subject:` headers. |
+| `-o, --output <path>` | Output `.eml` path (default: `renders/<stem>.eml`; `OUTPUT_DIR` overrides the dir). |
+| `--signature <yaml>` | A skin's `signature.yaml` (see `mail/signature-example.yaml`); omitted means no signature block is appended. |
+| `--recipient <addr>` | Overrides the source's `recipient:`/`to:` frontmatter. |
+| `--subject <text>` | Overrides the source's `subject:`/`title:` frontmatter. |
+| `--sender <addr>` | Overrides the signature config's `from_email:` (the `.eml`'s `From:`). |
+
+**Signature config (`signature.yaml`).** Freeform `lines:` (a list of strings, no fixed
+name/title/department/phone schema), an optional `from_email:` for the `From:` header, and optional
+`images:` (a list of PNG file paths, resolved relative to the signature YAML's own directory): each
+becomes its own `Content-Disposition: inline` `image/png` MIME part, so a logo travels embedded in the
+`.eml` rather than as a hyperlink. Appended after the body behind the sig-dash delimiter (`-- ` alone
+on its own line), the plain-text-email convention that lets a mail client fold or strip the signature
+on reply.
+
+**Body.** The markdown body is translated with pandoc's plain-text writer, `--reference-links` so a
+link's URL survives as a trailing `[text]: url` reference instead of being silently dropped. A
+`[[target|Display Text]]` wikilink resolves to its display text, the same `pandoc_markdown.MARKDOWN_FROM`
+`--from` value every markdown-reading call site in this repo shares.
+
+**A missing recipient is advisory, not fatal:** a WARNING to stderr, and an `.eml` with no `To:`
+header, useful for a draft written before the addressee is settled.
+
+**Out of scope, by design:** a binary `.msg`/MAPI writer, mail-client compose-window automation, and a
+MIME-multipart HTML signature (`docs/ROADMAP.md` Track J).
 
 ## Environment variables
 

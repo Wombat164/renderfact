@@ -533,3 +533,78 @@ plain content), so changing that default would break the common case to fix an u
 issue can add a broader `preserve_reference_styles` escape hatch (skip ALL font/size injection, not only
 for custom styles) if a template-fidelity use case needs the built-in categories left alone too; this
 decision deliberately does not reach for that yet.
+
+## D22 - Sendable email output is `.eml` (RFC822), not `.msg` (MAPI) or mail-client automation
+
+Issue #95: the pipeline had `docx`/`pdf` body-output modes plus diagram-only modes, but no mode for
+rendering a governed markdown source directly to a sendable email, so a real deliverable that is
+"an email" rather than "a document" was bridged manually: copy the rendered body into a mail client,
+re-add the signature by hand, with no reconciliation path back to source the way `docx` has
+`reingest`. The issue's own framing named three candidate shapes: (1) declare a signature block in
+skin config, (2) map frontmatter fields to headers, and (3) produce a `.msg`/`.eml` file OR drive a
+local mail client's compose window through its automation interface, and noted the project's
+existing OOXML-manipulation infrastructure (`docstyle/style_postprocess.py`) as a possible `.msg`
+building block, since `.msg` is also an Office/MAPI-family binary format.
+
+**This decision, following the same core-vs-adapter split issue #68 used for the layered-stack
+diagram archetype (ship the general core, name the narrower adapter as an explicit follow-up rather
+than build it now):** the core of this change is `.eml` (RFC822, plain text, stdlib `email` module),
+NOT `.msg`, and NOT mail-client automation.
+
+- **`.eml` is the right primary deliverable.** It is a portable, openly documented, dependency-free
+  format that essentially every mail client (Outlook included) can open or import directly, so it
+  solves the actual "sendable email with a reconciliation path" need without touching a binary
+  format at all. It needs no optional dependency (the stdlib `email` module both builds and parses
+  it), which makes it directly testable the same way every other backend in this repo is tested: a
+  fixture in, a real parse of the artifact out, asserted against.
+- **`.msg` (MAPI) is explicitly deferred, not built here.** Unlike DOCX (OOXML, a documented open
+  zip-of-XML format `python-docx` already reads/writes), `.msg` is Microsoft's binary Compound File
+  Binary / MAPI property-stream format: heavier to write correctly, platform-adjacent in practice
+  (real-world producers overwhelmingly lean on Windows COM automation or a native MAPI library,
+  neither of which is portable or testable in CI the way this repo's other backends are), and it
+  buys nothing `.eml` does not already deliver for the "sendable, reconcilable email" goal an
+  organisation actually has. `docstyle/style_postprocess.py`'s OOXML-manipulation experience does not
+  transfer the way the issue speculated: OOXML and CFB/MAPI are unrelated container formats sharing
+  only the "Microsoft Office binary" label, not any parsing machinery.
+- **Mail-client automation is explicitly deferred, not built here.** Driving a compose window through
+  a platform automation interface (Outlook COM on Windows, AppleScript on macOS, no equivalent at all
+  on Linux) is inherently platform-specific, untestable in a cross-platform CI matrix the way this
+  repo's other modes are (`render eml` runs the same on every OS `render pdf` does), and adds a
+  different kind of coupling (to a running, licensed desktop application) than anything else in this
+  toolchain. A `.eml` file already solves delivery: it is one double-click (or one drag-and-drop, or
+  one `mailto:`-adjacent import) away from a compose window in every mail client tested.
+- **Signature-block config is freeform text lines**, the same non-enum, freeform posture `dossier_role`
+  (D19) and the projection engine's clearance/distribution ladders already use, rather than a rigid
+  structured name/title/department/phone schema: a consumer's own house style for a sign-off varies
+  too much for the generic core to usefully constrain, and a list of strings is trivially sufficient.
+  It lives in its own `mail/signature-example.yaml` (the `docstyle/template-profile-example.yaml` /
+  `projection/profiles-example.yaml` naming and loading pattern), not folded into `brand.yaml`: the
+  signature block is CONTENT (a name, a role, a phone number, a directory link), and `brand.yaml` is
+  DESIGN TOKENS (colour, type, geometry) consumed by a deep-merge generator pipeline with a fixed
+  known-keys schema: mixing the two would either force the token generators to tolerate an
+  arbitrary freeform key they do not otherwise need to understand, or force the signature block into
+  an enum-shaped shell it does not need.
+- **v1 is plain text, with PNG image(s) riding along as inline MIME parts, not HTML.** The signature
+  block's text is rendered as a plain-text block, appended after a plain-text body (pandoc's plain
+  writer over the same shared `pandoc_markdown.MARKDOWN_FROM` `--from` every markdown-reading call
+  site in this repo already uses), in a single `text/plain` MIME part. A signature MAY also declare
+  `images:` (PNG only, resolved skin-relative): each becomes its own `Content-Disposition: inline`
+  `image/png` part (`EmailMessage.add_attachment`, which promotes the message to `multipart/mixed`
+  automatically), so a logo genuinely travels embedded inside the .eml rather than as a hyperlink to
+  a hosted image. This is deliberately NOT the `multipart/alternative` + `multipart/related` shape a
+  styled HTML signature (coloured text, a clickable button, an inline-`cid:`-referenced logo sitting
+  inside markup) would need: no HTML part is generated, so an attached image is not laid out or
+  positioned by anything, it simply rides along as a real embedded part most mail clients show inline
+  or as a thumbnail near the body. A full HTML signature remains a real, useful, materially larger
+  extension (a second content type, an HTML-authoring surface for the signature block, and layout
+  decisions this repo has no existing pattern for), tracked as a roadmap follow-up
+  (`docs/ROADMAP.md` Track J), not built here.
+- **Frontmatter-to-header mapping** follows the field-naming style already established by `dossier_role`
+  and `renderfact_uid`: `recipient:` (with `to:` accepted as a synonym) maps to the eml's `To:`
+  header, and `subject:` (with the document's own `title:` as the natural fallback, the same
+  subject-equivalent field a document already carries) maps to `Subject:`. Both are read-only over
+  the source, the same posture `roundtrip/dossier_role.read_dossier_role()` uses: nothing is
+  generated or persisted back into frontmatter. A missing recipient is advisory, not fatal (a WARNING
+  to stderr, an eml with no `To:` header): the same "still produces a valid, honest artifact with
+  less input" posture optional `--theme`/`--brand`/`--signature` flags take across every backend in
+  this repo, useful for a draft written before the addressee is settled.

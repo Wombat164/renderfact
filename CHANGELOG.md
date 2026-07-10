@@ -40,6 +40,21 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`render eml`: plain-text sendable email output with a skin signature block** (issue #95): closes
+  the gap where the actual deliverable is an email, not a rendered document (previously bridged by
+  hand: copy the rendered body into a mail client, re-add the signature, with no reconciliation path
+  back to source the way DOCX has `reingest`). New `mail/eml_backend.py`, wired as `render eml <src>
+  [-o out.eml] [--signature <yaml>] [--recipient R] [--subject S] [--sender F]`: markdown -> pandoc's
+  plain-text writer (the shared `pandoc_markdown.MARKDOWN_FROM`, `--reference-links` so a link's URL
+  survives instead of being dropped) -> an optional skin `signature.yaml` (freeform `lines:`, the
+  sig-dash `-- ` delimiter, PNG `images:` as inline `multipart/mixed` parts) -> a valid RFC822 `.eml`
+  via the stdlib `email` module. Frontmatter `recipient:`/`to:` and `subject:`/`title:` map to
+  `To:`/`Subject:`; a missing recipient is advisory (a WARNING, no `To:` header), not fatal. New:
+  `mail/eml_backend.py`, `mail/signature-example.yaml` (entirely fictional example data),
+  `tests/test_eml_backend.py` (40 tests). A `.msg`/MAPI writer and mail-client compose-window
+  automation are deliberately out of scope for this change (the issue's own two named alternatives to
+  `.eml`); see `docs/DECISIONS.md` D22 and `docs/ROADMAP.md` Track J for the reasoning and the named
+  follow-ups.
 - **`import-template` per-style font derivation** (issue #97): the derived `template-profile.yaml`
   carried a single global `font` key, which structurally cannot represent a source template that
   defines distinct fonts on distinct paragraph styles (its `styles.xml` has multiple `w:style`
