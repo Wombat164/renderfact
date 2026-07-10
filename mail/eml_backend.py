@@ -117,12 +117,16 @@ def load_signature(path: "str | Path | None") -> dict:
     text (see mail/signature-example.yaml for the worked, fictional example).
 
     `images` is a list of PNG file paths (a logo, most commonly), resolved
-    relative to the signature YAML's own directory when not absolute, the
-    same "paths are skin-relative" convention a consumer's TEMPLATE_DOCX/
-    reference.docx already follows. PNG only in v1 (what the config actually
-    needs today); any other extension fails closed with an actionable message
-    rather than silently attaching a file no mail client will render as an
-    image the way this signature block intends."""
+    relative to the signature YAML's own directory, the same "paths are
+    skin-relative" convention a consumer's TEMPLATE_DOCX/reference.docx
+    already follows. Jailed under that directory: an absolute path is
+    rejected outright, and a `..`-traversal path that resolves outside it is
+    also rejected, so a signature config cannot name an arbitrary file
+    anywhere on the host and have its bytes embedded in an outgoing email.
+    PNG only in v1 (what the config actually needs today); any other
+    extension fails closed with an actionable message rather than silently
+    attaching a file no mail client will render as an image the way this
+    signature block intends."""
     if not path:
         return {}
     path = Path(path)
@@ -140,11 +144,21 @@ def load_signature(path: "str | Path | None") -> dict:
     raw_images = data.get("images") or []
     if not isinstance(raw_images, list) or not all(isinstance(x, str) for x in raw_images):
         raise EmlBackendError(f"signature config 'images' must be a list of PNG file paths: {path}")
+    skin_dir = path.parent.resolve()
     images = []
     for rel in raw_images:
         img_path = Path(rel)
-        if not img_path.is_absolute():
-            img_path = (path.parent / img_path).resolve()
+        if img_path.is_absolute():
+            raise EmlBackendError(
+                f"signature image path must be relative to the signature config's own "
+                f"directory, not absolute: {rel}")
+        img_path = (skin_dir / img_path).resolve()
+        try:
+            img_path.relative_to(skin_dir)
+        except ValueError:
+            raise EmlBackendError(
+                f"signature image path escapes the signature config's own directory "
+                f"({skin_dir}): {rel}") from None
         if img_path.suffix.lower() != ".png":
             raise EmlBackendError(f"signature image is not a .png file: {img_path}")
         if not img_path.is_file():

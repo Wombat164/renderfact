@@ -202,6 +202,42 @@ def test_load_signature_images_not_list_of_strings_raises(tmp_path):
         eb.load_signature(f)
 
 
+def test_load_signature_images_absolute_path_rejected(tmp_path):
+    # An absolute path names a file anywhere on the host, defeating the
+    # "skin-relative" contract: reject it outright rather than silently
+    # accepting it (a signature config must not be able to pull in an
+    # arbitrary host file to embed in an outgoing email).
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.png").write_bytes(_PNG)
+    skin_dir = tmp_path / "skin"
+    skin_dir.mkdir()
+    f = skin_dir / "sig.yaml"
+    absolute_target = (outside / "secret.png").resolve()
+    f.write_text(
+        'lines:\n  - "Jane Doe"\nimages:\n  - "' + absolute_target.as_posix() + '"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(eb.EmlBackendError, match="must be relative"):
+        eb.load_signature(f)
+
+
+def test_load_signature_images_traversal_outside_skin_dir_rejected(tmp_path):
+    # A relative path with enough ".." segments to climb out of the signature
+    # config's own directory must also be rejected: Path.resolve() collapses
+    # the ".." segments before any check, so the containment check has to run
+    # on the RESOLVED path, not the raw string.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.png").write_bytes(_PNG)
+    skin_dir = tmp_path / "skin"
+    skin_dir.mkdir()
+    f = skin_dir / "sig.yaml"
+    f.write_text('lines:\n  - "Jane Doe"\nimages:\n  - "../outside/secret.png"\n', encoding="utf-8")
+    with pytest.raises(eb.EmlBackendError, match="escapes the signature config's own directory"):
+        eb.load_signature(f)
+
+
 # ------------------------------------------------------------- body compose --
 
 def test_compose_signed_body_appends_sig_dash_and_lines():
