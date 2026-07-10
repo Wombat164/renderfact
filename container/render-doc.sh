@@ -35,6 +35,13 @@
 #   RESOURCE_PATH       pandoc --resource-path root for relative images
 #                         default: the source file's own directory
 #   OUTPUT_DIR          default: ./renders
+#   PANDOC_EXTRA_EXTENSIONS
+#                       extra pandoc reader extensions appended to the fixed
+#                       markdown+wikilinks_title_after_pipe+pipe_tables+
+#                       yaml_metadata_block base, e.g. "+fenced_divs+raw_attribute"
+#                       for a skin whose cover/source markdown uses custom-style
+#                       fenced divs or raw OOXML page-break blocks. Empty by
+#                       default (no behavior change for existing consumers).
 #   PROVENANCE          auto (default) embeds D11 provenance from the canonical
 #                       source into every rendered artifact, EXCEPT under a
 #                       projection profile with strip_provenance: true, where the
@@ -238,7 +245,7 @@ awk '
 ' "$SOURCE" > "$TMP_INPUT"
 
 PANDOC_ARGS=(
-  --from=markdown+wikilinks_title_after_pipe+pipe_tables+yaml_metadata_block
+  --from="markdown+wikilinks_title_after_pipe+pipe_tables+yaml_metadata_block${PANDOC_EXTRA_EXTENSIONS:-}"
   --resource-path="$RESOURCE_PATH"
   --toc --toc-depth=2
 )
