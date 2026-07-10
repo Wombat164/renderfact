@@ -29,6 +29,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `serve` | localhost HTTP API plus opt-in thin reference UI | shipped |
 | `container` | raw passthrough to the OCI render wrapper | shipped |
 | `doctor` | native version-drift check against `tools.lock` | stub, not built |
+| `eml` | annotated markdown -> a plain-text, sendable RFC822 `.eml`, with a skin-supplied signature block (issue #95) | shipped |
 | `pdf` / `deck` / `poster` | typst archival/tagged PDF, marp decks, A2 posters | roadmap (v0.2.x), not wired |
 
 The advertised-but-unwired formats are annotated, not claimed: the README carries a
@@ -165,6 +166,58 @@ house-style pass; that call path is unchanged. `render docstyle` (issue #74) is 
 directly documented entry point onto the same `main()`, for callers who want the post-processor's
 capabilities (most notably `--table-widths`, which the `docx` pipeline does not pass through today)
 without going through the full DOCX pipeline.
+
+## Email output: `.eml` with a skin-supplied signature block (issue #95)
+
+`mail/eml_backend.py` (`render eml`) is the email peer of the DOCX and PDF paths: a governed markdown
+source becomes a directly-openable, plain-text RFC822 `.eml`, closing the gap where the actual
+deliverable is an email rather than a rendered document (previously bridged by hand: copy the
+rendered body into a mail client, re-add the signature, with no reconciliation path back to source
+the way DOCX has `reingest`). See `docs/DECISIONS.md` D21 for why this is `.eml` (RFC822) rather than
+the binary Outlook `.msg`/MAPI format or mail-client compose-window automation.
+
+- **Body.** The markdown body is translated with pandoc's plain-text writer, over the same shared
+  `pandoc_markdown.MARKDOWN_FROM` `--from` value every markdown-reading call site in this repo uses
+  (issue #69: without `wikilinks_title_after_pipe` a `[[target|Display Text]]` link's display text
+  never resolves). `--reference-links` keeps a link's URL from being silently dropped: pandoc's
+  plain writer otherwise renders `[text](url)` as bare `text`; with the flag, the target lands in a
+  trailing `[text]: url` reference list instead, plain-text-readable and lossless.
+- **Signature-block config.** A skin's `signature.yaml` (see `mail/signature-example.yaml`, the
+  worked, entirely fictional example) declares `lines:`, a freeform list of strings appended after
+  the body, the same non-enum, freeform posture `dossier_role` (below) and the projection engine's
+  clearance/distribution ladders use, rather than a rigid name/title/department/phone schema. It lives
+  as its own file (the `docstyle/template-profile-example.yaml` / `projection/profiles-example.yaml`
+  naming and loading pattern), not folded into `brand.yaml`: the signature block is CONTENT, and
+  `brand.yaml` is DESIGN TOKENS consumed by a deep-merge generator pipeline with a fixed known-keys
+  schema. The lines are joined onto the body after the sig-dash delimiter `-- ` alone on its own line
+  (the long-standing plain-text-email convention mutt/Thunderbird/Gmail/Outlook all recognize to fold
+  or strip a signature on reply): a different token from this repo's own prose "spaced double-hyphen"
+  ban (CONTRIBUTING.md), which targets a dash used as sentence punctuation, not a stand-alone protocol
+  marker with no text before or after it on its own line. `signature.yaml` MAY also declare `images:`,
+  a list of PNG file paths (skin-relative, PNG-only, fail-closed on any other extension): each becomes
+  its own `Content-Disposition: inline` `image/png` MIME part (`EmailMessage.add_attachment`, which
+  promotes the message to `multipart/mixed` automatically on first use), so a logo genuinely travels
+  embedded inside the `.eml` rather than as a hyperlink to a hosted image. No HTML part is generated in
+  v1 (a `multipart/alternative` + `multipart/related` styled HTML signature is a materially larger,
+  explicitly deferred extension (`docs/ROADMAP.md` Track J).
+- **Frontmatter-to-header mapping.** `recipient:` (with `to:` as a synonym) maps to the `.eml`'s `To:`
+  header; `subject:` (with the document's own `title:` as the natural fallback, and the source's
+  filename stem as the last-resort default) maps to `Subject:`. Both are read via the same byte-
+  preserving, read-only frontmatter idiom `roundtrip/dossier_role.read_dossier_role()` uses (locate
+  the `---`-delimited block, `yaml.safe_load` one or two keys, never write anything back); an explicit
+  `--recipient`/`--subject`/`--sender` on the command line wins over the frontmatter value. A missing
+  recipient is advisory, not fatal: a WARNING to stderr, and an `.eml` with no `To:` header, useful
+  for a draft written before the addressee is settled, the same "still produces a valid, honest
+  artifact with less input" posture every optional skin-config flag in this repo takes.
+- **Headers and tool reuse.** `Date:` and a deterministic, non-host-leaking `Message-ID:` (a fixed
+  `renderfact.invalid` placeholder domain, RFC 2606 reserved, rather than `email.utils.make_msgid()`'s
+  own default of this build machine's real hostname) are stamped on every render. Pandoc discovery
+  reuses `pdf/typst_backend.find_pandoc()` directly (env override, then PATH, then known Windows
+  install dirs) rather than re-implementing tool resolution a third time.
+- **Out of scope, by design (this PR).** A binary `.msg`/MAPI writer, and driving a local mail
+  client's compose window through a platform-specific automation interface: both are heavier,
+  platform-specific follow-up work that would not add anything `.eml` does not already deliver for
+  the "sendable, reconcilable email" need (`docs/DECISIONS.md` D21 has the full reasoning).
 
 ## The D8 dual-mode step contract
 
@@ -490,6 +543,7 @@ implementation is sequenced behind the release-engineering track (D13).
 render.py    single entry point: render <mode> [args...]
 projection/  the projection engine: profiled blocks -> one governed render per profile
 docstyle/    generic DOCX house-style post-processor + field-based heading numbering
+mail/        eml_backend.py: markdown -> plain-text RFC822 .eml + a skin signature block (issue #95)
 api/         stdlib HTTP API (step contracts + projection over localhost) + thin reference UI
 container/   OCI image (Containerfile) + render wrapper + render-doc.sh + bundle-annex-linux.py + verify-pins.sh
 lint/        diagram render harness + pre-render linters + visual-QA metrics + the D8 step contract +

@@ -10,6 +10,21 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`render eml`: plain-text sendable email output with a skin signature block** (issue #95): closes
+  the gap where the actual deliverable is an email, not a rendered document (previously bridged by
+  hand: copy the rendered body into a mail client, re-add the signature, with no reconciliation path
+  back to source the way DOCX has `reingest`). New `mail/eml_backend.py`, wired as `render eml <src>
+  [-o out.eml] [--signature <yaml>] [--recipient R] [--subject S] [--sender F]`: markdown -> pandoc's
+  plain-text writer (the shared `pandoc_markdown.MARKDOWN_FROM`, `--reference-links` so a link's URL
+  survives instead of being dropped) -> an optional skin `signature.yaml` (freeform `lines:`, the
+  sig-dash `-- ` delimiter, PNG `images:` as inline `multipart/mixed` parts) -> a valid RFC822 `.eml`
+  via the stdlib `email` module. Frontmatter `recipient:`/`to:` and `subject:`/`title:` map to
+  `To:`/`Subject:`; a missing recipient is advisory (a WARNING, no `To:` header), not fatal. New:
+  `mail/eml_backend.py`, `mail/signature-example.yaml` (entirely fictional example data),
+  `tests/test_eml_backend.py` (40 tests). A `.msg`/MAPI writer and mail-client compose-window
+  automation are deliberately out of scope for this change (the issue's own two named alternatives to
+  `.eml`); see `docs/DECISIONS.md` D21 and `docs/ROADMAP.md` Track J for the reasoning and the named
+  follow-ups.
 - **`render qa tables` slack signal** (issue #90): the column-geometry scan reported only a single
   squeeze-pressure score per table (`squeezed-col`), and any column with 5% or less of a table's
   content share was excluded from that scoring entirely, so a genuinely tiny but over-allocated

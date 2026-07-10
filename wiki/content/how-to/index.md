@@ -16,6 +16,42 @@ render docx <source.md> --profile <profile>
 The profile decides the disclosure rules, the brand skin, and whether provenance is embedded (internal)
 or stripped (external / publish).
 
+## Render a governed source to a sendable .eml
+
+```bash
+cat > signature.yaml <<'YAML'
+from_email: "jane.doe@example.com"
+lines:
+  - "Jane Doe"
+  - "Product Manager, Engineering"
+  - "+1-555-0100"
+  - "https://example.com/directory/jane-doe"
+# images:
+#   - "logo.png"   # optional; PNG only, resolved relative to this file's own directory
+YAML
+
+cat > status-update.md <<'MD'
+---
+title: "Q3 status update"
+recipient: "Alex Rivera <alex.rivera@example.com>"
+---
+
+# Status
+
+Hello Alex, the dashboard is live.
+MD
+
+render eml status-update.md --signature signature.yaml
+# -> renders/status-update.eml, ready to open/import in any mail client
+```
+
+`recipient:`/`to:` and `subject:`/`title:` frontmatter map to the `.eml`'s `To:`/`Subject:` headers;
+`--recipient`/`--subject`/`--sender` on the command line override them. A missing recipient is
+advisory, not fatal: a WARNING to stderr, and an `.eml` with no `To:` header, useful for a draft
+written before the addressee is settled. See
+[Explanation](../explanation/index.md#eml-vs-msg-a-core-vs-adapter-split) for why this is `.eml`
+rather than `.msg` or mail-client automation.
+
 ## Fit table columns and set a cover version/date on a DOCX
 
 ```bash

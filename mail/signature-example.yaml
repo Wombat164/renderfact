@@ -1,0 +1,41 @@
+# signature-example.yaml: the email analogue of a letterhead (issue #95).
+#
+# A skin supplies its own copy of this file (via `render eml --signature <yaml>`)
+# and every `.eml` that skin produces gets the same plain-text sign-off appended
+# after the body, so a signature is declared once, not retyped per message.
+#
+# Freeform text lines, not a rigid name/title/department/phone schema: the same
+# non-enum, freeform posture the projection engine's clearance/distribution
+# ladders use, and the same posture `dossier_role` (roundtrip/dossier_role.py)
+# uses for its own consumer-defined text. A consumer writes whatever lines suit
+# their own house style (a name, a role line, a phone number, a directory link,
+# a legal footer) in whatever order they want; the engine imposes no shape on
+# `lines` beyond "a list of strings", and passes each one through unchanged.
+#
+# This file ships with ENTIRELY FICTIONAL example data: no real name, title,
+# department, phone number, or organisation appears anywhere in the public repo.
+# Run: render eml demo/source/some-source.md --signature mail/signature-example.yaml
+
+# Optional: used for the eml's From: header when --sender is not passed on the
+# command line. Left unset here (commented out) so the generic default produces
+# an eml with no From: header at all, matching the "zero consumer config still
+# runs" posture every other backend in this repo follows (--theme/--brand on
+# the pdf path, --template-profile on the docx path).
+# from_email: "jane.doe@example.com"
+
+lines:
+  - "Jane Doe"
+  - "Product Manager, Engineering"
+  - "+1-555-0100"
+  - "https://example.com/directory/jane-doe"
+
+# Optional: PNG image(s) attached alongside the signature (a logo, most
+# commonly), each riding inside the .eml as its own inline-disposition
+# image/png MIME part rather than a hyperlink to a hosted image. Paths are
+# resolved relative to THIS file's own directory when not absolute, the
+# same "skin-relative paths" convention a consumer's reference.docx/
+# TEMPLATE_DOCX already follows. PNG only (any other extension fails closed);
+# no file ships here by default, since the public repo carries no binary
+# assets: point this at your own skin's logo file.
+# images:
+#   - "logo.png"

@@ -93,6 +93,47 @@ pattern match (an unannotated prominent block), never gated, and it never fails 
 never-fails posture as `QC_SCRIPT`'s off-when-unset default, not `render gate`'s fail-closed one. Not
 every document needs this rigor, and one that never adopts the convention pays no penalty.
 
+## `.eml` vs `.msg`: a core-vs-adapter split
+
+Issue #95 asked for a way to render a governed markdown source directly to a sendable email, closing a
+gap where the actual deliverable was an email, not a rendered document, bridged by hand: copy the
+rendered body into a mail client, re-add the signature, with no reconciliation path back to source the
+way DOCX has `reingest`. The issue's own framing named three candidate shapes: a skin-declared
+signature block, frontmatter-to-header mapping, and either a `.msg`/`.eml` file or driving a mail
+client's compose window through its automation interface.
+
+`render eml` ships the CORE: `.eml` (RFC822, plain text, stdlib `email` module), following the same
+core-vs-adapter split issue #68's diagram-archetype work used (ship the general shape, name the
+narrower adapter as an explicit, separately-tracked follow-up rather than build it now).
+
+- **`.eml` is a portable, openly documented, dependency-free format** that essentially every mail
+  client (Outlook included) can open or import directly. It needs no optional dependency: the stdlib
+  `email` module both builds and parses it, so the pipeline stays directly testable the same way every
+  other backend here is (a fixture in, a real parse of the artifact out, asserted against).
+- **`.msg` (the binary Outlook/MAPI format) is deliberately deferred.** Unlike DOCX (OOXML, a
+  documented open zip-of-XML format `python-docx` already reads/writes), `.msg` is a binary Compound
+  File Binary / MAPI property-stream format. Real-world producers overwhelmingly lean on Windows COM
+  automation or a native MAPI library, neither portable nor CI-testable the way this repo's other
+  backends are, and it would not add anything `.eml` does not already deliver for the "sendable,
+  reconcilable email" goal an organisation actually has. The project's existing OOXML-manipulation
+  experience (`docstyle/style_postprocess.py`) does not transfer: OOXML and CFB/MAPI are unrelated
+  container formats sharing only the "Microsoft Office binary" label.
+- **Mail-client compose-window automation is deliberately deferred.** Driving a compose window through
+  a platform-specific automation interface (Outlook COM on Windows, AppleScript on macOS, no Linux
+  equivalent) couples the toolchain to a running, licensed desktop application, a different kind of
+  dependency than anything else here, and is not testable in a cross-platform CI matrix the way every
+  other mode is. A `.eml` file already solves delivery: it is one double-click, or one import, away
+  from a compose window in every mail client tested.
+- **The signature block is freeform text, not a rigid schema**: the same non-enum posture
+  `dossier_role` and the projection engine's clearance/distribution ladders already use, because a
+  consumer's own house style for a sign-off varies too much for the generic core to usefully constrain.
+  It MAY also declare PNG image(s) (a logo, most commonly): each rides along as its own inline MIME
+  part, a real embedded image rather than a hyperlink to one, but v1 stops short of a full
+  `multipart/alternative` HTML signature, which remains real, useful, separately-tracked follow-up
+  work (`docs/ROADMAP.md` Track J), not a natural extension of this change's scope.
+
+Full reasoning: `docs/DECISIONS.md` D21.
+
 ## Round-trip and provenance
 
 Editable artifacts (DOCX, and diagrams via draw.io / Visio) carry hidden provenance -- what source,
