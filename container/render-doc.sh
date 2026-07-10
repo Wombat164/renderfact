@@ -15,7 +15,10 @@
 #                         SKIN_DIR default: $SKIN_DIR/reference.docx
 #   FILTERS_DIR         directory of pandoc lua filters, applied in name order
 #                         SKIN_DIR default: $SKIN_DIR/filters
-#   TEMPLATE_PROFILE    yaml consumed by the style post-processor
+#   TEMPLATE_PROFILE    yaml consumed by the style post-processor; a top-level
+#                       `toc: false` key opts out of the table of contents
+#                       (same effect as --no-toc; either one is enough, see
+#                       --no-toc below)
 #                         SKIN_DIR default: $SKIN_DIR/template-profile.yaml
 #   STYLE_POSTPROCESS   house-style DOCX post-processor script (cover page,
 #                       styles); called as: <script> <docx> --profile <p>
@@ -67,7 +70,7 @@
 #
 # Usage: render-doc.sh <source.md> [--name <p>] [--profile reference|compact]
 #          [--project <profile>] [--template-profile <yaml>] [DRAFT|REVIEW|FINAL]
-#          [--pdf] [--qc] [--qc-blocking] [--lint] [--number-headings]
+#          [--pdf] [--qc] [--qc-blocking] [--lint] [--number-headings] [--no-toc]
 #          [--scheme <scheme>] [--page-check] [--postrender-gate]
 # Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
 set -euo pipefail
@@ -79,7 +82,7 @@ render-doc.sh: annotated-markdown -> styled DOCX (+ optional PDF).
 
 Usage: render-doc.sh <source.md> [--name <p>] [--profile reference|compact]
          [--project <profile>] [--template-profile <yaml>] [DRAFT|REVIEW|FINAL]
-         [--pdf] [--qc] [--qc-blocking] [--lint] [--number-headings]
+         [--pdf] [--qc] [--qc-blocking] [--lint] [--number-headings] [--no-toc]
          [--scheme <scheme>] [--page-check] [--postrender-gate]
 
 Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
@@ -88,7 +91,9 @@ Options:
   --name <p>            output basename prefix (default: source stem)
   --profile <p>         style profile: reference (default) | compact
   --project <profile>   apply a projection profile before rendering
-  --template-profile    yaml consumed by the house-style post-processor
+  --template-profile    yaml consumed by the house-style post-processor; a
+                         top-level `toc: false` key has the same effect as
+                         --no-toc below (either one is enough to opt out)
   --scheme <scheme>     numbering/style scheme (default: modern)
   DRAFT|REVIEW|FINAL    document lifecycle suffix (default: DRAFT)
   --pdf                 also convert to PDF (Word-COM on Windows, else soffice)
@@ -97,6 +102,8 @@ Options:
   --qc-blocking          same as --qc, but a QC_SCRIPT finding stops the render
   --lint                run the consumer lint bundle (needs NLQA_DIR)
   --number-headings     apply field-based heading numbering
+  --no-toc               omit the table of contents (default: included); same
+                         effect as `toc: false` in --template-profile
   --page-check          run the page-economy analyzer
   --postrender-gate     run the post-render content-safety gate on the finished
                          docx (needs POSTRENDER_GATE_SCRIPT); blocking unless
@@ -163,6 +170,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-./renders}"
 
 SOURCE=""; NAME=""; PROFILE="reference"; SUFFIX="DRAFT"
 DO_PDF=0; DO_QC=0; DO_LINT=0; DO_NUMBER=0; DO_PAGECHECK=0; DO_POSTRENDER_GATE=0
+NO_TOC=0
 SCHEME="modern"; PROJECT_PROFILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -176,6 +184,7 @@ while [ $# -gt 0 ]; do
     --qc-blocking)      DO_QC=1; QC_BLOCKING=1; shift ;;
     --lint)             DO_LINT=1; shift ;;
     --number-headings)  DO_NUMBER=1; shift ;;
+    --no-toc)           NO_TOC=1; shift ;;
     --page-check)       DO_PAGECHECK=1; shift ;;
     --postrender-gate)  DO_POSTRENDER_GATE=1; shift ;;
     DRAFT|REVIEW|FINAL) SUFFIX="$1"; shift ;;
@@ -274,11 +283,29 @@ awk '
 # before the fix (the PDF path had silently dropped the extension entirely).
 PANDOC_FROM_MD="$("$PYTHON" "$REPO_ROOT/pandoc_markdown.py")"
 
+# Table of contents opt-out (issue #99): --no-toc OR a template-profile
+# `toc: false` key turns it off; either is sufficient (same either-sets-it-on
+# interaction as QC_BLOCKING/--qc-blocking above, just inverted: here either
+# toggle turns the ToC OFF instead of turning a gate ON). Default stays on
+# (today's behavior) so nothing already depending on it breaks.
+if [ -n "$TEMPLATE_PROFILE" ] && [ -f "$TEMPLATE_PROFILE" ]; then
+  TP_NO_TOC=$("$PYTHON" -c "
+import sys, yaml
+prof = yaml.safe_load(open(sys.argv[1], encoding='utf-8')) or {}
+print(0 if prof.get('toc', True) else 1)
+" "$TEMPLATE_PROFILE")
+  [ "$TP_NO_TOC" = "1" ] && NO_TOC=1
+fi
+
 PANDOC_ARGS=(
   --from="$PANDOC_FROM_MD"
   --resource-path="$RESOURCE_PATH"
-  --toc --toc-depth=2
 )
+if [ "$NO_TOC" = "1" ]; then
+  echo "Table of contents: disabled (--no-toc or template-profile toc: false)."
+else
+  PANDOC_ARGS+=(--toc --toc-depth=2)
+fi
 if [ -n "$TEMPLATE_DOCX" ] && [ -f "$TEMPLATE_DOCX" ]; then
   PANDOC_ARGS+=(--reference-doc="$TEMPLATE_DOCX")
   echo "Running pandoc (reference-doc: $(basename "$TEMPLATE_DOCX"))..."
