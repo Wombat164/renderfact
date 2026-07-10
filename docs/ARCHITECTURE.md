@@ -371,7 +371,12 @@ BEFORE any vision/LLM pass (hard numbers accompany every subjective review):
 - `leaks <full.txt>`: an audience-leak scan on rendered text for internal remnants that should never
   survive projection. Consumer-specific probes (codenames, internal paths) come from a `--probes`
   config merged over generic defaults.
-- `tables <render.docx>`: per-table column-geometry pressure (content share vs width share).
+- `tables <render.docx>`: per-table column-geometry ranking, content share vs width share. Reports
+  two complementary per-table signals: pressure (a column squeezed under its content, the
+  `squeezed-col`) and slack (a column over-allocated relative to its content, the `wasteful-col`,
+  the inverse ratio). Pressure only scores columns clearing a content-share floor, so a genuinely
+  tiny column (a row-number or ordinal column) never registers there; slack scores every column,
+  so an over-allocated tiny-content column still gets flagged.
 - `paras <render.docx>`: overweight-paragraph ranking (simplification candidates).
 - `figs <source.md>`: figure inventory plus a low-contrast pre-filter.
 - `purpose <source.md>`: prominent paragraphs/headings with no preceding `<!-- PURPOSE: ... -->`
