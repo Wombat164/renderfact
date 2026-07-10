@@ -25,6 +25,7 @@ title: Reference
 | `render vsdx generate\|reingest` | Editable-diagram round-trip, Visio adapter (C8.2; needs `vsdx`). |
 | `render decision-capture --source <g> --reingest <j>` | Capture diagram-edit intent; deterministic first, LLM past the gate (C8.3). |
 | `render contextualize --source <md> --reingest <j>` | Capture document-edit intent from a reingest diff; deterministic first, LLM past the gate (Track D 4.5). |
+| `render comprehension-review <docx-or-md> [--escalate copy-paste\|api]` | Fresh-reader comprehension gate for a rendered text document: chunks it by section boundary and has an author-independent LLM read the snippets in order, reporting purpose/confusion/fluff/cuttable content per snippet plus a whole-document synthesis. Report-only. D16-gated with NO accept path -- confidence is always 0.0, so it always escalates unless `--threshold` is `<= 0` (issue #84, `docs/DECISIONS.md` D20). |
 | `render copy-paste vision-review --image <svg>` | Gated visual-quality review of a diagram. |
 | `render gate-stats` | D16 gate escalation-rate stats + storm detection. |
 | `render init-ai [--assistant ...]` | Install renderfact-aware instruction files into your assistant. |
@@ -206,6 +207,7 @@ rows:
 | `RENDERFACT_VISION_THRESHOLD` | vision-review | D16 gate confidence threshold (default 0.6). |
 | `RENDERFACT_DECISION_THRESHOLD` | decision-capture | D16 gate confidence threshold (default 0.6). |
 | `RENDERFACT_CONTEXTUALIZE_THRESHOLD` | contextualize | D16 gate confidence threshold (default 0.6). |
+| `RENDERFACT_COMPREHENSION_THRESHOLD` | comprehension-review | D16 gate confidence threshold (default 0.6). Confidence is always 0.0 (D20), so any positive value always escalates; `<= 0` accepts the unreviewed stub. |
 | `RENDERFACT_GATE_LOG` | all gated steps | Path to the append-only gate decision log (opt-in). |
 | `RENDERFACT_MODELS_CONFIG` | direct-API channel | Path to the `[models]` TOML (default `./renderfact-models.toml`). |
 | `RENDERFACT_FONT_PATH` | render pdf | Default brand-font directories (os-pathsep-separated) passed to typst as `--font-path`. |
@@ -243,6 +245,7 @@ export RENDERFACT_LLM_API_KEY=...         # omit for a keyless local endpoint
 render copy-paste vision-review --image d.svg --tier tier-3   # uses the API when configured
 render copy-paste vision-review --image d.svg --tier tier-3 --no-api   # force copy-paste
 render contextualize --source doc.md --reingest r.json --escalate api  # try API, fall back to copy-paste
+render comprehension-review report.docx --escalate api                 # try API, fall back to copy-paste
 ```
 
 Routing: a step whose input carries a `rendered_image_path` (vision-review) routes to the `[vlm]`
@@ -271,6 +274,11 @@ The shared `contracts/confidence_gate.py` provides `decide(score, threshold)` an
 gate -> telemetry -> accept/escalate/needs-review orchestration); the per-step `confidence()` heuristic
 stays local. Sub-signals are logged to the gate telemetry (`render gate-stats`) for per-signal
 calibration. See [Explanation](../explanation/index.md#the-d16-fuzzy-gate).
+
+`comprehension-review` implements the SAME contract with a deliberately constant `confidence()`:
+it always returns 0.0, so the step always escalates (see `docs/DECISIONS.md` D20). This is a
+legitimate D16 outcome, not an exception to it -- there is no deterministic proxy for "a cold
+reader will follow this," so the honest confidence is the one that never claims otherwise.
 
 ## HTTP API (`render serve`)
 

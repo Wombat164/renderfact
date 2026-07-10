@@ -45,6 +45,9 @@ Usage:
                                                # standalone house-style DOCX post-processor CLI (issue
                                                # #74): the same engine `render docx` already invokes
                                                # internally, exposed as its own documented entry point
+    render comprehension-review <docx-or-md> [--escalate copy-paste|api]  # #84 fresh-reader
+                                               # comprehension gate for rendered text documents
+                                               # (D16-gated, always escalates -- see DECISIONS.md D20)
 
 Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
@@ -300,6 +303,22 @@ def run_copy_paste(args: list[str]) -> int:
     return 0
 
 
+def run_comprehension_review(args: list[str]) -> int:
+    """Dispatch to lint/comprehension_review_contract.py: the fresh-reader
+    comprehension gate for rendered TEXT documents (issue #84), the text peer of
+    lint/vision_review_contract.py's diagram vision-review gate. Chunks a
+    rendered .md/.docx into reader-sized snippets by section boundary and has a
+    fresh-context LLM (harness/copy-paste/API, the D8 contract) read them in
+    order, reporting per-snippet purpose/confusion/fluff/cuttable content plus a
+    whole-document synthesis. D16-gated, but with no accept path: comprehension
+    has no deterministic sufficiency proxy (see docs/DECISIONS.md D20), so this
+    always escalates unless --threshold <= 0. Report-only -- never rewrites."""
+    sys.path.insert(0, str(LINT_DIR))
+    import comprehension_review_contract as comprehension_review
+
+    return comprehension_review.main(args)
+
+
 def run_provenance(args: list[str]) -> int:
     """Dispatch to roundtrip/provenance.py -- D11 part 2 provenance embed/extract/
     adopt (chunk 4.1). Not yet auto-called by render-doc.sh: the script is
@@ -453,6 +472,7 @@ MODES = {
     "vsdx": run_vsdx,
     "decision-capture": run_decision_capture,
     "contextualize": run_contextualize,
+    "comprehension-review": run_comprehension_review,
     "gate-stats": run_gate_stats,
     "import-template": run_import_template,
     "project": run_project,

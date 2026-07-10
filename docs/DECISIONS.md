@@ -440,3 +440,57 @@ the same never-fails posture as `QC_SCRIPT`'s off-when-unset default (`container
 the fail-closed posture of `render gate`. Not every document needs this level of authoring rigor, and
 a document that never adopts the convention pays no penalty -- the issue explicitly rules out both a
 blocking enforcement gate and automatic purpose inference.
+
+## D20 - Comprehension gate for text documents, and a D16 gate that legitimately never accepts
+
+Issue #84: the diagram vision-review gate (chunk 3.1, D8/D16) already establishes that a fresh,
+author-independent LLM read catches subjective failures a deterministic pass structurally cannot. No
+equivalent existed for rendered TEXT documents -- Vale and the plain-language work catch phrasing
+patterns, but neither can answer "does a reader who has never seen this understand what each section is
+for, and where does the flow break down." This decision adds `lint/comprehension_review_contract.py`
+(`render comprehension-review`) as that peer, reusing the SAME D8 contract machinery
+(`contracts/schema_utils.py`, `contracts/copy_paste.py`, `contracts/init_ai.py`) rather than inventing
+parallel plumbing: one INPUT_SCHEMA (an ordered list of reader-sized snippets, chunked at section
+boundaries), one OUTPUT_SCHEMA (per-snippet purpose/confusion/fluff/cuttable findings plus a
+whole-document synthesis), identical across harness, copy-paste, and the D17 direct-API channel.
+
+**The D16 gate decision, made explicit.** D16 requires every LLM-touching step to produce a
+deterministic result first, score confidence that it suffices, and gate on a threshold. Every existing
+gated step has a real deterministic proxy to score: vision-review has hard geometry/contrast/a11y
+numbers; decision-capture and contextualize have a change-kind taxonomy splitting edits the template
+states fully (descriptive) from edits it can describe but not justify (intent-bearing). Comprehension has
+no such proxy. Document length, section count, sentence length, and similar structural signals predict
+review COST, not comprehension risk, in either direction: a single dense paragraph can bury its point as
+badly as a long, well-structured document reads cleanly. Building a confidence formula from those
+signals anyway would dress up a coin flip as a measurement -- and the entire reason this gate exists is
+to catch exactly what deterministic checks (Vale, plain-language, `render qa`'s zero-LLM probes)
+structurally cannot reach. So `comprehension_review_contract.confidence()` returns a CONSTANT 0.0: this
+step always escalates.
+
+**Concretely, against the signals that actually exist (issue #76, landed alongside this one).**
+`demo/skin/vale/styles/PlainLanguage/` ships `SentenceLength` (word-count threshold per sentence) and
+`NominalisationDensity` (`-tion`/`-ance`/`-ment` suffix density per paragraph); `docstyle/plain_language.py`
+adds a repeated-phrase-across-sections scan. All three are real, useful, deterministic, and were
+considered as a confidence input. All three were rejected for the same reason: a long sentence, a dense
+paragraph, or a repeated phrase is a STYLE finding a reader can often work around; whether the reader
+loses the thread entirely is a different question these checks do not and cannot answer (a document with
+zero PlainLanguage hits can still bury its point, and a document flagged throughout can still read
+clearly to a patient reader). Wiring any of them into `confidence()` would make the gate's escalation
+depend on a signal that does not measure what the gate exists to check.
+
+**This is a D16 outcome, not an exception to it.** D16's own vision-review worked example already
+treats "no deterministic signal" as valid (confidence 0.0 when neither of its two metrics fired); this
+step is simply the first where that is the PERMANENT case rather than one branch of a heuristic. The gate
+mechanics stay identical: `gate()` still compares the score to a threshold via the shared
+`contracts/confidence_gate.decide()`, so an operator who explicitly sets `--threshold <= 0` still gets
+the accept path -- an honest "not reviewed" stub (`status: WARN`, empty findings, `reviewer_mode:
+deterministic`), never a fabricated verdict. That is the same `needs_review` fallback every gated step
+already offers when no escalation channel is available; here it is also reachable by deliberate choice,
+not only by channel absence. Report-only throughout: the step never rewrites the document, matching the
+propose-only contract every gated step in this repo follows.
+
+**Scope note for future gated steps.** A step with a genuinely judgment-based question and no
+deterministic proxy should follow this pattern rather than inventing a superficial heuristic to satisfy
+D16's shape: state the absence explicitly, pin confidence at 0.0, and record the reasoning in a decision
+entry (this one). D16's "Scope" paragraph already anticipated this kind of retrofit; this is the first
+step in the repo where it applies to the step's ENTIRE lifetime, not a transitional phase.
