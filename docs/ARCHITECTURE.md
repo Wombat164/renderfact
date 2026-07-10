@@ -59,7 +59,7 @@ The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero
 | `SKIN_DIR` | convenience root: the vars below default into it when set | unset |
 | `TEMPLATE_DOCX` | pandoc `--reference-doc` | pandoc built-in style |
 | `FILTERS_DIR` | directory of pandoc lua filters, applied in name order | none |
-| `TEMPLATE_PROFILE` | YAML consumed by the style post-processor | none (neutral defaults) |
+| `TEMPLATE_PROFILE` | YAML consumed by the style post-processor; a top-level `toc: false` key also opts out of the table of contents (`--no-toc` is the flag form; either is sufficient, issue #99) | none (neutral defaults) |
 | `STYLE_POSTPROCESS` | house-style DOCX post-processor | `docstyle/style_postprocess.py` (in-repo) |
 | `HEADING_NUMBERING` | field-based numbering injector | `docstyle/heading_numbering.py` (in-repo) |
 | `PROJECTION_CONFIG` | ladders-plus-profiles YAML for `--project` | `projection/profiles-example.yaml` |
@@ -93,6 +93,13 @@ block, so the shared constant needs no path-specific carve-out.
 
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.
+
+**Table of contents opt-out (issue #99).** `--toc --toc-depth=2` used to be hardcoded into the pandoc
+invocation with no way to turn it off, a fidelity problem for a short document (a one-to-two-page
+template, say) that never had a table of contents in the original. `--no-toc` (CLI) and `toc: false`
+(a top-level key in the `--template-profile` YAML) both disable it; either one is sufficient, the same
+either-one-is-enough interaction as `QC_BLOCKING` / `--qc-blocking`. The default stays on (today's
+behavior), so this is a pure opt-out: nothing already depending on the table of contents breaks.
 
 **The gate-hook contract (D18).** `render-doc.sh` has two fail-closed hook points, and they default
 OPPOSITE ways on purpose:
@@ -167,15 +174,31 @@ document out of the box, and consumers override with `--template-profile`.
   organisation-specific (palette, font, geometry, marking-text replacements, cover labels,
   punctuation normalization) is plain data in an optional profile YAML. The profile mechanism is
   purely additive: with no profile the neutral defaults apply and no marking edits are made. A profile
-  can be hand-written, or (roadmap C7) derived from an imported corporate template.
-  - **Custom-style font fidelity (issue #98, D21).** The house body font/size pass respects a
-    paragraph's own custom style by default: a paragraph carrying a style outside the built-in/default
-    set (e.g. reached via a pandoc `::: {custom-style="X"} ... :::` fenced div) whose OWN `w:rPr`
-    already defines a font/size is left with no direct-formatting run override, so it falls through to
-    pure style inheritance instead of being stomped with the house look. Built-in categories
-    (Title/Subtitle/Heading 1-4) and the generic default-body case are unaffected. The pre-#98 blanket
-    override is available as an explicit opt-in: `--override-custom-style-fonts` (CLI) or
-    `override_custom_style_fonts: true` (template-profile.yaml).
+  can be hand-written, or (roadmap C7) derived from an imported corporate template. A single global
+  `font` key cannot represent a template that uses distinct fonts on distinct paragraph styles (issue
+  #97), so the profile's optional `styles:` block carries per-named-style font overrides, falling back
+  to `font` for any style not listed; a template that only ever uses one font derives an empty block
+  and renders identically to before this key existed.
+- **import-template's per-style font derivation (issue #97).** `derive_style_font_overrides` walks
+  EVERY paragraph `w:style` definition's `w:rPr/w:rFonts` (the same one-level `basedOn` fallback
+  `style_font_info` already applies to Normal/Heading), not just the handful of named styles C7 already
+  special-cases, and keeps only the GENUINE overrides: a style whose resolved font differs from the
+  derived global `font`. A style that happens to resolve to the same font as the global default is
+  left out, keeping the derived profile minimal rather than padding it with redundant per-style
+  entries. When no style differs, the generated profile carries a one-line note instead of an empty
+  block, the same honesty-over-guessing posture the theme keys already follow.
+- **Custom-style font fidelity (issue #98, D21).** The house body font/size pass respects a
+  paragraph's own custom style by default: a paragraph carrying a style outside the built-in/default
+  set (e.g. reached via a pandoc `::: {custom-style="X"} ... :::` fenced div) whose OWN `w:rPr`
+  already defines a font/size is left with no direct-formatting run override, so it falls through to
+  pure style inheritance instead of being stomped with the house look. Built-in categories
+  (Title/Subtitle/Heading 1-4) and the generic default-body case are unaffected. The pre-#98 blanket
+  override is available as an explicit opt-in: `--override-custom-style-fonts` (CLI) or
+  `override_custom_style_fonts: true` (template-profile.yaml). Note (#97+#98 interaction): when a
+  custom style is respected (this bullet), its own font wins outright; when it is NOT respected (the
+  paragraph is in the known-non-custom set, or `--override-custom-style-fonts` forces it), the
+  per-style `styles:` override above still applies to it if one is configured for that style name,
+  falling back to the global `font` otherwise.
 - **heading_numbering** injects field-based heading numbering AFTER pandoc, because pandoc regenerates
   the numbering part on every render and drops custom list definitions imported from a reference doc.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that

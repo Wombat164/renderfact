@@ -160,6 +160,40 @@ def extract_docx_styles(doc, theme: Theme) -> dict[str, dict[str, Any]]:
     return out
 
 
+def derive_style_font_overrides(doc, theme: Theme, global_font: str | None) -> dict[str, str]:
+    """Walk EVERY paragraph w:style definition's w:rPr/w:rFonts (not just Normal),
+    with the same one-level basedOn fallback style_font_info() already applies, and
+    return only the styles whose resolved font is a GENUINE override: explicit,
+    and different from global_font (the single value the top-level 'font' key
+    would otherwise apply to every paragraph, see issue #97).
+
+    global_font=None (the top-level key itself was not derivable) means there is
+    no baseline to diff against, so any style with an explicit resolvable font is
+    reported as an override. Keeps the profile minimal: a template where every
+    style resolves to the same font yields an empty dict, not a redundant
+    per-style entry that just repeats the global default."""
+    from docx.enum.style import WD_STYLE_TYPE
+
+    overrides: dict[str, str] = {}
+    for style in doc.styles:
+        if style.type != WD_STYLE_TYPE.PARAGRAPH:
+            continue
+        try:
+            name = style.name
+        except Exception:
+            continue
+        if not name:
+            continue
+        info = style_font_info(style, theme)
+        font_name = info["name"]
+        if not font_name:
+            continue
+        if global_font is not None and font_name == global_font:
+            continue
+        overrides[name] = font_name
+    return overrides
+
+
 def _margins_cm(section) -> dict[str, float | None]:
     sides = {"top": section.top_margin, "bottom": section.bottom_margin,
              "left": section.left_margin, "right": section.right_margin}
@@ -195,6 +229,7 @@ def section_geometry_cm(section) -> dict[str, Any]:
 class DerivedProfile:
     derived: dict[str, Any] = field(default_factory=dict)
     not_derived: dict[str, str] = field(default_factory=dict)
+    style_fonts: dict[str, str] = field(default_factory=dict)
 
 
 _NOT_DERIVABLE_ALWAYS = {
@@ -227,6 +262,8 @@ def derive_profile(doc, theme: Theme) -> DerivedProfile:
     else:
         not_derived["font"] = ("the Normal style has no explicit font and the template's "
                                "theme has no minor-latin typeface")
+
+    style_fonts = derive_style_font_overrides(doc, theme, derived.get("font"))
 
     accent = h1.get("color") or theme.colors.get("accent1")
     if accent:
@@ -263,7 +300,7 @@ def derive_profile(doc, theme: Theme) -> DerivedProfile:
             f"({sides_str} cm) and the profile only supports one margin_cm value"
         )
 
-    return DerivedProfile(derived=derived, not_derived=not_derived)
+    return DerivedProfile(derived=derived, not_derived=not_derived, style_fonts=style_fonts)
 
 
 def extract_rendered_style_properties(docx_path: Path) -> dict[str, Any]:
@@ -367,6 +404,23 @@ def render_profile_yaml(provenance: dict[str, str], dp: DerivedProfile) -> str:
         else:
             reason = dp.not_derived.get(key, "not derivable from this template")
             lines.append(f"# {key}: not derivable from this template ({reason}); kept at built-in default")
+    lines.append("")
+    if dp.style_fonts:
+        lines += [
+            "# Per-style font overrides: this template defines a distinct font for these",
+            "# named paragraph styles (derived by walking each w:style's w:rPr/w:rFonts,",
+            "# one level of basedOn fallback, same as 'font' above). Falls back to 'font'",
+            "# for any paragraph style not listed here.",
+            "styles:",
+        ]
+        for name in sorted(dp.style_fonts):
+            lines.append(f'  "{name}":')
+            lines.append(f"    font: {dp.style_fonts[name]}")
+    else:
+        lines += [
+            "# No per-style font overrides found: every paragraph style in this template",
+            "# resolves to the same font as 'font' above.",
+        ]
     lines += [
         "",
         "# Optional marking / cover behaviour: authoring hints, NOT derived from the",
@@ -572,6 +626,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  {len(dp.derived)} key(s) derived: {', '.join(sorted(dp.derived))}")
     print(f"  {len(dp.not_derived)} key(s) not derivable, kept at built-in default: "
           f"{', '.join(sorted(dp.not_derived))}")
+    if dp.style_fonts:
+        print(f"  {len(dp.style_fonts)} per-style font override(s) derived: "
+              f"{', '.join(sorted(dp.style_fonts))}")
 
     template_docx_env = template.resolve()
     if args.copy_reference:

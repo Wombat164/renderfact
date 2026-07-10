@@ -39,6 +39,27 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   automation are deliberately out of scope for this change (the issue's own two named alternatives to
   `.eml`); see `docs/DECISIONS.md` D22 and `docs/ROADMAP.md` Track J for the reasoning and the named
   follow-ups.
+- **`import-template` per-style font derivation** (issue #97): the derived `template-profile.yaml`
+  carried a single global `font` key, which structurally cannot represent a source template that
+  defines distinct fonts on distinct paragraph styles (its `styles.xml` has multiple `w:style`
+  definitions, each with its own `w:rPr/w:rFonts`). `import-template` now also walks EVERY paragraph
+  style's `w:rPr/w:rFonts` (one level of `basedOn` fallback, same as the existing Normal/Heading
+  derivation) and emits a `styles:` block in the derived profile carrying only the GENUINE overrides:
+  a style whose resolved font differs from the derived global `font`. A style that resolves to the
+  same font as the global default is left out, so the profile stays minimal and a template that only
+  ever uses one font still derives an empty block (additive, no change to existing output). The
+  consumer side, `docstyle/style_postprocess.py`'s `apply_template_profile` / `set_para_font`, now
+  reads that block and applies the per-style font to a paragraph carrying that named style, falling
+  back to the global font otherwise, so the derived data actually affects rendered output rather than
+  being inert.
+- **`--no-toc` / `toc: false` opt-out for `render-doc.sh`** (issue #99): `container/render-doc.sh`
+  hardcoded `--toc --toc-depth=2` into the pandoc invocation unconditionally, with no flag, env var, or
+  template-profile key to disable it, a fidelity problem for a short document (a one-to-two-page
+  template, say) that never had a table of contents in the original. Two opt-out paths, either one
+  sufficient: the `--no-toc` CLI flag, or a top-level `toc: false` key in the `--template-profile` YAML
+  (the same either-one-is-enough interaction as `QC_BLOCKING` / `--qc-blocking`). Default stays on
+  (today's behavior), so this is a pure opt-out. New:
+  `tests/test_render_doc_toc_opt_out.py`.
 - **OOXML `raw_attribute` escape hatch** (issue #96): `pandoc_markdown.MARKDOWN_FROM`, the one shared
   pandoc `--from` spec every markdown-reading call site builds on (DOCX via `container/render-doc.sh`,
   PDF via `pdf/typst_backend.py`), now pins the `raw_attribute` extension. A hand-authored
