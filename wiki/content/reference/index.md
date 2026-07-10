@@ -9,6 +9,7 @@ title: Reference
 | Command | What it does |
 |---|---|
 | `render docx <src> --profile <p>` | Project one source to a governed DOCX for one audience profile. |
+| `render docstyle <in.docx> [out.docx] [--table-widths <yaml>]` | Standalone house-style DOCX post-processor: font/heading/table styling, punctuation normalization, `--cover-version`/`--cover-date`, operator-fitted `--table-widths`. The same engine `render docx` calls internally, exposed directly. |
 | `render pdf <src> [--engine typst]` | Render a source to a layout-native branded A4 PDF via typst (a peer of the DOCX path, no LibreOffice). |
 | `render diagram ...` | Render a diagram from its source (mermaid, d2, svg, drawio; and the `layered-stack` archetype from a plain YAML source, content-sniffed). |
 | `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
@@ -16,10 +17,10 @@ title: Reference
 | `render import-template <docx>` | Derive a brand skin from any branded DOCX. |
 | `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight). |
 | `render serve [--enable-ui]` | Localhost HTTP API + thin reference UI. |
-| `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids). |
+| `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids, plainlang). |
 | `render doctor [--json]` | Host tools vs `tools.lock`: report OK/DRIFT/MISSING; always exit 0. |
 | `render provenance embed\|extract\|strip\|adopt\|retarget` | D11 provenance operations on DOCX/XLSX/PPTX/VSDX. |
-| `render reingest <edited.docx> --source <md>` | Mechanical re-ingestion of an edited document. |
+| `render reingest <edited.docx> --source <md> [--strip-pattern <re>]` | Mechanical re-ingestion of an edited document; `--strip-pattern` (repeatable) strips extra project-specific structural-noise regexes from the text-diff. |
 | `render drawio generate\|reingest` | Editable-diagram round-trip, draw.io adapter (C8.1). |
 | `render vsdx generate\|reingest` | Editable-diagram round-trip, Visio adapter (C8.2; needs `vsdx`). |
 | `render decision-capture --source <g> --reingest <j>` | Capture diagram-edit intent; deterministic first, LLM past the gate (C8.3). |
@@ -31,6 +32,28 @@ title: Reference
 | `render container <podman-args>` | Passthrough to the container render entry. |
 
 Run any subcommand with `--help` for its flags.
+
+## `render docstyle` -- standalone house-style DOCX post-processor
+
+`render docx` (render-doc.sh) already calls `docstyle/style_postprocess.py` internally as the
+house-style pass of its own pipeline. `render docstyle` is the same engine reachable directly, for
+callers who want its capabilities (most usefully `--table-widths`, which `render docx` does not pass
+through) without going through the full docx pipeline. Also useful for restyling a DOCX that was not
+itself produced by `render docx`.
+
+```bash
+render docstyle draft.docx styled.docx --profile reference --table-widths widths.yaml \
+  --cover-version 1.2 --cover-date "2026-07-10"
+```
+
+| Flag | Meaning |
+|---|---|
+| `<input.docx>` | Source DOCX (styled in place unless `[output.docx]` is given). |
+| `[output.docx]` | Optional destination path. |
+| `--profile compact\|reference` | Style profile (default `compact`: dense, justified; `reference`: reader-friendly, cover page). |
+| `--template-profile <yaml>` | Override the whole theme (palette/font/geometry/marking/cover) from a profile yaml. |
+| `--table-widths <yaml>` | Operator-fitted column widths (twips), matched to tables by ordinal, scaled proportionally to fill the actual section text width (`apply_table_widths()`). |
+| `--cover-version <v>` / `--cover-date <d>` | Cover version/date line overrides (`--profile reference`). |
 
 ## `render pdf` -- layout-native PDF backend (typst)
 

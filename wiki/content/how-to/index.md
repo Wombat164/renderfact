@@ -16,14 +16,32 @@ render docx <source.md> --profile <profile>
 The profile decides the disclosure rules, the brand skin, and whether provenance is embedded (internal)
 or stripped (external / publish).
 
+## Fit table columns and set a cover version/date on a DOCX
+
+```bash
+cat > widths.yaml <<'YAML'
+tables:
+  - [3000, 6000]   # table 0: two columns (twips), proportions preserved, scaled full-width
+YAML
+render docstyle draft.docx styled.docx --profile reference \
+  --table-widths widths.yaml --cover-version 1.2 --cover-date "2026-07-10"
+```
+
+This is the standalone entry point to the same house-style post-processor `render docx` calls
+internally; use it to restyle a DOCX directly, or to apply just `--table-widths` without a full
+`render docx` pass.
+
 ## Gate artifacts before publishing
 
 ```bash
-render gate <files...> --stages vale,lychee,verapdf,uids
+render gate <files...> --stages vale,lychee,verapdf,uids,plainlang
 ```
 
 Fail-closed: any finding fails, and a requested stage whose tool is not installed fails with exit 2.
-Stages self-scope by file type.
+Stages self-scope by file type. Exception: `plainlang` (repeated-phrase-across-sections scan, issue
+#76) is report-only by default, since a hit is often legitimate repeated terminology rather than a
+defect; add `--plainlang-fail-on-hits` once you have tuned `--plainlang-min-words` /
+`--plainlang-min-count` for your corpus.
 
 ## Embed, inspect, or strip provenance
 

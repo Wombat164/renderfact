@@ -349,3 +349,52 @@ a sovereignty concern per the grens-doctrine for defence consumers) and D16 (tel
 backpressure) applies to it. Implementation is sequenced last in the fuzzy-gate plan
 (docs/2026-07-04-fuzzy-gate-architecture-plan.md, item G5) because it is the largest surface and the
 only one that touches the D8 trust boundary.
+
+## D18 - The gate-hook contract: QC_SCRIPT advisory-by-default, POSTRENDER_GATE_SCRIPT blocking-by-default, generic regex-scan as a real gates/ module
+
+Issue #71: a consumer with a hard content-safety requirement (its own example: a render must never
+carry a currency figure once it is bound for an external vendor, because disclosing an internal
+budget ceiling to a counterparty is a real negotiating-leverage risk) found two gaps in
+`render-doc.sh`'s hook set, and contributed the fix upstream rather than keeping it private.
+
+**1. `QC_SCRIPT` gains an opt-in blocking mode, default unchanged.** `QC_SCRIPT` (`--qc`) has always
+run pre-render, against the source markdown, with its exit code print-and-continue: `"$PYTHON"
+"$QC_SCRIPT" "$SOURCE" || echo "(advisory, not blocking)"`. That default stays: a pre-render lint pass
+being advisory is the common case (a consumer runs a stricter check without every finding gating every
+draft render), so backward compatibility for existing skins matters here. `QC_BLOCKING=1` (or the
+equivalent `--qc-blocking` flag, which also implies `--qc`) turns a non-zero `QC_SCRIPT` exit into a
+build failure, for the consumer that specifically wants pre-render fail-closed behaviour.
+
+**2. A new hook, `POSTRENDER_GATE_SCRIPT`, called with the finished `<docx>` path, same calling
+convention as `PAGECHECK_SCRIPT`** (a path in, run after render and before the completion summary),
+but distinct in purpose: `PAGECHECK_SCRIPT` is page-economy-focused and already advisory
+(`|| true`); `POSTRENDER_GATE_SCRIPT` is content-safety-focused, and scans the ARTIFACT rather than
+the source, which matters because a reference template, a lua filter, or the house-style
+post-processor can inject content that never existed in the markdown source `QC_SCRIPT` saw.
+
+**Decision: `POSTRENDER_GATE_SCRIPT` defaults to BLOCKING, the opposite of `QC_SCRIPT`.** These two
+hooks are not the same shape wearing different names; they earn different defaults:
+
+- `QC_SCRIPT` is a pre-render LINT: findings are advice a human can act on before the artifact even
+  exists, so the more common posture is "print it and let the author decide", matching every other
+  advisory hook already in this script (`--lint`, `--page-check`).
+- `POSTRENDER_GATE_SCRIPT` is a post-render GATE whose entire reason to exist is "does the artifact
+  contain content it must never contain." A gate with that job description that defaults to
+  advisory-only is close to useless: the whole point is that a human should not have to notice a
+  finding in scrollback for the guarantee to hold. Defaulting it to fail-closed is what makes it a
+  gate rather than a second linter with a different name. `POSTRENDER_GATE_ADVISORY=1` is the escape
+  hatch for a consumer that genuinely wants report-only behaviour instead, kept symmetric with
+  `QC_BLOCKING` so both hooks are governed the same way (an env var or flag that inverts the default),
+  just inverted in which direction is the default.
+
+**3. The generic regex-scan pattern ships as `gates/content_scan.py`, pattern-as-parameter, never a
+built-in default.** The issue's own reference implementation ("open the DOCX with python-docx, regex
+over every paragraph and every table cell, `raise SystemExit(1)` on any hit") is domain-neutral
+already; the only domain-specific part was the currency regex the issue used to motivate the ask. Per
+D3 (generic core, private skin), the pattern is a REQUIRED parameter (`--pattern` / `--pattern-file`,
+or `RENDERFACT_GATE_PATTERN` / `RENDERFACT_GATE_PATTERN_FILE` for the zero-arg hook-invocation case,
+since `render-doc.sh` calls every hook with only its target path, no extra flags): this module never
+ships a currency regex, a codename list, or any other example as a default. A consumer skin points
+`POSTRENDER_GATE_SCRIPT` at this script directly (via the env-var pattern) or through a thin wrapper
+that hardcodes its own pattern; either way the "open docx, scan every paragraph and cell, exit 1 on
+hit" mechanics stop being re-implemented per consumer, which was the issue's actual complaint.

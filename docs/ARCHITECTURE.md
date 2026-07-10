@@ -16,6 +16,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 |---|---|---|
 | `project` | one profiled source -> one governed render per audience/clearance/disclosure profile | shipped |
 | `docx` | annotated markdown -> styled DOCX (plus optional PDF) | shipped |
+| `docstyle` | standalone house-style DOCX post-processor (font/heading/table styling, `--table-widths`, `--cover-version`/`--cover-date`); the same engine `docx` calls internally, exposed directly (issue #74) | shipped |
 | `diagram` | mermaid / d2 rendering with pre-render lint, visual-QA metrics, and (issue #68) the `layered-stack` archetype generator | shipped |
 | `tokens` | `brand.yaml` -> per-engine themes (mermaid JSON, marp CSS, pandoc profile, typst tokens) | shipped |
 | `init-ai` | install D8 step instructions into the user's own assistant | shipped |
@@ -23,6 +24,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `provenance` | embed / extract / adopt / retarget hidden source provenance across DOCX/XLSX/PPTX | shipped |
 | `import-template` | derive a template profile (theme, fonts, geometry) from a branded DOCX, with an idempotency gate | shipped |
 | `qa` | deterministic post-render gate (leaks / tables / paras / figs) | shipped |
+| `gate` | fail-closed pre-publish QA gate chain (vale / lychee / verapdf / uids / plainlang) | shipped |
 | `serve` | localhost HTTP API plus opt-in thin reference UI | shipped |
 | `container` | raw passthrough to the OCI render wrapper | shipped |
 | `doctor` | native version-drift check against `tools.lock` | stub, not built |
@@ -60,11 +62,42 @@ The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero
 | `HEADING_NUMBERING` | field-based numbering injector | `docstyle/heading_numbering.py` (in-repo) |
 | `PROJECTION_CONFIG` | ladders-plus-profiles YAML for `--project` | `projection/profiles-example.yaml` |
 | `QC_SCRIPT` / `NLQA_DIR` / `PAGECHECK_SCRIPT` | optional pre/post checks | off when unset |
+| `QC_BLOCKING` | `1` makes a `QC_SCRIPT` finding stop the render (`--qc-blocking` is the flag form) | `0` (advisory) |
+| `POSTRENDER_GATE_SCRIPT` | post-render gate, called with the finished `<docx>` (`--postrender-gate`) | off when unset |
+| `POSTRENDER_GATE_ADVISORY` | `1` makes a `POSTRENDER_GATE_SCRIPT` finding advisory instead of blocking | `0` (blocking) |
 | `PDF_CONVERTER_PS1` | Windows Word-COM converter; otherwise LibreOffice is used when present | LibreOffice fallback |
 | `OUTPUT_DIR` / `RESOURCE_PATH` / `PANDOC` / `PYTHON` | output, image root, tool overrides | `./renders`, source dir, PATH |
 
+**One shared markdown-reader extension string.** Every call site that reads a renderfact markdown
+source into pandoc's AST (`container/render-doc.sh` for DOCX, `pdf/typst_backend.py` for PDF) builds
+its `--from` value from `pandoc_markdown.MARKDOWN_FROM` (Python callers import it; `render-doc.sh`
+shells out to `python pandoc_markdown.py`) instead of hand-rolling its own extension list. This is a
+single source of truth for `wikilinks_title_after_pipe`, the extension that makes
+`[[target|Display Text]]` bracket links resolve to their display text: without it, pandoc's plain
+`markdown` reader treats the brackets as literal punctuation rather than a `Link` node (issue #69).
+
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.
+
+**The gate-hook contract (D18).** `render-doc.sh` has two fail-closed hook points, and they default
+OPPOSITE ways on purpose:
+
+- `QC_SCRIPT` runs pre-render, against the SOURCE markdown, and defaults to ADVISORY (findings print;
+  the render continues). This is the more common case for lint-shaped pre-render checks, so it stays
+  the default; `QC_BLOCKING=1` / `--qc-blocking` opts a consumer into fail-closed.
+- `POSTRENDER_GATE_SCRIPT` runs post-render, against the FINISHED `<docx>` (after style, numbering,
+  and provenance have all touched it, before the completion summary), and defaults to BLOCKING (a
+  non-zero exit stops the run). Its purpose is "does the artifact contain content it must never
+  contain", not a lint pass a human might skim past in scrollback; a silently-advisory default would
+  undermine the one property the hook exists to guarantee. `POSTRENDER_GATE_ADVISORY=1` opts back into
+  advisory-only for a consumer that wants report-only behaviour.
+
+`gates/content_scan.py` is the generic reference implementation a consumer skin points
+`POSTRENDER_GATE_SCRIPT` at: it opens the DOCX with python-docx and regex-scans every paragraph and
+every table cell (recursively into nested tables) for a caller-supplied pattern, exiting 1 on any hit.
+It ships with NO default pattern (D3: the pattern is a required parameter, supplied via `--pattern`,
+`--pattern-file`, or the `RENDERFACT_GATE_PATTERN` / `RENDERFACT_GATE_PATTERN_FILE` env vars for
+zero-arg hook invocation) so the public core stays domain-neutral.
 
 ## The projection engine
 
@@ -125,6 +158,12 @@ document out of the box, and consumers override with `--template-profile`.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that
   renumber automatically on insert / reorder / delete. It is idempotent: re-running on an
   already-numbered document is a no-op. The source carries number-free headings.
+
+`render docx` (render-doc.sh) invokes `style_postprocess.py` directly as a subprocess for its own
+house-style pass; that call path is unchanged. `render docstyle` (issue #74) is an additional,
+directly documented entry point onto the same `main()`, for callers who want the post-processor's
+capabilities (most notably `--table-widths`, which the `docx` pipeline does not pass through today)
+without going through the full DOCX pipeline.
 
 ## The D8 dual-mode step contract
 
@@ -216,7 +255,56 @@ skipped, the same as any unsupported extension.
   issue, not built here. The core archetype has zero ArchiMate awareness and no optional dependency of
   any kind.
 
-## QA gates
+**Text-delta normalization (issue #72).** `roundtrip/reingest.py`'s `## 4. Text delta` /
+`## 5. Fast-forward plan` compare canonical-markdown lines against DOCX paragraph text, so any
+pandoc source syntax that never renders as literal DOCX text must be stripped from the markdown
+side first, or its absence reads as a false reviewer deletion. Two tiers: a pre-split, whole-block
+regex pass in `md_plaintext()` (frontmatter, HTML comments, and raw-attribute OOXML blocks such as
+a manual page break's ` ```{=openxml} ... ``` `, which spans multiple lines and cannot be stripped
+per-line) and a per-line pass in `_norm()` (non-breaking spaces, list bullets, auto-numbered
+headings, fenced-div `::: {...}` / `:::` lines, the blockquote `> ` marker). `render reingest
+--strip-pattern <regex>` (repeatable) adds caller-supplied patterns at the same per-line tier, for
+a project's own structural-noise conventions renderfact has no reason to special-case itself.
+
+## Pre-publish QA gate chain (B3)
+
+`gates/run_gates.py` (`render gate`) is the fail-closed sibling to the post-render `qa` gate below:
+findings fail the run, AND a requested stage whose tool is not installed also fails the run (exit 2):
+a gate you cannot execute is not a gate you passed. Every stage is a deterministic CLI subprocess
+or dependency-free Python, no LLM anywhere. Default chain: `vale,lychee,verapdf,uids,plainlang`,
+each stage self-scoping by file type so one `render gate <dir>` run applies each stage to the files
+it understands.
+
+- `vale`: text hygiene on markdown sources (errata-ai/vale). The generic-core default
+  (`gates/vale/vale.ini`) ships only Vale's built-in checks (repetition blocks, spelling warns);
+  a consumer's writing doctrine is private-skin config (`--vale-config` / `RENDERFACT_VALE_CONFIG`).
+  The demo skin (`demo/skin/vale/vale.ini`) is the worked example: `GoldenRules` (the deterministic
+  slice of a house writing style), `AiTells` (vendored authorial-AI-tell detection: filler phrases,
+  hedging, formal register, and so on), and `PlainLanguage` (issue #76: reader-facing plain-language
+  quality, a distinct concern from AiTells: sentence length and nominalisation density, both
+  warning-level advisory rather than blocking, since both are tunable heuristics rather than
+  clear-cut defects). `BeNl` (BE-NL lexical checks) is opt-in via a separate `vale.be-nl.ini`.
+- `lychee`: link integrity on markdown sources (lycheeverse/lychee), offline by default (relative
+  file links and anchors only, so the verdict is deterministic); `--online` opts into checking
+  external URLs.
+- `verapdf`: PDF/A and PDF/UA conformance on rendered PDFs (veraPDF, invoked as a CLI subprocess per
+  the dual GPL/MPL licence election). Validates against each PDF's declared standard by default;
+  `--pdf-flavour` forces one.
+- `uids`: duplicate `renderfact_uid` detection across a source tree. A file copy duplicates identity
+  (uuid4 generation cannot collide, but a fork or template carrying an existing uid claims the
+  original's lineage), which corrupts every provenance-anchored round-trip at organisational scale.
+  Dependency-free.
+- `plainlang`: repeated-phrase-across-sections scan (issue #76), a cheap n-gram/exact-match scan
+  over markdown sources (`docstyle/plain_language.py`) for the same multi-word phrase recurring
+  near-verbatim 3+ times in one document. The one PlainLanguage check that is NOT a Vale rule: Vale's
+  rule types all match a pattern fixed at authoring time, and this check needs the document's own
+  text as the source of the pattern to search for, which the DSL cannot express. UNLIKE every other
+  stage here, a finding does not fail the run by default (`--plainlang-fail-on-hits` opts in): a
+  repeated phrase is very often legitimate (a programme or component name used consistently), so
+  fail-closed-by-default would make it noise rather than signal, in the same
+  `render qa leaks --fail-on-hits` report-only shape used below.
+
+## Post-render QA gate
 
 `lint/render_qa.py` (`render qa`) is a deterministic, zero-LLM gate over rendered artifacts, run
 BEFORE any vision/LLM pass (hard numbers accompany every subjective review):
@@ -286,6 +374,8 @@ lint/        diagram render harness + pre-render linters + visual-QA metrics + t
              render_qa + the diagram archetype family (layered_stack.py, issue #68)
 tokens/      brand.yaml token mechanism + per-engine generators (tokens/gen/)
 contracts/   the generic D8 I/O-contract validator + harness-mode installer + copy-paste fallback
+gates/       fail-closed QA gate chain (run_gates.py, B3) + content_scan.py, the generic
+             post-render content-safety regex-scan gate (D18)
 roundtrip/   provenance embed/extract/adopt/retarget + stable source UID (named to avoid shadowing python-docx)
 demo/        a fictional railway-operator tender dossier exercising every projection gate
 docs/        DECISIONS + ROADMAP + ARCHITECTURE + CONTRIBUTING + SECURITY
