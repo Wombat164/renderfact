@@ -50,6 +50,13 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   pattern. Ships with no default pattern; the regex is a required parameter (`--pattern` /
   `--pattern-file`, or `RENDERFACT_GATE_PATTERN` / `RENDERFACT_GATE_PATTERN_FILE` for zero-arg hook
   invocation), keeping the public core domain-neutral.
+- **Purpose annotations and dossier role (#77, D19)**: an annotative-only authoring convention, never
+  a blocking gate. `<!-- PURPOSE: ... -->` HTML comments stated above a paragraph or heading record
+  why it exists, verified empirically to be a no-op on both the DOCX and typst-PDF render paths
+  (`tests/test_purpose_annotations.py`). A freeform `dossier_role:` frontmatter field
+  (`roundtrip/dossier_role.py`) states what a document uniquely contributes relative to its siblings
+  in a dossier. `render qa purpose <source.md>` is an optional, advisory-only lint pass flagging a
+  prominent block with no purpose comment above it; report-only, never fails.
 
 ### Fixed
 

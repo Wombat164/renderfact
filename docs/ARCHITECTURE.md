@@ -23,7 +23,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `copy-paste` | run a D8 step with no harness: assemble a prompt, paste the reply back | shipped |
 | `provenance` | embed / extract / adopt / retarget hidden source provenance across DOCX/XLSX/PPTX | shipped |
 | `import-template` | derive a template profile (theme, fonts, geometry) from a branded DOCX, with an idempotency gate | shipped |
-| `qa` | deterministic post-render gate (leaks / tables / paras / figs) | shipped |
+| `qa` | deterministic post-render gate (leaks / tables / paras / figs / purpose) | shipped |
 | `gate` | fail-closed pre-publish QA gate chain (vale / lychee / verapdf / uids / plainlang) | shipped |
 | `serve` | localhost HTTP API plus opt-in thin reference UI | shipped |
 | `container` | raw passthrough to the OCI render wrapper | shipped |
@@ -221,6 +221,65 @@ would be silently stomped. So the editor and any save-path never refresh provena
 `render` or `retarget` stamps it. A `source_commit` field, stamped at render time only when the
 source sits in a clean git work tree, makes ancestor recovery a direct `git show`.
 
+## Purpose annotations and dossier role
+
+A purely annotative authoring convention (#77): a structural place to record WHY a paragraph, section,
+or whole document exists, so a later editor (human or LLM) can tell "this is here on purpose, cutting
+it loses something" from "this is here because it was true, not because it was needed." Neither piece
+below is a new hard gate; both degrade to nothing for a consumer who ignores them, which is what makes
+them safe to adopt gradually or not at all.
+
+**Paragraph/section purpose comments.** An HTML comment stated immediately above the paragraph or
+heading it explains:
+
+```markdown
+<!-- PURPOSE: states the tradeoff up front so a skimming reader gets the decision before the detail -->
+
+## Cost vs lead time
+
+...
+```
+
+Pandoc's markdown reader parses `<!-- ... -->` as a raw-HTML AST node that neither the DOCX writer nor
+the typst writer (the PDF path's markdown-to-typst-markup step) ever emits: a raw HTML comment is
+simply dropped. This is verified EMPIRICALLY, not assumed: `tests/test_purpose_annotations.py` drives
+the real `render docx` pipeline (subprocess pandoc) and `pdf/typst_backend.md_to_typst` (the same
+pandoc call the PDF backend makes; typst itself never parses the original markdown, so this is the
+correct checkpoint) over a fixture containing the marker, and asserts it is absent from both outputs.
+The same mechanism already backs D14's projection-provenance header stamp (`projector.py`'s
+`<!-- projected: ... -->` line) -- this convention is the same trick, generalized from per-document
+render metadata to per-block authoring intent. Zero render risk: a consumer who never adopts the
+convention loses nothing, and an adopter's comments never reach a reader.
+
+**Document-level dossier role.** A frontmatter field, `dossier_role:`, stating what a document
+uniquely contributes relative to its siblings in a broader dossier/collection: what would be lost if
+this document did not exist, that no sibling already covers.
+
+```yaml
+---
+title: Onboarding overview
+dossier_role: the single-page entry point; every other document in this dossier goes deeper on one facet
+---
+```
+
+Freeform, consumer-defined text, not an enum -- the same non-enum posture as the projection engine's
+clearance/distribution ladders: the engine ships no fixed dossier-role vocabulary of its own, so any
+string is accepted verbatim. Read via `roundtrip/dossier_role.read_dossier_role()`, following the
+repo's existing frontmatter-read idiom (the same regex-then-`yaml.safe_load` pattern as
+`gates/run_gates.py`'s `run_uids` and `roundtrip/source_uid.py`) rather than a new parsing path:
+locate the `---`-delimited body, read the one key, write nothing back.
+
+**Optional advisory lint (`render qa purpose`).** Flags a paragraph or heading with no purpose comment
+immediately above it, when a paragraph's word count is at or above `--min-words` (default 40) or the
+block is a heading (a section boundary is always considered prominent). Report-only, the SAME
+never-fails posture as `QC_SCRIPT`'s default (off/advisory, never blocking): the command always exits
+0. This is a nudge, not a gate -- not every document needs this level of authoring rigor.
+
+**Non-goals, by design.** No blocking enforcement of missing annotations (a document that never adopts
+the convention pays no penalty), and no automatic purpose inference (e.g. an LLM summarization pass
+over existing prose): the discipline's whole value is the author stating intent explicitly, which a
+summarizer cannot reconstruct after the fact from text that was never written with that intent.
+
 ## Diagram archetypes
 
 `lint/layered_stack.py` is the first entry in a diagram-archetype family (ROADMAP.md Track C1a):
@@ -315,6 +374,9 @@ BEFORE any vision/LLM pass (hard numbers accompany every subjective review):
 - `tables <render.docx>`: per-table column-geometry pressure (content share vs width share).
 - `paras <render.docx>`: overweight-paragraph ranking (simplification candidates).
 - `figs <source.md>`: figure inventory plus a low-contrast pre-filter.
+- `purpose <source.md>`: prominent paragraphs/headings with no preceding `<!-- PURPOSE: ... -->`
+  comment (#77). Read from SOURCE, not a rendered artifact -- purpose comments never survive
+  rendering, by design. Report-only; never fails (see "Purpose annotations and dossier role" above).
 
 Report-only by default; `leaks --fail-on-hits` exits non-zero for CI gating.
 

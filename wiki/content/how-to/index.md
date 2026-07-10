@@ -119,6 +119,38 @@ export RENDERFACT_GATE_LOG=~/.renderfact/gate.jsonl   # opt in to logging
 render gate-stats                                     # escalation rate + storm detection
 ```
 
+## Annotate a document's purpose and dossier role
+
+Record WHY a paragraph or section exists, so a later prunability pass can tell "load-bearing" from
+"true but not needed" without re-deriving intent from scratch:
+
+```markdown
+<!-- PURPOSE: states the tradeoff up front so a skimming reader gets the decision before the detail -->
+
+## Cost vs lead time
+...
+```
+
+The comment never reaches a reader (verified empirically against both the DOCX and PDF render
+paths -- see [Explanation](../explanation/index.md#purpose-annotations-and-dossier-role)), so adding
+one is zero render risk.
+
+State what a whole document is FOR relative to its siblings in the same dossier, in frontmatter:
+
+```yaml
+---
+title: Onboarding overview
+dossier_role: the single-page entry point; every other document in this dossier goes deeper on one facet
+---
+```
+
+Then, optionally, check which prominent blocks still lack a purpose comment (advisory only, never
+fails):
+
+```bash
+render qa purpose onboarding.md --min-words 40
+```
+
 ## Make your assistant renderfact-aware (harness mode)
 
 ```bash

@@ -15,7 +15,7 @@ title: Reference
 | `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
 | `render tokens ...` | Compile brand tokens to per-engine themes. |
 | `render import-template <docx>` | Derive a brand skin from any branded DOCX. |
-| `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight). |
+| `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight, purpose-comment coverage). |
 | `render serve [--enable-ui]` | Localhost HTTP API + thin reference UI. |
 | `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids, plainlang). |
 | `render doctor [--json]` | Host tools vs `tools.lock`: report OK/DRIFT/MISSING; always exit 0. |
@@ -54,6 +54,31 @@ render docstyle draft.docx styled.docx --profile reference --table-widths widths
 | `--template-profile <yaml>` | Override the whole theme (palette/font/geometry/marking/cover) from a profile yaml. |
 | `--table-widths <yaml>` | Operator-fitted column widths (twips), matched to tables by ordinal, scaled proportionally to fill the actual section text width (`apply_table_widths()`). |
 | `--cover-version <v>` / `--cover-date <d>` | Cover version/date line overrides (`--profile reference`). |
+
+## Purpose annotations and dossier role (#77)
+
+An annotative-only authoring convention: no blocking gate, degrades to nothing for a consumer who
+ignores it. See [Explanation](../explanation/index.md#purpose-annotations-and-dossier-role) for why it
+is shaped this way, and the [how-to recipe](../how-to/index.md#annotate-a-documents-purpose-and-dossier-role)
+for a worked example.
+
+```markdown
+---
+title: Onboarding overview
+dossier_role: the single-page entry point; every other document in this dossier goes deeper on one facet
+---
+
+<!-- PURPOSE: states the tradeoff up front so a skimming reader gets the decision before the detail -->
+
+## Cost vs lead time
+...
+```
+
+| Piece | Where | Notes |
+|---|---|---|
+| `<!-- PURPOSE: ... -->` | immediately above a paragraph or heading | Dropped by pandoc's raw-HTML handling on every writer this repo uses (DOCX, typst/PDF) -- never reaches a reader. |
+| `dossier_role:` | document frontmatter | Freeform text, no fixed vocabulary. Read via `roundtrip/dossier_role.read_dossier_role()`. |
+| `render qa purpose <source.md>` | CLI | Advisory-only lint: flags a prominent block (a heading, or a paragraph at or above `--min-words`, default 40) with no preceding purpose comment. Always exits 0. |
 
 ## `render pdf` -- layout-native PDF backend (typst)
 

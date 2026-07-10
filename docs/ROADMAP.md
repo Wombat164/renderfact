@@ -166,6 +166,13 @@ fail-closed default.
   style-diff gate, and a structure-conformance gate modeled on markdownlint's MD043 semantics;
   `[imitate]` BrandDocs (its color-scheme resolution logic), docx4j's PropertyResolver cascade
   pattern, and mammoth's style-map DSL as the config syntax.
+- **C9 - Purpose annotations and dossier role (#77).** `[build]` **DONE:** an annotative-only
+  authoring convention, never a blocking gate (D19). `<!-- PURPOSE: ... -->` HTML comments above a
+  paragraph/heading (verified empirically to be a no-op on both the DOCX and typst-PDF render paths,
+  reusing the same pandoc raw-HTML-drop mechanism D14's provenance header stamp already relies on),
+  a freeform `dossier_role:` frontmatter field (read via `roundtrip/dossier_role.py`, the same
+  frontmatter-read idiom as `renderfact_uid`), and an optional advisory-only `render qa purpose` lint
+  pass (never fails, same posture as `QC_SCRIPT`'s off-when-unset default).
 
 ## Track D - Round-trip / draft reconciliation
 
