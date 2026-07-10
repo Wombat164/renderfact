@@ -24,6 +24,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `provenance` | embed / extract / adopt / retarget hidden source provenance across DOCX/XLSX/PPTX | shipped |
 | `import-template` | derive a template profile (theme, fonts, geometry) from a branded DOCX, with an idempotency gate | shipped |
 | `qa` | deterministic post-render gate (leaks / tables / paras / figs / purpose) | shipped |
+| `gate` | fail-closed pre-publish QA gate chain (vale / lychee / verapdf / uids / plainlang) | shipped |
 | `serve` | localhost HTTP API plus opt-in thin reference UI | shipped |
 | `container` | raw passthrough to the OCI render wrapper | shipped |
 | `doctor` | native version-drift check against `tools.lock` | stub, not built |
@@ -279,7 +280,56 @@ the convention pays no penalty), and no automatic purpose inference (e.g. an LLM
 over existing prose): the discipline's whole value is the author stating intent explicitly, which a
 summarizer cannot reconstruct after the fact from text that was never written with that intent.
 
-## QA gates
+**Text-delta normalization (issue #72).** `roundtrip/reingest.py`'s `## 4. Text delta` /
+`## 5. Fast-forward plan` compare canonical-markdown lines against DOCX paragraph text, so any
+pandoc source syntax that never renders as literal DOCX text must be stripped from the markdown
+side first, or its absence reads as a false reviewer deletion. Two tiers: a pre-split, whole-block
+regex pass in `md_plaintext()` (frontmatter, HTML comments, and raw-attribute OOXML blocks such as
+a manual page break's ` ```{=openxml} ... ``` `, which spans multiple lines and cannot be stripped
+per-line) and a per-line pass in `_norm()` (non-breaking spaces, list bullets, auto-numbered
+headings, fenced-div `::: {...}` / `:::` lines, the blockquote `> ` marker). `render reingest
+--strip-pattern <regex>` (repeatable) adds caller-supplied patterns at the same per-line tier, for
+a project's own structural-noise conventions renderfact has no reason to special-case itself.
+
+## Pre-publish QA gate chain (B3)
+
+`gates/run_gates.py` (`render gate`) is the fail-closed sibling to the post-render `qa` gate below:
+findings fail the run, AND a requested stage whose tool is not installed also fails the run (exit 2):
+a gate you cannot execute is not a gate you passed. Every stage is a deterministic CLI subprocess
+or dependency-free Python, no LLM anywhere. Default chain: `vale,lychee,verapdf,uids,plainlang`,
+each stage self-scoping by file type so one `render gate <dir>` run applies each stage to the files
+it understands.
+
+- `vale`: text hygiene on markdown sources (errata-ai/vale). The generic-core default
+  (`gates/vale/vale.ini`) ships only Vale's built-in checks (repetition blocks, spelling warns);
+  a consumer's writing doctrine is private-skin config (`--vale-config` / `RENDERFACT_VALE_CONFIG`).
+  The demo skin (`demo/skin/vale/vale.ini`) is the worked example: `GoldenRules` (the deterministic
+  slice of a house writing style), `AiTells` (vendored authorial-AI-tell detection: filler phrases,
+  hedging, formal register, and so on), and `PlainLanguage` (issue #76: reader-facing plain-language
+  quality, a distinct concern from AiTells: sentence length and nominalisation density, both
+  warning-level advisory rather than blocking, since both are tunable heuristics rather than
+  clear-cut defects). `BeNl` (BE-NL lexical checks) is opt-in via a separate `vale.be-nl.ini`.
+- `lychee`: link integrity on markdown sources (lycheeverse/lychee), offline by default (relative
+  file links and anchors only, so the verdict is deterministic); `--online` opts into checking
+  external URLs.
+- `verapdf`: PDF/A and PDF/UA conformance on rendered PDFs (veraPDF, invoked as a CLI subprocess per
+  the dual GPL/MPL licence election). Validates against each PDF's declared standard by default;
+  `--pdf-flavour` forces one.
+- `uids`: duplicate `renderfact_uid` detection across a source tree. A file copy duplicates identity
+  (uuid4 generation cannot collide, but a fork or template carrying an existing uid claims the
+  original's lineage), which corrupts every provenance-anchored round-trip at organisational scale.
+  Dependency-free.
+- `plainlang`: repeated-phrase-across-sections scan (issue #76), a cheap n-gram/exact-match scan
+  over markdown sources (`docstyle/plain_language.py`) for the same multi-word phrase recurring
+  near-verbatim 3+ times in one document. The one PlainLanguage check that is NOT a Vale rule: Vale's
+  rule types all match a pattern fixed at authoring time, and this check needs the document's own
+  text as the source of the pattern to search for, which the DSL cannot express. UNLIKE every other
+  stage here, a finding does not fail the run by default (`--plainlang-fail-on-hits` opts in): a
+  repeated phrase is very often legitimate (a programme or component name used consistently), so
+  fail-closed-by-default would make it noise rather than signal, in the same
+  `render qa leaks --fail-on-hits` report-only shape used below.
+
+## Post-render QA gate
 
 `lint/render_qa.py` (`render qa`) is a deterministic, zero-LLM gate over rendered artifacts, run
 BEFORE any vision/LLM pass (hard numbers accompany every subjective review):

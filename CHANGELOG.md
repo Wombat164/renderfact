@@ -10,6 +10,16 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **PlainLanguage Vale style + `plainlang` gate stage** (issue #76): `render gate --stages vale` now
+  also carries a reader-facing plain-language/KISS check, distinct from the existing `AiTells`
+  authorial-tell detection. `demo/skin/vale/styles/PlainLanguage/`: `SentenceLength` (tunable
+  word-count threshold, suggests a split at a coordinating conjunction or semicolon) and
+  `NominalisationDensity` (English `-tion`/`-ance`/`-ment` suffix density per paragraph, suggests a
+  verb-first rewrite); both `level: warning`, advisory rather than blocking. A third check
+  (repeated multi-word comparator/transition phrase across a document) is not expressible as a Vale
+  rule (the DSL cannot search for a pattern it does not know in advance) and ships instead as
+  `docstyle/plain_language.py`, wired into `render gate` as a new `plainlang` stage; unlike the
+  other gate stages this one is report-only by default (`--plainlang-fail-on-hits` opts in).
 - **`render docstyle`** (issue #74): the house-style DOCX post-processor's standalone CLI surface
   (`--profile`, `--template-profile`, `--table-widths`, `--cover-version`, `--cover-date`) is now a
   documented top-level subcommand, in addition to being invoked internally by `render docx`. Fixes the
@@ -44,6 +54,15 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   had the extension. Both paths now build `--from` from one shared constant,
   `pandoc_markdown.MARKDOWN_FROM`, so the extension cannot drop out of one sibling script while
   staying in another.
+- **`render reingest` text-delta false positives (#72)**: pandoc-specific structural syntax (fenced-div
+  `::: {...}` / `:::` lines, raw-attribute OOXML blocks such as a manual page break's ` ```{=openxml}
+  ... ``` `, and the blockquote `> ` marker) never renders as literal text in the DOCX, but the `## 4.
+  Text delta` / `## 5. Fast-forward plan` comparison used to treat their absence as a reviewer deletion.
+  These are now stripped from the canonical-markdown side before the diff, at the same normalization
+  tier as the existing list-bullet/auto-numbered-heading stripping. Ordered-list markers (`1.`, `2.`,
+  ...) were already handled correctly by the fast-forward planner and are unaffected. Also adds a
+  repeatable `render reingest --strip-pattern <regex>` flag so a project can strip its own
+  structural-noise conventions (e.g. a custom heading-anchor sigil) without renderfact special-casing them.
 
 ## [0.4.0] - 2026-07-04
 

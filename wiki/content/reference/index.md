@@ -17,10 +17,10 @@ title: Reference
 | `render import-template <docx>` | Derive a brand skin from any branded DOCX. |
 | `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight, purpose-comment coverage). |
 | `render serve [--enable-ui]` | Localhost HTTP API + thin reference UI. |
-| `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids). |
+| `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids, plainlang). |
 | `render doctor [--json]` | Host tools vs `tools.lock`: report OK/DRIFT/MISSING; always exit 0. |
 | `render provenance embed\|extract\|strip\|adopt\|retarget` | D11 provenance operations on DOCX/XLSX/PPTX/VSDX. |
-| `render reingest <edited.docx> --source <md>` | Mechanical re-ingestion of an edited document. |
+| `render reingest <edited.docx> --source <md> [--strip-pattern <re>]` | Mechanical re-ingestion of an edited document; `--strip-pattern` (repeatable) strips extra project-specific structural-noise regexes from the text-diff. |
 | `render drawio generate\|reingest` | Editable-diagram round-trip, draw.io adapter (C8.1). |
 | `render vsdx generate\|reingest` | Editable-diagram round-trip, Visio adapter (C8.2; needs `vsdx`). |
 | `render decision-capture --source <g> --reingest <j>` | Capture diagram-edit intent; deterministic first, LLM past the gate (C8.3). |

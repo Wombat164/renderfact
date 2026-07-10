@@ -70,6 +70,26 @@ vale,lychee,verapdf,uids, each stage self-scoping by file type. The uids stage (
 operator requirement: multi-user organisations) detects DUPLICATE renderfact_uid values across a
 source tree: uuid4 generation cannot collide, but a file copy duplicates identity and corrupts
 every provenance-anchored round-trip downstream; dependency-free and deterministic.
+**B3d PlainLanguage/plainlang DONE (issue #76):** the demo skin's Vale catalogue gained a distinct
+concern from AiTells (authorial-tell detection): reader-facing plain-language/KISS quality.
+**[build]** two of the three checks the issue asked for turned out Vale-expressible after all, so
+they ship as a `PlainLanguage` Vale style package (`demo/skin/vale/styles/PlainLanguage/`), wired
+into `BasedOnStyles` alongside `AiTells` the same way `GoldenRules` already is: `SentenceLength`
+(`existence`, `scope: sentence`, a tunable word-count threshold suggesting a split at a coordinating
+conjunction or semicolon) and `NominalisationDensity` (`occurrence`, `scope: paragraph`, English
+suffix set `-tion`/`-ance`/`-ment`, structured so a Dutch sibling can be added later without
+redesign). Both ship `level: warning`: advisory, not blocking, since both are tunable heuristics
+that legitimately false-positive on complex-but-correct prose, unlike the fail-closed AiTells rules.
+The third check (the same multi-word comparator/transition phrase recurring 3+ times across a
+document) is a genuine Vale DSL limitation, not a modeling choice: every Vale rule type matches a
+pattern fixed at authoring time, and this needs the document's own text as the source of the search
+pattern. It ships instead as `docstyle/plain_language.py`, a dependency-free cheap n-gram/exact-match
+scan, wired into `render gate` as a new `plainlang` stage. Default chain is now
+vale,lychee,verapdf,uids,plainlang. plainlang is the one stage that does NOT fail-closed by default
+(`--plainlang-fail-on-hits` opts in): a repeated phrase is very often a legitimately reused
+programme/component name, so blocking-by-default would make it noise rather than signal, matching
+`render qa leaks --fail-on-hits`'s existing report-only precedent rather than this track's usual
+fail-closed default.
 - **B4 - Visual-QA for all families.** NEXT.
 
 ## Track C - Add
@@ -162,6 +182,13 @@ renderfact-tracked embedded OPC document (docx/xlsx/pptx/vsdx all share docProps
 generically) is routed to its own per-format path; an OOXML file without provenance is flagged
 unknown-origin (adopt candidate); any other type is tried through markitdown (optional extra)
 for a text preview. Embeddings are matched by path segment, covering XLSX/PPTX/VSDX hosts too.
+**Text-delta structural-noise fix (issue #72):** pandoc-specific structural syntax (fenced-divs,
+raw-attribute OOXML blocks, blockquote markers) never renders as literal DOCX text, so the delta
+used to show their absence as false-positive reviewer deletions. Fixed by stripping them from the
+canonical-markdown side before the diff, at the same normalization tier as the pre-existing
+list-bullet/auto-numbered-heading stripping (ordered-list markers were already handled correctly
+and are unaffected). `render reingest --strip-pattern <regex>` (repeatable) lets a project add its
+own structural-noise conventions without renderfact special-casing them.
 Remaining in Track D: 4.2 split-plus-embed dual output, 4.5 LLM contextualize (rides D8), 4.6
 three-way merge, 4.7 git finalize.
 

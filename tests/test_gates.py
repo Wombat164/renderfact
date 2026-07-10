@@ -227,6 +227,102 @@ def test_uids_stage_ignores_sources_without_uid(tmp_path):
     assert "0 uid-carrying" in r.detail
 
 
+# ---- plainlang stage: repeated-phrase-across-sections (issue #76) ----
+# Dependency-free, deterministic (same as uids), but UNLIKE every other stage
+# a finding is report-only by default: see docstyle/plain_language.py and
+# demo/skin/vale/styles/PlainLanguage/README.md for why.
+
+def test_plainlang_stage_no_files(tmp_path):
+    (tmp_path / "doc.txt").write_text("text", encoding="utf-8")
+    r = run_gates.run_plain_language([str(tmp_path)])
+    assert r.status == "NO_FILES"
+
+
+def test_plainlang_stage_passes_clean(tmp_path):
+    (tmp_path / "doc.md").write_text(
+        "A short clean document with nothing repeated in it at all.\n", encoding="utf-8")
+    r = run_gates.run_plain_language([str(tmp_path)])
+    assert r.status == "PASS"
+    assert "no repeated phrase" in r.detail
+
+
+def test_plainlang_stage_finding_is_report_only_by_default(tmp_path):
+    (tmp_path / "doc.md").write_text(
+        "In the same way as the reference design, section one applies here. "
+        "In the same way as the reference design, section two applies here. "
+        "In the same way as the reference design, section three applies here.\n",
+        encoding="utf-8")
+    r = run_gates.run_plain_language([str(tmp_path)])
+    assert r.status == "PASS"  # report-only: a hit does not fail the run by default
+    assert "repeated phrase" in r.detail
+    assert "report-only" in r.detail
+
+
+def test_plainlang_stage_fail_on_hits_flag_blocks(tmp_path):
+    (tmp_path / "doc.md").write_text(
+        "In the same way as the reference design, section one applies here. "
+        "In the same way as the reference design, section two applies here. "
+        "In the same way as the reference design, section three applies here.\n",
+        encoding="utf-8")
+    r = run_gates.run_plain_language([str(tmp_path)], fail_on_hits=True)
+    assert r.status == "FAIL"
+    assert "repeated phrase" in r.detail
+
+
+def test_plainlang_stage_thresholds_are_tunable(tmp_path):
+    (tmp_path / "doc.md").write_text(
+        "Section one behaves in the same way as the pilot did. "
+        "Section two behaves in the same way as the pilot did. "
+        "Section three is unrelated and stands on its own.\n",
+        encoding="utf-8")
+    # Below the default min_count of 3 (only two repeats): clean.
+    default_result = run_gates.run_plain_language([str(tmp_path)])
+    assert default_result.status == "PASS"
+    assert "no repeated phrase" in default_result.detail
+    # Lowering min_count to 2 surfaces the same two-repeat phrase.
+    r = run_gates.run_plain_language([str(tmp_path)], min_count=2)
+    assert "repeated phrase" in r.detail and "report-only" in r.detail
+
+
+def test_plainlang_stage_unknown_stage_still_rejects(tmp_path, capsys):
+    (tmp_path / "doc.md").write_text("text", encoding="utf-8")
+    rc = run_gates.main([str(tmp_path), "--stages", "plainlang,bogus"])
+    assert rc == 2
+    assert "unknown stage" in capsys.readouterr().err
+
+
+def test_render_entrypoint_dispatches_plainlang_stage_report_only(tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text(
+        "In the same way as the reference design, section one applies here. "
+        "In the same way as the reference design, section two applies here. "
+        "In the same way as the reference design, section three applies here.\n",
+        encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "gate", str(doc), "--stages", "plainlang"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0
+    assert "[plainlang] PASS" in result.stdout
+    assert "repeated phrase" in result.stdout
+
+
+def test_render_entrypoint_dispatches_plainlang_fail_on_hits_flag(tmp_path):
+    doc = tmp_path / "doc.md"
+    doc.write_text(
+        "In the same way as the reference design, section one applies here. "
+        "In the same way as the reference design, section two applies here. "
+        "In the same way as the reference design, section three applies here.\n",
+        encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "gate", str(doc), "--stages", "plainlang",
+         "--plainlang-fail-on-hits"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 1
+    assert "[plainlang] FAIL" in result.stdout
+
+
 # ---- demo skin GoldenRules style (writing doctrine as CONSUMER config) ----
 
 DEMO_VALE_CONFIG = REPO_ROOT / "demo" / "skin" / "vale" / "vale.ini"
@@ -255,6 +351,73 @@ def test_demo_source_passes_its_own_skin_rules():
     rc = run_gates.main([str(REPO_ROOT / "demo" / "source"), "--stages", "vale",
                          "--vale-config", str(DEMO_VALE_CONFIG)])
     assert rc == 0
+
+
+# ---- demo skin PlainLanguage style (issue #76: reader-facing KISS quality,
+# distinct from AiTells' authorial-tell detection) ----
+
+@pytestmark_real
+def test_demo_skin_sentence_length_warns_but_does_not_block(tmp_path):
+    long_sentence = (
+        "This sentence keeps going and going with clause after clause "
+        "connected by conjunctions and by commas describing several distinct "
+        "ideas in a single breath without ever pausing for a full stop which "
+        "is exactly the kind of sentence a plain language reviewer would "
+        "want split cleanly in two for an easier read.\n"
+    )
+    warn = tmp_path / "warn.md"
+    warn.write_text("# T\n\n" + long_sentence, encoding="utf-8")
+    result = subprocess.run(
+        ["vale", "--config", str(DEMO_VALE_CONFIG), "--output", "line", str(warn)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert "PlainLanguage.SentenceLength" in result.stdout
+    rc = run_gates.main([str(warn), "--stages", "vale", "--vale-config", str(DEMO_VALE_CONFIG)])
+    assert rc == 0  # warning-level: advisory, does not block the gate
+
+
+@pytestmark_real
+def test_demo_skin_short_sentences_do_not_trigger_sentence_length(tmp_path):
+    clean = tmp_path / "clean.md"
+    clean.write_text("# T\n\nA short, clear sentence. Another short one follows it.\n",
+                     encoding="utf-8")
+    result = subprocess.run(
+        ["vale", "--config", str(DEMO_VALE_CONFIG), "--output", "line", str(clean)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert "PlainLanguage.SentenceLength" not in result.stdout
+
+
+@pytestmark_real
+def test_demo_skin_nominalisation_density_warns_but_does_not_block(tmp_path):
+    dense = tmp_path / "dense.md"
+    dense.write_text(
+        "# T\n\nThe migration required careful documentation, coordination "
+        "across departments, and eventual agreement on the governance "
+        "arrangement, which added extra management overhead to the "
+        "procurement declaration.\n",
+        encoding="utf-8")
+    result = subprocess.run(
+        ["vale", "--config", str(DEMO_VALE_CONFIG), "--output", "line", str(dense)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert "PlainLanguage.NominalisationDensity" in result.stdout
+    rc = run_gates.main([str(dense), "--stages", "vale", "--vale-config", str(DEMO_VALE_CONFIG)])
+    assert rc == 0  # warning-level: advisory, does not block the gate
+
+
+@pytestmark_real
+def test_demo_skin_low_nominalisation_paragraph_does_not_trigger(tmp_path):
+    clean = tmp_path / "clean.md"
+    clean.write_text(
+        "# T\n\nA short paragraph that names one process and one decision, "
+        "nothing more, and stops there.\n",
+        encoding="utf-8")
+    result = subprocess.run(
+        ["vale", "--config", str(DEMO_VALE_CONFIG), "--output", "line", str(clean)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert "PlainLanguage.NominalisationDensity" not in result.stdout
 
 
 HAVE_LYCHEE = shutil.which("lychee") is not None
