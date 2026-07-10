@@ -173,15 +173,31 @@ document out of the box, and consumers override with `--template-profile`.
   organisation-specific (palette, font, geometry, marking-text replacements, cover labels,
   punctuation normalization) is plain data in an optional profile YAML. The profile mechanism is
   purely additive: with no profile the neutral defaults apply and no marking edits are made. A profile
-  can be hand-written, or (roadmap C7) derived from an imported corporate template.
-  - **Custom-style font fidelity (issue #98, D21).** The house body font/size pass respects a
-    paragraph's own custom style by default: a paragraph carrying a style outside the built-in/default
-    set (e.g. reached via a pandoc `::: {custom-style="X"} ... :::` fenced div) whose OWN `w:rPr`
-    already defines a font/size is left with no direct-formatting run override, so it falls through to
-    pure style inheritance instead of being stomped with the house look. Built-in categories
-    (Title/Subtitle/Heading 1-4) and the generic default-body case are unaffected. The pre-#98 blanket
-    override is available as an explicit opt-in: `--override-custom-style-fonts` (CLI) or
-    `override_custom_style_fonts: true` (template-profile.yaml).
+  can be hand-written, or (roadmap C7) derived from an imported corporate template. A single global
+  `font` key cannot represent a template that uses distinct fonts on distinct paragraph styles (issue
+  #97), so the profile's optional `styles:` block carries per-named-style font overrides, falling back
+  to `font` for any style not listed; a template that only ever uses one font derives an empty block
+  and renders identically to before this key existed.
+- **import-template's per-style font derivation (issue #97).** `derive_style_font_overrides` walks
+  EVERY paragraph `w:style` definition's `w:rPr/w:rFonts` (the same one-level `basedOn` fallback
+  `style_font_info` already applies to Normal/Heading), not just the handful of named styles C7 already
+  special-cases, and keeps only the GENUINE overrides: a style whose resolved font differs from the
+  derived global `font`. A style that happens to resolve to the same font as the global default is
+  left out, keeping the derived profile minimal rather than padding it with redundant per-style
+  entries. When no style differs, the generated profile carries a one-line note instead of an empty
+  block, the same honesty-over-guessing posture the theme keys already follow.
+- **Custom-style font fidelity (issue #98, D21).** The house body font/size pass respects a
+  paragraph's own custom style by default: a paragraph carrying a style outside the built-in/default
+  set (e.g. reached via a pandoc `::: {custom-style="X"} ... :::` fenced div) whose OWN `w:rPr`
+  already defines a font/size is left with no direct-formatting run override, so it falls through to
+  pure style inheritance instead of being stomped with the house look. Built-in categories
+  (Title/Subtitle/Heading 1-4) and the generic default-body case are unaffected. The pre-#98 blanket
+  override is available as an explicit opt-in: `--override-custom-style-fonts` (CLI) or
+  `override_custom_style_fonts: true` (template-profile.yaml). Note (#97+#98 interaction): when a
+  custom style is respected (this bullet), its own font wins outright; when it is NOT respected (the
+  paragraph is in the known-non-custom set, or `--override-custom-style-fonts` forces it), the
+  per-style `styles:` override above still applies to it if one is configured for that style name,
+  falling back to the global `font` otherwise.
 - **heading_numbering** injects field-based heading numbering AFTER pandoc, because pandoc regenerates
   the numbering part on every render and drops custom list definitions imported from a reference doc.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that

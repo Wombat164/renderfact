@@ -152,8 +152,11 @@ fail-closed default.
   code-execution mistake as the negative example: LLM-generated content must render through pinned,
   isolated engines on TEXT the LLM produced, never `exec()`-run raw LLM code.
 - **C7 - Template import.** DOCX style axis SHIPPED (`render import-template <corporate.docx>`:
-  shared DrawingML theme extractor, derived template-profile with template provenance, and the
-  probe-render style-diff idempotency gate). Remaining `[build]`: the PPTX and XLSX importers and
+  shared DrawingML theme extractor, derived template-profile with template provenance, the
+  probe-render style-diff idempotency gate, and per-named-style font derivation, issue #97: a
+  template that uses distinct fonts on distinct paragraph styles gets a `styles:` block in the derived
+  profile carrying only the genuine overrides, not just the single global `font` key a template with
+  one uniform font still gets). Remaining `[build]`: the PPTX and XLSX importers and
   the content-skeleton axis: derive the
   skin config FROM an imported branded template so the FIRST render is idempotent with the template's
   look (a shared OOXML DrawingML theme extractor plus per-format derivation, a derived

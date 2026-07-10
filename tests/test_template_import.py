@@ -199,6 +199,137 @@ def test_derive_profile_falls_back_to_theme_when_style_unset(tmp_path):
     assert dp.derived["font"] == KNOWN_MINOR_FONT
 
 
+# ---------- (b2) per-style font overrides (issue #97) ----------
+
+def test_derive_style_font_overrides_only_genuine_differences(tmp_path):
+    """Two paragraph styles carrying genuinely different fonts: the derived
+    profile must capture the DISTINCT one (Quote: Georgia, an existing
+    built-in python-docx style repurposed here rather than a custom one, so
+    the walk is proven to cover built-ins too) as a per-style override, and
+    must NOT emit a redundant entry for a style (Caption) whose explicit font
+    just happens to match the global default (Verdana, from Normal). Word's
+    own default template also ships one intrinsic deviation of its own ('macro'
+    / Macro Text -> Courier), asserted here too so the test stays honest about
+    what the walk actually returns rather than special-casing it away."""
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    doc.styles["Quote"].font.name = "Georgia"
+    doc.styles["Caption"].font.name = KNOWN_MINOR_FONT  # matches the global default
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.derived["font"] == KNOWN_MINOR_FONT
+    assert dp.style_fonts == {"Quote": "Georgia", "macro": "Courier"}
+    assert "Caption" not in dp.style_fonts
+
+
+def test_derive_style_font_overrides_filters_out_when_global_matches(tmp_path):
+    """When the global font itself equals python-docx's one intrinsic built-in
+    deviation (the 'macro' style's Courier), that style is correctly filtered
+    as redundant, proving the "only genuine differences" rule applies
+    symmetrically to built-in noise, not just custom styles."""
+    path = tmp_path / "uniform.docx"
+    doc = Document()
+    doc.styles["Normal"].font.name = "Courier"
+    doc.add_paragraph("body")
+    doc.save(str(path))
+
+    theme = Theme(colors={}, fonts={})
+    doc2 = Document(str(path))
+    dp = ti.derive_profile(doc2, theme)
+    assert dp.derived["font"] == "Courier"
+    assert dp.style_fonts == {}
+
+
+def test_render_profile_yaml_emits_styles_block_when_overrides_found(tmp_path):
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    doc.styles["Quote"].font.name = "Georgia"
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert "styles:" in yaml_text
+    assert '"Quote":' in yaml_text
+    assert "font: Georgia" in yaml_text
+
+
+def test_render_profile_yaml_notes_no_style_overrides_when_none_found(tmp_path):
+    # Force the global font to equal python-docx's one intrinsic built-in
+    # deviation (the 'macro' style ships Courier by default) so every
+    # paragraph style in this template resolves to the SAME font.
+    path = tmp_path / "uniform.docx"
+    doc = Document()
+    doc.styles["Normal"].font.name = "Courier"
+    doc.add_paragraph("body")
+    doc.save(str(path))
+
+    theme = Theme(colors={}, fonts={})
+    doc2 = Document(str(path))
+    dp = ti.derive_profile(doc2, theme)
+    prov = ti.build_import_provenance(path, date_str="2026-07-10")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert "styles:" not in yaml_text
+    assert "No per-style font overrides found" in yaml_text
+
+
+def test_derived_style_fonts_round_trip_through_consumer(tmp_path, monkeypatch):
+    """End-to-end (derivation + consumption): derive a profile from a template
+    with two distinct paragraph-style fonts, then run style_postprocess on a
+    document using both styles, and assert the OUTPUT carries the correct
+    per-style font (not the global one) where a style overrides it, and the
+    global font everywhere else (issue #97)."""
+    import importlib
+
+    from docstyle import style_postprocess as sp
+
+    importlib.reload(sp)  # isolate module globals from any earlier test
+
+    template = _build_branded_template(tmp_path, name="two-font-template.docx")
+    doc = Document(str(template))
+    doc.styles["Quote"].font.name = "Georgia"
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    assert dp.derived["font"] == KNOWN_MINOR_FONT
+    assert dp.style_fonts["Quote"] == "Georgia"
+
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    profile_path = tmp_path / "template-profile.yaml"
+    profile_path.write_text(ti.render_profile_yaml(prov, dp), encoding="utf-8")
+
+    consumer_doc = Document()
+    consumer_doc.add_heading("Body Section", level=1)
+    consumer_doc.add_paragraph(
+        "A quoted line long enough to carry a run.", style=consumer_doc.styles["Quote"])
+    consumer_doc.add_paragraph("A plain body paragraph using the global font.")
+    src = tmp_path / "consumer-in.docx"
+    consumer_doc.save(str(src))
+
+    out = tmp_path / "consumer-out.docx"
+    monkeypatch.setattr(sys, "argv",
+                        ["style_postprocess.py", str(src), str(out),
+                         "--template-profile", str(profile_path)])
+    sp.main()
+
+    out_doc = Document(str(out))
+    quote_para = next(p for p in out_doc.paragraphs if p.style.name == "Quote")
+    assert quote_para.runs[0].font.name == "Georgia"
+    body_para = next(p for p in out_doc.paragraphs
+                     if p.text.startswith("A plain body"))
+    assert body_para.runs[0].font.name == KNOWN_MINOR_FONT
+
+
 def test_main_writes_profile_with_copy_reference(tmp_path):
     template = _build_branded_template(tmp_path)
     out_dir = tmp_path / "skin"
