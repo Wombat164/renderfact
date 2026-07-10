@@ -16,7 +16,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 |---|---|---|
 | `project` | one profiled source -> one governed render per audience/clearance/disclosure profile | shipped |
 | `docx` | annotated markdown -> styled DOCX (plus optional PDF) | shipped |
-| `diagram` | mermaid / d2 rendering with pre-render lint and visual-QA metrics | shipped |
+| `diagram` | mermaid / d2 rendering with pre-render lint, visual-QA metrics, and (issue #68) the `layered-stack` archetype generator | shipped |
 | `tokens` | `brand.yaml` -> per-engine themes (mermaid JSON, marp CSS, pandoc profile, typst tokens) | shipped |
 | `init-ai` | install D8 step instructions into the user's own assistant | shipped |
 | `copy-paste` | run a D8 step with no harness: assemble a prompt, paste the reply back | shipped |
@@ -182,6 +182,40 @@ would be silently stomped. So the editor and any save-path never refresh provena
 `render` or `retarget` stamps it. A `source_commit` field, stamped at render time only when the
 source sits in a clean git work tree, makes ancestor recovery a direct `git show`.
 
+## Diagram archetypes
+
+`lint/layered_stack.py` is the first entry in a diagram-archetype family (ROADMAP.md Track C1a):
+a purpose-built generator for one recurring architecture shape, as opposed to a hand-drawn mermaid/d2
+diagram. `render diagram` dispatches to it by CONTENT sniff, not a new subcommand: a `.yaml`/`.yml`
+file whose top level carries `archetype: layered-stack` is parsed, validated, and rendered to D2
+(then through the existing D2 -> svg -> pdf pipeline, unchanged); any other `.yaml`/`.yml` file is
+skipped, the same as any unsupported extension.
+
+- **Shape (issue #68, FR1-FR3):** an ordered technology stack, top to bottom, with an explicit,
+  visually distinct INTERFACE boundary between adjacent layers (D2 `shape: oval`, a fixed status.info
+  fill, and a thicker stroke - ArchiMate's ball-and-socket convention as the visual precedent,
+  not drawn literally), and a `chains` segment supporting N parallel REALIZING CHAINS laid out side
+  by side under one shared interface via a D2 `grid-columns` container (N=1 is the degenerate,
+  default case: an ordinary pass-through segment of the stack). The source is plain, hand-authored
+  renderfact YAML - no dependency on Archi or any ArchiMate file.
+- **Styling:** brand.yaml ROLES (colour.brand.fill/primary/ink, colour.status.info, the colour.data
+  Wong-8 categorical palette for distinguishing parallel chains) are resolved to literal D2
+  `style.*` values at generation time - the same resolution pattern `tokens/gen/mermaid_theme.py`
+  uses for Mermaid, adapted for D2's inline styling since D2 has no external theme-file injection
+  mechanism to target the way `mmdc --configFile` does. D2's built-in renderer only ships a small
+  fixed font set and rejects arbitrary family names outright, so `type.body_font` is deliberately NOT
+  applied - documented as an engine limitation, the same honesty `mermaid_theme.py` already applies
+  to its own theme-system gaps, rather than silently dropped.
+- **NFR6 element budget:** the model's semantic element count (every layer box, interface marker, and
+  per-chain layer box) is checked against `lint/element_budget.py`'s EXISTING tier budgets - the same
+  table the generic `.d2`/`.mmd`/`.svg` line-count linter already enforces - and fails closed with an
+  actionable "split this into multiple views" message before any D2 is generated.
+- **Deliberately out of scope:** the issue's own FR4-FR7 (an optional ArchiMate Exchange-XML adapter:
+  stdlib-only XML parsing, ArchiMate layer/element-type mapping, fail-closed on an unsupported
+  construct, content-sniff dispatch alongside the plain-YAML source) is tracked as its own follow-up
+  issue, not built here. The core archetype has zero ArchiMate awareness and no optional dependency of
+  any kind.
+
 ## QA gates
 
 `lint/render_qa.py` (`render qa`) is a deterministic, zero-LLM gate over rendered artifacts, run
@@ -248,7 +282,8 @@ projection/  the projection engine: profiled blocks -> one governed render per p
 docstyle/    generic DOCX house-style post-processor + field-based heading numbering
 api/         stdlib HTTP API (step contracts + projection over localhost) + thin reference UI
 container/   OCI image (Containerfile) + render wrapper + render-doc.sh + bundle-annex-linux.py + verify-pins.sh
-lint/        diagram render harness + pre-render linters + visual-QA metrics + the D8 step contract + render_qa
+lint/        diagram render harness + pre-render linters + visual-QA metrics + the D8 step contract +
+             render_qa + the diagram archetype family (layered_stack.py, issue #68)
 tokens/      brand.yaml token mechanism + per-engine generators (tokens/gen/)
 contracts/   the generic D8 I/O-contract validator + harness-mode installer + copy-paste fallback
 roundtrip/   provenance embed/extract/adopt/retarget + stable source UID (named to avoid shadowing python-docx)
