@@ -16,6 +16,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 |---|---|---|
 | `project` | one profiled source -> one governed render per audience/clearance/disclosure profile | shipped |
 | `docx` | annotated markdown -> styled DOCX (plus optional PDF) | shipped |
+| `docstyle` | standalone house-style DOCX post-processor (font/heading/table styling, `--table-widths`, `--cover-version`/`--cover-date`); the same engine `docx` calls internally, exposed directly (issue #74) | shipped |
 | `diagram` | mermaid / d2 rendering with pre-render lint and visual-QA metrics | shipped |
 | `tokens` | `brand.yaml` -> per-engine themes (mermaid JSON, marp CSS, pandoc profile, typst tokens) | shipped |
 | `init-ai` | install D8 step instructions into the user's own assistant | shipped |
@@ -133,6 +134,12 @@ document out of the box, and consumers override with `--template-profile`.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that
   renumber automatically on insert / reorder / delete. It is idempotent: re-running on an
   already-numbered document is a no-op. The source carries number-free headings.
+
+`render docx` (render-doc.sh) invokes `style_postprocess.py` directly as a subprocess for its own
+house-style pass; that call path is unchanged. `render docstyle` (issue #74) is an additional,
+directly documented entry point onto the same `main()`, for callers who want the post-processor's
+capabilities (most notably `--table-widths`, which the `docx` pipeline does not pass through today)
+without going through the full DOCX pipeline.
 
 ## The D8 dual-mode step contract
 
