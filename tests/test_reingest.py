@@ -319,6 +319,165 @@ def test_apply_preserves_leading_list_marker(tmp_path):
     assert "- The plan starts in May.\n" in src.read_text(encoding="utf-8")
 
 
+def test_apply_preserves_leading_ordered_list_marker(tmp_path):
+    """Regression guard (issue #72): ordered-list markers ('1.', '2.', ...) are
+    NOT stripped by _norm (unlike bullet markers) -- the fast-forward planner
+    already handles this correctly because _norm_source_line() and the diff's
+    own normalization agree on keeping the digit marker, so the two sides still
+    match uniquely; _LEADING_MARKER then strips it only for the write-back.
+    Must keep working exactly as-is: this is the "already handled" case from
+    the issue, not something this PR's fix touches."""
+    src = tmp_path / "doc.md"
+    src.write_text("---\ntitle: T\n---\n\n# H\n\n1. The plan starts in March.\n", encoding="utf-8")
+    md_text = src.read_text(encoding="utf-8")
+    safe, manual = _plan(md_text, ["#> H", "The plan starts in May."])
+    assert len(safe) == 1 and manual == []
+    reingest.apply_fast_forward(src, safe)
+    assert "1. The plan starts in May.\n" in src.read_text(encoding="utf-8")
+
+
+# ---- structural-noise stripping (issue #72) ----
+
+def test_fenced_div_lines_produce_no_text(tmp_path):
+    md = ('---\ntitle: T\n---\n\n::: {custom-style="Title"}\n# Overview\n:::\n\n'
+         "Body paragraph.\n")
+    lines = [x for x in (reingest._norm(y) for y in reingest.md_plaintext(md)) if x]
+    assert lines == ["#> Overview", "Body paragraph."]
+    assert not any(":::" in ln for ln in lines)
+
+
+def test_raw_attribute_block_is_dropped_whole(tmp_path):
+    md = ('---\ntitle: T\n---\n\nBefore.\n\n```{=openxml}\n'
+         '<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n```\n\nAfter.\n')
+    lines = [x for x in (reingest._norm(y) for y in reingest.md_plaintext(md)) if x]
+    assert lines == ["Before.", "After."]
+    assert not any("openxml" in ln or "w:br" in ln for ln in lines)
+
+
+def test_blockquote_marker_is_dequoted_not_dropped():
+    md = '---\ntitle: T\n---\n\n> A quoted tagline.\n'
+    lines = [x for x in (reingest._norm(y) for y in reingest.md_plaintext(md)) if x]
+    assert lines == ["A quoted tagline."]
+
+
+def _make_structural_noise_source(tmp_path: Path, tagline: str = "The plan starts in March.") -> Path:
+    src = tmp_path / "doc.md"
+    src.write_text(
+        '---\ntitle: T\n---\n\n::: {custom-style="Title"}\n# Overview\n:::\n\n'
+        '```{=openxml}\n<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n```\n\n'
+        f"> A quoted tagline.\n\n{tagline}\n",
+        encoding="utf-8",
+    )
+    return src
+
+
+def _make_structural_noise_docx(tmp_path: Path, source: Path, tagline: str) -> Path:
+    doc = Document()
+    doc.add_heading("Overview", level=1)
+    doc.add_paragraph("A quoted tagline.")
+    doc.add_paragraph(tagline)
+    path = tmp_path / "rendered.docx"
+    doc.save(str(path))
+    provenance.embed(path, provenance.build_provenance(source))
+    return path
+
+
+def test_reingest_report_has_no_structural_false_deletions(tmp_path):
+    """End-to-end (issue #72 repro shape): a source using fenced-divs, a
+    raw-attribute page-break block, and a blockquote, re-ingested against a
+    DOCX that matches it exactly (no reviewer edit at all). Before the fix,
+    '{=openxml}', the raw XML line, ':::', and '> ...' all showed up as
+    spurious deletions. After the fix the delta must be completely empty."""
+    src = _make_structural_noise_source(tmp_path)
+    art = _make_structural_noise_docx(tmp_path, src, "The plan starts in March.")
+
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src), "--json"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["verdict"] == "FAST_FORWARD"
+    assert payload["delta"] == []
+    assert payload["manual"] == []
+    assert payload["safe_edits"] == []
+
+
+def test_genuine_edit_near_structural_noise_still_surfaces(tmp_path):
+    """A real reviewer edit sitting right next to fenced-div/raw-attribute/
+    blockquote noise must still be caught, and caught ALONE -- no adjacent
+    structural noise should also show up in the delta."""
+    src = _make_structural_noise_source(tmp_path)
+    art = _make_structural_noise_docx(tmp_path, src, "The plan starts in March.")
+
+    doc = Document(str(art))
+    for p in doc.paragraphs:
+        if p.text == "The plan starts in March.":
+            p.runs[0].text = "The plan starts in May."
+    doc.save(str(art))
+
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src), "--json"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["verdict"] == "FAST_FORWARD"
+    assert payload["delta"] == ["-The plan starts in March.", "+The plan starts in May."]
+    assert len(payload["safe_edits"]) == 1
+    edit = payload["safe_edits"][0]
+    assert edit["old"] == "The plan starts in March."
+    assert edit["new"] == "The plan starts in May."
+    assert payload["manual"] == []
+
+
+def test_strip_pattern_knob_removes_project_specific_sigil(tmp_path):
+    """The --strip-pattern knob (issue #72) covers project-specific structural
+    conventions renderfact itself has no reason to special-case, e.g. a custom
+    heading-anchor sigil like '#>' that never renders as literal DOCX text."""
+    src = tmp_path / "doc.md"
+    src.write_text(
+        "---\ntitle: T\n---\n\n# Overview\n\n#> Aanpak (kept).\n\nBody paragraph.\n",
+        encoding="utf-8",
+    )
+    doc = Document()
+    doc.add_heading("Overview", level=1)
+    doc.add_paragraph("Aanpak (kept).")
+    doc.add_paragraph("Body paragraph.")
+    art = tmp_path / "rendered.docx"
+    doc.save(str(art))
+    provenance.embed(art, provenance.build_provenance(src))
+
+    without_flag = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src), "--json"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert without_flag.returncode == 0, without_flag.stderr
+    payload_before = json.loads(without_flag.stdout)
+    assert "-#> Aanpak (kept)." in payload_before["delta"]
+
+    with_flag = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src),
+         "--json", "--strip-pattern", r"^#>\s*"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert with_flag.returncode == 0, with_flag.stderr
+    payload_after = json.loads(with_flag.stdout)
+    assert not any("Aanpak" in d for d in payload_after["delta"])
+
+
+def test_strip_pattern_invalid_regex_fails_closed(tmp_path):
+    src = _make_source(tmp_path)
+    art = _make_rendered_docx(tmp_path, src, ["The plan starts in March."])
+    result = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src),
+         "--strip-pattern", "[unclosed"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 1
+    assert "invalid --strip-pattern regex" in result.stderr
+
+
 # ---- CLI end to end ----
 
 def test_cli_report_apply_and_diverged_refusal(tmp_path):

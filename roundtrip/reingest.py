@@ -220,12 +220,40 @@ def walk_structure(body) -> list[tuple]:
 
 # ------------------------------------------------------------- normalization --
 
-def _norm(s: str) -> str:
+# Pandoc-specific structural syntax that never renders as literal text in the
+# DOCX: it is a structural marker, not content, so it is stripped from the
+# SOURCE side before the text-diff, at the same normalization tier as the
+# list-bullet/auto-numbered-heading stripping just below (issue #72). Without
+# this, the diff treats the marker's absence on the docx side as a deletion:
+# a false-positive "reviewer edit" for every fenced-div/blockquote line.
+#   - fenced-div open/close lines (`::: {custom-style="Title"}` / bare `:::`):
+#     dropped whole (the whole line is markup, no comparable content survives).
+#   - blockquote marker (`> `): stripped, not dropped -- the quoted text itself
+#     is real content and already matches the docx side once dequoted.
+_FENCED_DIV_LINE = re.compile(r"^:::\s*(\{.*\})?\s*$")
+_BLOCKQUOTE_MARKER = re.compile(r"^>\s+")
+_STRUCTURAL_STRIP_PATTERNS: tuple[re.Pattern, ...] = (_FENCED_DIV_LINE, _BLOCKQUOTE_MARKER)
+
+# Raw-attribute OOXML blocks (e.g. a manual page break via ```{=openxml} ... ```)
+# are pandoc's escape hatch for literal OOXML: pipeline plumbing invisible to a
+# reviewer in Word. Unlike the line-level patterns above, the block spans
+# multiple lines (open fence, raw XML body, close fence), so it cannot be
+# stripped per-line: it is dropped whole, before line-splitting, in
+# md_plaintext() -- the same pre-split tier already used there for frontmatter
+# and HTML-comment stripping.
+_RAW_ATTR_BLOCK = re.compile(r"^```\{=[^}]*\}\n.*?\n```[ \t]*$\n?", re.DOTALL | re.MULTILINE)
+
+
+def _norm(s: str, extra_patterns: tuple[re.Pattern, ...] = ()) -> str:
     """Normalize away render artifacts so the diff shows only real reviewer edits:
-    non-breaking spaces, list bullets, auto-numbered headings, collapsed whitespace."""
+    non-breaking spaces, list bullets, auto-numbered headings, fenced-div/blockquote
+    structural markers, caller-supplied --strip-pattern regexes (issue #72), collapsed
+    whitespace."""
     s = s.replace(" ", " ").replace("﻿", "")
     s = re.sub(r"^#> \s*\d+(\.\d+)*\.?\s+", "#> ", s)  # docx auto-numbers headings; md does not
     s = re.sub(r"^[-*•]\s+", "", s)               # list bullets are formatting, not text
+    for pat in _STRUCTURAL_STRIP_PATTERNS + tuple(extra_patterns):
+        s = pat.sub("", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -245,9 +273,13 @@ def docx_plaintext(items) -> list[str]:
 
 
 def md_plaintext(md: str) -> list[str]:
-    """Strip frontmatter + HTML comments + image lines; normalize headings/tables to compare."""
+    """Strip frontmatter + HTML comments + image lines + raw-attribute OOXML blocks
+    (issue #72: pipeline plumbing, never literal DOCX text); normalize headings/tables
+    to compare. Fenced-div lines and blockquote markers are stripped per-line in
+    _norm(), the same tier as the existing list-bullet/heading-number stripping."""
     md = re.sub(r"^---\n.*?\n---\n", "", md, flags=re.DOTALL)
     md = re.sub(r"<!--.*?-->", "", md, flags=re.DOTALL)
+    md = _RAW_ATTR_BLOCK.sub("", md)
     out = []
     for ln in md.split("\n"):
         s = ln.strip()
@@ -323,11 +355,15 @@ WHY_HEADING = "heading edits change structure: review by hand"
 
 
 def plan_fast_forward(md_text: str, md_lines_norm: list[str],
-                      dx_lines_norm: list[str], dx_lines_raw: list[str]) -> tuple[list, list]:
+                      dx_lines_norm: list[str], dx_lines_raw: list[str],
+                      extra_patterns: tuple[re.Pattern, ...] = ()) -> tuple[list, list]:
     """The mechanically safe subset: 1:1 reworded lines (equal-length replace
     opcodes) whose markdown original is markup-free beyond a leading marker and
     whose normalized text occurs exactly once in the source. Returns
-    (applicable edits, manual-review edits); an edit is (old_norm, new_raw)."""
+    (applicable edits, manual-review edits); an edit is (old_norm, new_raw).
+    extra_patterns: caller-supplied --strip-pattern regexes (issue #72), threaded
+    through to the source-line reverse lookup so it stays consistent with the
+    normalization the delta itself was computed with."""
     apply_list, manual = [], []
     sm = difflib.SequenceMatcher(a=md_lines_norm, b=dx_lines_norm, autojunk=False)
     for op, a1, a2, b1, b2 in sm.get_opcodes():
@@ -348,7 +384,8 @@ def plan_fast_forward(md_text: str, md_lines_norm: list[str],
     source_lines = md_text.split("\n")
     safe, deferred = [], []
     for old_norm, new_raw in apply_list:
-        matches = [k for k, ln in enumerate(source_lines) if _norm_source_line(ln) == old_norm]
+        matches = [k for k, ln in enumerate(source_lines)
+                  if _norm_source_line(ln, extra_patterns) == old_norm]
         if len(matches) != 1:
             deferred.append((old_norm, new_raw, WHY_NOT_UNIQUE))
             continue
@@ -366,13 +403,13 @@ def plan_fast_forward(md_text: str, md_lines_norm: list[str],
     return safe, manual
 
 
-def _norm_source_line(ln: str) -> str:
+def _norm_source_line(ln: str, extra_patterns: tuple[re.Pattern, ...] = ()) -> str:
     s = ln.strip()
     if not s or s.startswith("![") or s == "\\newpage" or set(s) <= set("|:- "):
         return ""
     if re.match(r"^#{1,6}\s", s):
-        return _norm("#> " + re.sub(r"^#{1,6}\s+", "", s).replace("**", ""))
-    return _norm(s.replace("**", "").replace("`", ""))
+        return _norm("#> " + re.sub(r"^#{1,6}\s+", "", s).replace("**", ""), extra_patterns)
+    return _norm(s.replace("**", "").replace("`", ""), extra_patterns)
 
 
 def apply_fast_forward(source_path: Path, safe_edits: list) -> int:
@@ -463,6 +500,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--apply", action="store_true",
                     help="apply the mechanically safe fast-forward subset to the source "
                          "(refused on a DIVERGED verdict)")
+    ap.add_argument("--strip-pattern", action="append", default=[], metavar="REGEX",
+                    help="extra regex stripped from each line before the text-diff/fast-forward "
+                         "comparison (repeatable). Same normalization tier as the built-in "
+                         "fenced-div/blockquote-marker/list-bullet stripping, for a project's own "
+                         "structural-noise conventions (e.g. a custom heading-anchor sigil) that "
+                         "renderfact itself has no reason to special-case (issue #72)")
     args = ap.parse_args(argv)
 
     try:
@@ -472,6 +515,10 @@ def main(argv: list[str] | None = None) -> int:
             raise ReingestError(f"artifact not found: {args.artifact}")
         if not args.source.exists():
             raise ReingestError(f"source not found: {args.source}")
+        try:
+            extra_patterns = tuple(re.compile(p) for p in args.strip_pattern)
+        except re.error as e:
+            raise ReingestError(f"invalid --strip-pattern regex: {e}")
 
         prov, verdict = check_provenance(args.artifact, args.source)
 
@@ -484,15 +531,15 @@ def main(argv: list[str] | None = None) -> int:
         items = walk_structure(body)
 
         md_text = args.source.read_text(encoding="utf-8")
-        md_lines = [x for x in (_norm(y) for y in md_plaintext(md_text)) if x]
+        md_lines = [x for x in (_norm(y, extra_patterns) for y in md_plaintext(md_text)) if x]
         dx_raw = docx_plaintext(items)
-        dx_lines = [x for x in (_norm(y) for y in dx_raw) if x]
-        dx_raw = [r for r in dx_raw if _norm(r)]
+        dx_lines = [x for x in (_norm(y, extra_patterns) for y in dx_raw) if x]
+        dx_raw = [r for r in dx_raw if _norm(r, extra_patterns)]
 
         diff = difflib.unified_diff(md_lines, dx_lines, lineterm="", n=1)
         delta = [d for d in diff if d and d[0] in "+-" and not d.startswith(("+++", "---"))]
 
-        safe, manual = plan_fast_forward(md_text, md_lines, dx_lines, dx_raw)
+        safe, manual = plan_fast_forward(md_text, md_lines, dx_lines, dx_raw, extra_patterns)
 
         applied = None
         if args.apply:
