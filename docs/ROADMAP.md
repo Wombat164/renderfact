@@ -173,6 +173,18 @@ fail-closed default.
   a freeform `dossier_role:` frontmatter field (read via `roundtrip/dossier_role.py`, the same
   frontmatter-read idiom as `renderfact_uid`), and an optional advisory-only `render qa purpose` lint
   pass (never fails, same posture as `QC_SCRIPT`'s off-when-unset default).
+- **C10 - OOXML raw-attribute escape hatch (#96).** `[build]` **DONE:** `pandoc_markdown.MARKDOWN_FROM`
+  pins `raw_attribute`, so a hand-authored ` ```{=openxml} ` fenced block now reaches the DOCX writer
+  as raw OOXML (verified end-to-end: a real `render docx` run puts the block's marker text into
+  `word/document.xml` verbatim, and the negative control with the extension explicitly disabled
+  confirms it stays an inert code block without it). This is deliberately the SMALL, mechanical half
+  of the issue: it only unblocks the escape hatch, it does not add any native markdown syntax. **NEXT
+  (separate follow-up issue, not this one):** purpose-built markdown syntax for the two gaps that
+  motivated the escape hatch and that onboarding a real institutional form template surfaced -
+  checkbox/dropdown Word content controls (`w:sdt`, currently unrepresentable in the AST at all) and
+  merged/spanned table cells (`gridSpan`, pipe/grid tables have no colspan or rowspan support). Manual
+  `{=openxml}` blocks remain the only path to either until that follow-up lands, and they are
+  advanced/fragile by nature (hand-written OOXML, no toolchain validation), not the ergonomic answer.
 
 ## Track D - Round-trip / draft reconciliation
 
