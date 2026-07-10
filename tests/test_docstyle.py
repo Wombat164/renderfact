@@ -81,6 +81,58 @@ def test_style_end_to_end_font_and_heading_colour(tmp_path, monkeypatch):
     assert hdr_run.font.name == "Arial"
 
 
+# ---------- (a2) per-style font overrides (issue #97) ----------
+
+def test_style_fonts_override_applies_per_named_style(tmp_path, monkeypatch):
+    """A profile's `styles:` block overrides the font for paragraphs carrying
+    that named style; every other paragraph keeps the global 'font'."""
+    doc = Document()
+    doc.add_heading("First Section", level=1)
+    doc.add_paragraph("A quoted line that should get its own font.", style=doc.styles["Quote"])
+    doc.add_paragraph("Regular body paragraph using the global font throughout.")
+    src = tmp_path / "styles-in.docx"
+    doc.save(str(src))
+
+    profile = tmp_path / "styles.yaml"
+    profile.write_text(
+        "font: Arial\n"
+        "styles:\n"
+        '  "Quote":\n'
+        "    font: Georgia\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "styles-out.docx"
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile)])
+
+    out_doc = Document(str(out))
+    quote_para = next(p for p in out_doc.paragraphs if p.style.name == "Quote")
+    assert quote_para.runs[0].font.name == "Georgia"
+    body_para = next(p for p in out_doc.paragraphs
+                     if p.text.startswith("Regular body"))
+    assert body_para.runs[0].font.name == "Arial"
+    h1 = next(p for p in out_doc.paragraphs if p.style.name == "Heading 1")
+    assert h1.runs[0].font.name == "Arial"  # no override for Heading 1: global font
+
+
+def test_style_fonts_override_absent_leaves_all_paragraphs_on_global_font(tmp_path, monkeypatch):
+    """No `styles:` block in the profile: unchanged pre-#97 behaviour, every
+    paragraph (any style) gets the single global font."""
+    doc = Document()
+    doc.add_paragraph("A quoted line with no per-style override configured.",
+                      style=doc.styles["Quote"])
+    src = tmp_path / "no-styles-in.docx"
+    doc.save(str(src))
+
+    profile = tmp_path / "no-styles.yaml"
+    profile.write_text("font: Arial\n", encoding="utf-8")
+    out = tmp_path / "no-styles-out.docx"
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile)])
+
+    out_doc = Document(str(out))
+    quote_para = next(p for p in out_doc.paragraphs if p.style.name == "Quote")
+    assert quote_para.runs[0].font.name == "Arial"
+
+
 # ---------- (b) punctuation normalization + gate ----------
 
 def test_punctuation_normalized_by_default(tmp_path, monkeypatch):

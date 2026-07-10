@@ -10,6 +10,19 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`import-template` per-style font derivation** (issue #97): the derived `template-profile.yaml`
+  carried a single global `font` key, which structurally cannot represent a source template that
+  defines distinct fonts on distinct paragraph styles (its `styles.xml` has multiple `w:style`
+  definitions, each with its own `w:rPr/w:rFonts`). `import-template` now also walks EVERY paragraph
+  style's `w:rPr/w:rFonts` (one level of `basedOn` fallback, same as the existing Normal/Heading
+  derivation) and emits a `styles:` block in the derived profile carrying only the GENUINE overrides:
+  a style whose resolved font differs from the derived global `font`. A style that resolves to the
+  same font as the global default is left out, so the profile stays minimal and a template that only
+  ever uses one font still derives an empty block (additive, no change to existing output). The
+  consumer side, `docstyle/style_postprocess.py`'s `apply_template_profile` / `set_para_font`, now
+  reads that block and applies the per-style font to a paragraph carrying that named style, falling
+  back to the global font otherwise, so the derived data actually affects rendered output rather than
+  being inert.
 - **`render qa tables` slack signal** (issue #90): the column-geometry scan reported only a single
   squeeze-pressure score per table (`squeezed-col`), and any column with 5% or less of a table's
   content share was excluded from that scoring entirely, so a genuinely tiny but over-allocated

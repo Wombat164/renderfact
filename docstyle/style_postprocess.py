@@ -3,7 +3,8 @@ Post-processor: apply a configurable house style to pandoc-rendered DOCX.
 
 Default look (every value overridable via --template-profile <yaml>, see
 template-profile-example.yaml):
-- Font: Arial throughout
+- Font: Arial throughout (per-named-style overrides via the profile's optional
+  `styles:` block, issue #97, falling back to this global font otherwise)
 - Body text: 8.5pt (#595959), justified (compact profile)
 - H1: 12pt bold accent colour, page break before
 - H2: 10.5pt bold accent colour
@@ -70,6 +71,12 @@ FONT_NAME = THEME['font']
 ZEBRA_FILL = THEME['zebra']              # subtle alternate-row shading
 HDR_FILL = THEME['accent']               # table header-row fill (hex string)
 
+# Per-named-style font overrides (issue #97): a template-profile's optional
+# `styles: {StyleName: {font: ...}}` block, keyed by paragraph style NAME.
+# Empty by default (no profile applied): every paragraph then uses FONT_NAME,
+# unchanged from before this key existed. Populated by apply_template_profile.
+STYLE_FONT_OVERRIDES = {}
+
 # Callout (info-box) palette: light fill + an accent left bar + a label colour.
 CALLOUT_INFO_FILL,   CALLOUT_INFO_BORDER,   CALLOUT_INFO_LABEL   = 'EAF3FB', '2F6FB6', '1F4E79'  # blue
 CALLOUT_WARN_FILL,   CALLOUT_WARN_BORDER,   CALLOUT_WARN_LABEL   = 'FDF3E7', 'C77700', '8A5300'  # amber
@@ -122,10 +129,15 @@ def apply_template_profile(path):
                       strip_cover_banner_prefixes / strip_cover_banner_contains
       cover:          part_heading_prefix, version_label
       normalize_punctuation: bool (default true)
+      styles:         {StyleName: {font: ...}}, per-named-style font override
+                      (issue #97), falling back to 'font' for any style not
+                      listed. Wholly replaces any previously-applied profile's
+                      style overrides (not merged), same replace-on-apply
+                      semantics as the theme keys above.
     Unknown keys are ignored. Call BEFORE styling. With no profile, the neutral
     built-in defaults apply."""
     global NAVY, GREY_BODY, GREY_TABLE, BODY_DARK, FONT_NAME, ZEBRA_FILL, HDR_FILL
-    global NORMALIZE_PUNCTUATION
+    global NORMALIZE_PUNCTUATION, STYLE_FONT_OVERRIDES
     import yaml
     with open(path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f) or {}
@@ -154,6 +166,13 @@ def apply_template_profile(path):
                 COVER[key] = cov[key]
     if 'normalize_punctuation' in data:
         NORMALIZE_PUNCTUATION = bool(data['normalize_punctuation'])
+    styles = data.get('styles') or {}
+    overrides = {}
+    if isinstance(styles, dict):
+        for style_name, val in styles.items():
+            if isinstance(val, dict) and val.get('font'):
+                overrides[style_name] = val['font']
+    STYLE_FONT_OVERRIDES = overrides
 
 
 def set_para_spacing(para, line=None, space_after=None, space_before=None):
@@ -327,11 +346,20 @@ def set_run_style(run, size_pt, color, bold=None, font_name=None):
     el.set(qn('w:hAnsi'), font_name)
 
 
-def set_para_font(para, size_pt, color, bold=None, alignment=None):
+def set_para_font(para, size_pt, color, bold=None, alignment=None, font_name=None):
     for run in para.runs:
-        set_run_style(run, size_pt, color, bold)
+        set_run_style(run, size_pt, color, bold, font_name)
     if alignment is not None:
         para.alignment = alignment
+
+
+def _style_font(style_name):
+    """The per-style font override (issue #97) for style_name, or None to fall
+    back to the profile's single global FONT_NAME (set_run_style's own default
+    when font_name=None). Resolved per-call, same "read at call time" pattern
+    set_run_style already uses for FONT_NAME, so a --template-profile applied
+    just before styling is picked up."""
+    return STYLE_FONT_OVERRIDES.get(style_name)
 
 
 def add_page_break_before(para):
@@ -844,17 +872,19 @@ def main(argv=None):
         text = p.text.strip()
 
         if style_name == 'Title':
-            set_para_font(p, prof['title'], NAVY, bold=True, alignment=WD_ALIGN_PARAGRAPH.CENTER)
+            set_para_font(p, prof['title'], NAVY, bold=True, alignment=WD_ALIGN_PARAGRAPH.CENTER,
+                          font_name=_style_font(style_name))
             if is_ref:
                 set_para_spacing(p, space_before=72, space_after=8)
 
         elif style_name == 'Subtitle':
-            set_para_font(p, prof['sub'], GREY_BODY, alignment=WD_ALIGN_PARAGRAPH.CENTER)
+            set_para_font(p, prof['sub'], GREY_BODY, alignment=WD_ALIGN_PARAGRAPH.CENTER,
+                          font_name=_style_font(style_name))
             if is_ref:
                 set_para_spacing(p, space_after=18)
 
         elif style_name == 'Heading 1':
-            set_para_font(p, prof['h1'], NAVY, bold=True)
+            set_para_font(p, prof['h1'], NAVY, bold=True, font_name=_style_font(style_name))
             h1_count += 1
             # Page break before every H1 except the very first
             if h1_count > 1:
@@ -863,20 +893,20 @@ def main(argv=None):
                 set_para_spacing(p, space_before=2, space_after=6)
 
         elif style_name == 'Heading 2':
-            set_para_font(p, prof['h2'], NAVY, bold=True)
+            set_para_font(p, prof['h2'], NAVY, bold=True, font_name=_style_font(style_name))
             if is_ref:
                 set_para_spacing(p, space_before=12, space_after=4)
 
         elif style_name == 'Heading 3':
-            set_para_font(p, prof['h3'], NAVY, bold=True)
+            set_para_font(p, prof['h3'], NAVY, bold=True, font_name=_style_font(style_name))
             if is_ref:
                 set_para_spacing(p, space_before=8, space_after=3)
 
         elif style_name == 'Heading 4':
-            set_para_font(p, prof['h4'], NAVY, bold=True)
+            set_para_font(p, prof['h4'], NAVY, bold=True, font_name=_style_font(style_name))
 
         elif text and not style_name.startswith('Heading'):
-            set_para_font(p, prof['body'], prof['body_color'])
+            set_para_font(p, prof['body'], prof['body_color'], font_name=_style_font(style_name))
             if prof['justify'] and len(text) > 80:
                 p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             elif not prof['justify']:

@@ -153,7 +153,19 @@ document out of the box, and consumers override with `--template-profile`.
   organisation-specific (palette, font, geometry, marking-text replacements, cover labels,
   punctuation normalization) is plain data in an optional profile YAML. The profile mechanism is
   purely additive: with no profile the neutral defaults apply and no marking edits are made. A profile
-  can be hand-written, or (roadmap C7) derived from an imported corporate template.
+  can be hand-written, or (roadmap C7) derived from an imported corporate template. A single global
+  `font` key cannot represent a template that uses distinct fonts on distinct paragraph styles (issue
+  #97), so the profile's optional `styles:` block carries per-named-style font overrides, falling back
+  to `font` for any style not listed; a template that only ever uses one font derives an empty block
+  and renders identically to before this key existed.
+- **import-template's per-style font derivation (issue #97).** `derive_style_font_overrides` walks
+  EVERY paragraph `w:style` definition's `w:rPr/w:rFonts` (the same one-level `basedOn` fallback
+  `style_font_info` already applies to Normal/Heading), not just the handful of named styles C7 already
+  special-cases, and keeps only the GENUINE overrides: a style whose resolved font differs from the
+  derived global `font`. A style that happens to resolve to the same font as the global default is
+  left out, keeping the derived profile minimal rather than padding it with redundant per-style
+  entries. When no style differs, the generated profile carries a one-line note instead of an empty
+  block, the same honesty-over-guessing posture the theme keys already follow.
 - **heading_numbering** injects field-based heading numbering AFTER pandoc, because pandoc regenerates
   the numbering part on every render and drops custom list definitions imported from a reference doc.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that
