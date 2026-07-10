@@ -63,6 +63,14 @@ The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero
 | `PDF_CONVERTER_PS1` | Windows Word-COM converter; otherwise LibreOffice is used when present | LibreOffice fallback |
 | `OUTPUT_DIR` / `RESOURCE_PATH` / `PANDOC` / `PYTHON` | output, image root, tool overrides | `./renders`, source dir, PATH |
 
+**One shared markdown-reader extension string.** Every call site that reads a renderfact markdown
+source into pandoc's AST (`container/render-doc.sh` for DOCX, `pdf/typst_backend.py` for PDF) builds
+its `--from` value from `pandoc_markdown.MARKDOWN_FROM` (Python callers import it; `render-doc.sh`
+shells out to `python pandoc_markdown.py`) instead of hand-rolling its own extension list. This is a
+single source of truth for `wikilinks_title_after_pipe`, the extension that makes
+`[[target|Display Text]]` bracket links resolve to their display text: without it, pandoc's plain
+`markdown` reader treats the brackets as literal punctuation rather than a `Link` node (issue #69).
+
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.
 
