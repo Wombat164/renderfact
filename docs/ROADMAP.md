@@ -37,6 +37,33 @@ DONE reflects code that exists and is tested; everything else is NEXT or specifi
   are not), and a PlantUML / C4-PlantUML corpus (no PlantUML engine in `tools.lock` yet). Each gets
   the same treatment: generalize, de-couple from any consumer, land with tests, consumer keeps a
   thin wrapper.
+- **A7 - One pandoc reader-extension source (#69).** Bracket wikilinks (`[[target|Display]]`)
+  silently degrade to literal punctuation unless `wikilinks_title_after_pipe` is in the reader's
+  `--from` string; `container/render-doc.sh` carries it, but every other pandoc invocation
+  (the typst backend, any consumer copying an extension list from a sibling script) hand-rolls its
+  own string and can silently drop one extension. The failure is doubly sneaky: a defensive Lua
+  `Str`-filter fallback does NOT catch it, because the unparsed bracket run is fragmented across
+  adjacent `Str`/`Space` inlines, so a single-token regex never sees the full pattern (verified in
+  #69's repro). **[adopt]** pandoc's `wikilinks_title_after_pipe` extension as the mechanism (already
+  elected); **[build]** the consolidation: one shared reader-extension constant that every in-repo
+  pandoc call composes its `--from` from, plus a round-trip regression fixture (`[[x|y]]` through the
+  REAL render invocation, asserting literal brackets never survive into output text runs). The
+  existing `qa leaks` default probe for surviving `[[` brackets stays as the post-render backstop;
+  this item removes the class at the source. NEXT.
+- **A8 - Surface docstyle's real CLI (#74).** `docstyle/style_postprocess.py` has shipped, working
+  capabilities: `--table-widths <yaml>` (`apply_table_widths()`, operator-fitted widths
+  proportionally scaled to the section text width), `--cover-version` / `--cover-date`, `--profile`,
+  `--template-profile`, that are invisible from `render --help` because the module keeps its own
+  hand-rolled argv loop outside the `render.py` dispatcher, and `render-doc.sh` does not even pass
+  `--table-widths` through (no env var, no flag), so NO current entry point reaches it. A consumer
+  integrating via the Python API (a legitimate path per B3a/H2) demonstrably re-implemented
+  `apply_table_widths` before finding the native one by reading module source. **[build]** three
+  small moves: (1) wire the flags through the dispatcher (`render docx --table-widths/--cover-*`,
+  render-doc.sh gains a `TABLE_WIDTHS` env var in the skin contract); (2) migrate the hand-rolled
+  argv loop to argparse so `--help` is generated and complete (today's usage string omits half the
+  real flags); (3) a generated Python-API reference for the modules the docs bless as integration
+  surfaces (docstyle, projection, roundtrip), **[adopt]** pdoc-style docstring extraction rather
+  than hand-maintained lists, landing with F6. NEXT.
 
 ## Track B - Optimize
 
@@ -71,6 +98,25 @@ operator requirement: multi-user organisations) detects DUPLICATE renderfact_uid
 source tree: uuid4 generation cannot collide, but a file copy duplicates identity and corrupts
 every provenance-anchored round-trip downstream; dependency-free and deterministic.
 - **B4 - Visual-QA for all families.** NEXT.
+- **B5 - Blocking post-render content-safety gate: probe allowlists + pipeline wiring (#71).**
+  `render qa leaks --probes <yaml> --fail-on-hits` already gives the fail-closed, post-render,
+  custom-regex gate #71 asked for, but two gaps keep consumers hand-rolling their own DOCX scanner:
+  (1) the probe format has NO allowlist: a probe is one regex and any hit counts, so the real case
+  "block every currency figure EXCEPT one deliberately-approved figure" is only expressible by
+  hand-crafting a negative lookahead into the probe regex itself, undocumented and fragile
+  (verified against `lint/render_qa.py`: `load_probes` is a flat name-to-regex map, `cmd_leaks`
+  counts every match). **[imitate]** gitleaks' allowlist semantics (`[[rules.allowlists]]`:
+  per-rule `regexes` matching the finding plus `stopwords` matching the extracted value, global
+  allowlist above rule level) as the probe-yaml extension: each probe may carry an `allow:` list of
+  regexes that suppress an otherwise-matching line; **[imitate]** detect-secrets' inline
+  `# pragma: allowlist secret` idiom only if a source-side annotation ever proves needed (the
+  projection engine's block attributes are the more natural carrier here). (2) the wiring: nothing
+  runs `qa leaks` automatically post-render, and it demands a pre-extracted textfile. **[build]**
+  an opt-in blocking stage in `render docx` / render-doc.sh (probes file supplied = gate runs on the
+  finished artifact, non-zero = render fails, advisory stays the default) and native DOCX text
+  extraction for `leaks` (the extractor already exists in `roundtrip/reingest.py`, reuse it) so a
+  consumer passes the artifact, not a conversion of it. Supersedes #71's original
+  `GATE_SCRIPT`/`POSTRENDER_GATE_SCRIPT` hook ask per the maintainer's own follow-up. NEXT.
 
 ## Track C - Add
 
@@ -155,8 +201,36 @@ renderfact-tracked embedded OPC document (docx/xlsx/pptx/vsdx all share docProps
 generically) is routed to its own per-format path; an OOXML file without provenance is flagged
 unknown-origin (adopt candidate); any other type is tried through markitdown (optional extra)
 for a text preview. Embeddings are matched by path segment, covering XLSX/PPTX/VSDX hosts too.
-Remaining in Track D: 4.2 split-plus-embed dual output, 4.5 LLM contextualize (rides D8), 4.6
-three-way merge, 4.7 git finalize.
+Remaining in Track D: 4.2 split-plus-embed dual output, 4.6 three-way merge, 4.7 git finalize
+(4.5 LLM contextualize shipped as Track G's G6). First consumer-side use of the whole loop
+(2026-07-10, a raw-pandoc + custom-Python pipeline, no `render docx` involved) confirmed the
+bootstrap paths hold for externally-produced artifacts too: `provenance embed` anchors an
+existing source to a DOCX renderfact never rendered, `provenance adopt` bootstraps a stub source
+for an externally-authored draft (#70's core ask is therefore DONE). The same session filed two
+hardening items on chunk 4.4:
+
+- **4.4b - Structural-syntax-aware text delta (#72).** `md_plaintext()` normalizes bullets,
+  auto-numbers, and NBSP, but passes pandoc STRUCTURAL syntax through as if it were content:
+  fenced-div open/close lines (`::: {custom-style=...}` / `:::`), raw-attribute OOXML blocks
+  (manual page breaks), blockquote markers, ordered-list digits. None of these survive DOCX text
+  extraction, so the delta reports them as reviewer deletions: noise in every manual-review list
+  and a real (if small) risk of masking an adjacent genuine edit. **[adopt]** pandoc itself as the
+  one true textizer for the markdown side (parse the source with the SAME reader the render used
+  and emit the plain writer, so both diff sides pass through one tokenization) rather than growing
+  the hand-rolled strip list case by case; **[imitate]** pandiff (davidar/pandiff, prose diffs over
+  the pandoc AST for any supported format) as the shape-check that AST-level normalize-then-diff
+  is the proven pattern, though its CriticMarkup output stream does not replace the safe/manual
+  routing built here. NEXT.
+- **4.4c - Formatting back-port path (#73).** Reingest's table-widths section detects and reports
+  per-table widths from the hand-edited DOCX but offers no apply path, even though the render
+  pipeline already CONSUMES exactly this data (`style_postprocess --table-widths <yaml>`, surfaced
+  by A8): close the loop with a `--emit-table-widths <yaml>` that writes the fitted widths in the
+  format the next render ingests, the same stored-positions-win doctrine C8 already applies to
+  diagram layout (**[imitate]** Structurizr's layout-file separation, per
+  docs/prior-art-diagram-roundtrip.md). Page-break adds/removes become their OWN reported category
+  (detect `w:br type="page"` / `pageBreakBefore` in the artifact, raw-attribute break blocks in the
+  source) instead of being indistinguishable from 4.4b's structural noise; the apply target is the
+  raw-attribute block the pipeline already understands. NEXT.
 
 ## Track E - API and reference UI
 
@@ -197,6 +271,18 @@ public audience.
 - **F6 - Docs.** `[build]` a public docs set (this directory) that reflects the system as it is.
 - **F8 - Naming unification.** `[build]` one public identity everywhere: `renderfact`, the container
   image `localhost/renderfact:latest`, a quickstart that works verbatim.
+- **F9 - Demo chapters for the round-trip and template-import surfaces.** `[build]`. The Meridian
+  demo showcases projection, tokens, the DOCX pipeline, Track H's financial PDF, and a consumer
+  Vale skin, but NOTHING from Track D or C7: a new consumer evaluating renderfact sees no
+  provenance, no reingest, no contextualize, and no `import-template` in the runnable showcase,
+  which is exactly the surface a 2026-07-10 consumer session under-discovered (#74, G7). Two new
+  demo steps, keeping the no-binary-fixtures rule (D4: the demo is the acceptance test): (5) a
+  round-trip chapter that renders a Meridian source, simulates a reviewer edit programmatically
+  (python-docx over the fresh render in demo/renders/, gitignored), then runs
+  `reingest -> contextualize` and prints the decision-log entry; (6) a template-import chapter that
+  builds a small "corporate" branded DOCX programmatically and derives a template profile from it
+  via `render import-template`, closing with the probe-render idempotency gate. Each chapter skips
+  with an honest message when its engine is missing, like the existing steps. NEXT.
 
 ---
 
@@ -247,6 +333,25 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   maps each reingest tuple (no `kind` field) to reword (descriptive) vs add/delete/replace/heading
   (intent-bearing) via reingest's now-exported sentinel constants; the confidence formula, gate,
   sink, and CLI are decision-capture's. Registered for harness exposure. 25 tests.
+- **G7 - contextualize workflow surfacing + multi-round narrative.** `[build]`. A consumer session
+  (2026-07-10) hand-wrote prose changelog entries for every back-ported reviewer edit, all session,
+  without ever invoking `render contextualize`: the exact job G6 shipped for. Root cause is NOT
+  render-help invisibility (contextualize is a registered mode with a real argparse `--help`,
+  unlike A8's case); it is WORKFLOW invisibility plus one real functional gap. (1) Surfacing:
+  `render reingest`'s report and CLI output never point at the next step, and its default
+  human-readable report is not even the `--json` input contextualize requires; add a printed
+  next-command hint after every reingest (**[imitate]** git's `advice.*` hint system and the
+  clig.dev "suggest the next command" guideline) and a `reingest --contextualize` one-shot chaining
+  flag so the two-command JSON plumbing disappears for the common case. (2) Multi-round narrative:
+  contextualize is single-shot per reingest; it appends standalone entries and never reads the
+  existing decision log, so a document that goes out for review three times gets three disconnected
+  entries with no round numbering and no reference to what earlier rounds changed, while the
+  consumer's real need was a cumulative changelog narrative referencing previous rounds. Make the
+  step round-aware: read prior entries for the same source_uid from the log, stamp a round counter,
+  and hand the previous rounds' titles/summaries to the escalation prompt as context
+  (**[imitate]** towncrier's fragments-then-assemble model and reno's keep-fragments-forever
+  philosophy: per-round entries stay the source of truth, the cumulative narrative is derived, so
+  nothing is rewritten after the fact). NEXT.
 
 ---
 
@@ -302,6 +407,28 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
   and deterministic (month names tabled, not from the platform locale db); an unknown locale fails fast,
   before any tool/render work; an explicit `format` key in statement data still overrides the locale.
   15 tests. Completes the Track H financial-document surface.
+- **H6 - Rich cover / title-page model.** `[build]` the block model, `[imitate]` the carriers. The
+  native cover today is `docstyle/style_postprocess.build_reference_cover`: strip banners, drop the
+  duplicate title H1, ONE version/date line, relocate the TOC (verified: no metadata table, no body
+  content, no image support); the typst path has only the H1 title block. A real consumer cover
+  needed an info/metadata table, a multi-paragraph pitch/rationale section, a pulled-quote
+  blockquote, and an EMBEDDED IMAGE before the document body, and was hand-rolled entirely outside
+  renderfact (an f-string building raw pandoc markdown with custom Title/Subtitle style divs).
+  Prior art says metadata-driven rich covers are a solved pattern per engine: **[imitate]** the
+  Eisvogel pandoc-LaTeX template's titlepage variable family (`titlepage-logo`,
+  `titlepage-background`, rule/color variables, all plain document metadata), Quarto's
+  `title-block-banner` (banner covers incl. an image) with its `title-block.html` partial as the
+  full-custom escape hatch, and the typst-universe cover conventions (`modern-technique-report`,
+  `bookly`: a title-page FUNCTION taking title/subtitle/logo/background/metadata parameters).
+  None transfer as a dependency (LaTeX-, HTML-, and typst-template-bound respectively), and none
+  is engine-agnostic, which is the actual requirement here: **[build]** one declarative cover
+  schema (frontmatter `cover:` block or a `::: cover` semantic block in the H3 family: info table,
+  pitch paragraphs, pull quote, image slot) rendered by BOTH engines: a typst cover function in the
+  theme (H2 roles style it, variants restyle it) and a generated cover section on the DOCX path
+  replacing the fixed `build_reference_cover` shape. Cover content must pass through the projection
+  engine like body content (a pitch section can carry clearance/audience marks). C7's
+  content-skeleton axis later derives the cover SCHEMA VALUES from an imported branded template;
+  this item owns the render-side model. NEXT.
 
 ---
 
@@ -420,7 +547,10 @@ does). Buildable-now unless marked GATED; sequencing note: 6.1-6.6 are a coheren
   `contracts/confidence_gate.py` (Track G's G4); escalation via the D8 dual-mode contract machinery
   `[imitate]` aider's clipboard-watch UX per the D8 spike. Telemetry log (G2 pattern). NEXT.
 - **6.8 - Diff view, source mode.** `[adopt]` git via subprocess, `[build]` the hunk-JSON endpoint +
-  colorizer UI. Depends only on 6.1/6.6. NEXT.
+  colorizer UI. Depends only on 6.1/6.6. Also the natural home for #70's remaining GUI ask (a
+  reconcile view over `reingest --json` output: comments, tracked changes, safe/manual split as
+  reviewable hunks) once chunk 4.6's merge gives it an apply path; same endpoint shape, different
+  hunk source. NEXT.
 - **6.9 - Studio-workspace reconciliation polish.** `[build]`. Landing-page decision, scratchpad-to-
   project hand-off, keyboard-nav pass over all Track J screens. NEXT.
 - **6.10 - Projected-diff mode.** `[build]`. `mode=projected`, difflib over two projections. NEXT.
@@ -444,3 +574,12 @@ does). Buildable-now unless marked GATED; sequencing note: 6.1-6.6 are a coheren
   follow-up against their install docs precedes building the native install helper.
 - **OQ7 - versioning policy.** Adopt semver tags as the primary `tool_version` source (commit hash as
   the dev-build fallback), and keep a CHANGELOG plus a deprecation policy from v0.1.0 onward.
+- **OQ18 - source-authority demotion (from #70).** When a reviewer's hand-edits are predominantly
+  FORMATTING (widths, breaks, spacing), does the render stay reproducible-from-source (in which case
+  every such delta needs a source-side carrier, the 4.4c direction), or is there a supported mode
+  where the hand-edited artifact becomes the new canonical file and the source is demoted to a
+  content-only mirror kept for diffing and traceability? Today the toolchain implicitly assumes
+  source-authoritative forever; the demotion route is unspecified (what happens to provenance, to
+  the next render, to reingest verdicts against a demoted source). No strong prior art found either
+  way; resolve before 4.6, because the three-way merge must know which side is allowed to win a
+  formatting conflict.
