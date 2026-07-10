@@ -6,6 +6,20 @@ their hashes do not survive the history rewrite, see the publish protocol).
 `tool_version` in embedded provenance follows `git describe --tags` and picks
 up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
+## [Unreleased]
+
+### Fixed
+
+- **`render reingest` text-delta false positives (#72)**: pandoc-specific structural syntax (fenced-div
+  `::: {...}` / `:::` lines, raw-attribute OOXML blocks such as a manual page break's ` ```{=openxml}
+  ... ``` `, and the blockquote `> ` marker) never renders as literal text in the DOCX, but the `## 4.
+  Text delta` / `## 5. Fast-forward plan` comparison used to treat their absence as a reviewer deletion.
+  These are now stripped from the canonical-markdown side before the diff, at the same normalization
+  tier as the existing list-bullet/auto-numbered-heading stripping. Ordered-list markers (`1.`, `2.`,
+  ...) were already handled correctly by the fast-forward planner and are unaffected. Also adds a
+  repeatable `render reingest --strip-pattern <regex>` flag so a project can strip its own
+  structural-noise conventions (e.g. a custom heading-anchor sigil) without renderfact special-casing them.
+
 ## [0.4.0] - 2026-07-04
 
 Completes render-as-a-service and rounds out onboarding. All additive over 0.3.0.
