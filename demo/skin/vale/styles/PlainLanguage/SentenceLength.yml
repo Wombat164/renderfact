@@ -1,0 +1,15 @@
+---
+extends: existence
+message: "Long sentence (%s): consider a split at a coordinating conjunction (and/but/or/so) or a semicolon."
+level: warning
+scope: sentence
+# Word-count threshold for "too long," English default. Different languages
+# have different natural sentence lengths (nl-BE formal register runs longer
+# than English house style), so this is the one knob to retune per language
+# or per house style: the repeat count below is "flag at N+1 words" (29 here
+# flags a 30-word-plus sentence). Lower it (e.g. {19,}) for a stricter skin,
+# raise it for a more permissive one. This is deliberately a plain word-count
+# heuristic, not a Flesch-Kincaid-style readability score (see the PlainLanguage
+# README for why): cheap, deterministic, and language-portable by construction.
+tokens:
+  - '(?:\S+\s+){29,}\S+'
