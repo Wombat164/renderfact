@@ -47,7 +47,7 @@ Usage:
                                                # internally, exposed as its own documented entry point
     render comprehension-review <docx-or-md> [--escalate copy-paste|api]  # #84 fresh-reader
                                                # comprehension gate for rendered text documents
-                                               # (D16-gated, always escalates -- see DECISIONS.md D19)
+                                               # (D16-gated, always escalates -- see DECISIONS.md D20)
 
 Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
@@ -311,7 +311,7 @@ def run_comprehension_review(args: list[str]) -> int:
     fresh-context LLM (harness/copy-paste/API, the D8 contract) read them in
     order, reporting per-snippet purpose/confusion/fluff/cuttable content plus a
     whole-document synthesis. D16-gated, but with no accept path: comprehension
-    has no deterministic sufficiency proxy (see docs/DECISIONS.md D19), so this
+    has no deterministic sufficiency proxy (see docs/DECISIONS.md D20), so this
     always escalates unless --threshold <= 0. Report-only -- never rewrites."""
     sys.path.insert(0, str(LINT_DIR))
     import comprehension_review_contract as comprehension_review

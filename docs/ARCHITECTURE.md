@@ -436,7 +436,7 @@ anything.
   0.0 rather than dressing up a guess as a measurement -- this step always escalates unless an operator
   explicitly sets `--threshold <= 0`, in which case an honest "not reviewed" stub is emitted
   (`reviewer_mode: deterministic`, `status: WARN`), never a fabricated verdict. See `docs/DECISIONS.md`
-  D19 for the recorded decision and why this is a legitimate D16 outcome, not a departure from it.
+  D20 for the recorded decision and why this is a legitimate D16 outcome, not a departure from it.
 - **Report-only.** Findings are printed (or emitted as JSON); nothing is rewritten. The cut/rewrite
   decision stays with a human, per the same propose-only contract every gated step in this repo follows.
 

@@ -183,7 +183,7 @@ def test_assemble_input_shape_and_schema():
 # ------------------------------------------------------ confidence + gate --
 
 def test_confidence_is_always_zero_regardless_of_document_shape():
-    """The load-bearing D16 decision for this step (docs/DECISIONS.md D19):
+    """The load-bearing D16 decision for this step (docs/DECISIONS.md D20):
     there is no deterministic sufficiency proxy for comprehension, so
     confidence() is pinned at 0.0 no matter how short, long, or well-structured
     the input is."""

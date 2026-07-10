@@ -58,7 +58,7 @@ The confidence heuristic is per step and lives in code, not the model. Two worke
   comprehension risk, in either direction -- a single dense paragraph can bury its point as badly as a
   long, well-structured document reads cleanly. There is no deterministic proxy for "a cold reader will
   follow this" the way there is for diagram geometry or an edit's descriptive-vs-intent split, so the
-  gate says so rather than dressing up a guess as a measurement. See `docs/DECISIONS.md` D19.
+  gate says so rather than dressing up a guess as a measurement. See `docs/DECISIONS.md` D20.
 
 This is the FrugalGPT cascade / RouteLLM operating-point pattern, tuned per step, with an append-only
 log (`render gate-stats`) so thresholds become evidence-based rather than hand-set. Full plan:
