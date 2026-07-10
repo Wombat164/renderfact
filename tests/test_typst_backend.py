@@ -85,6 +85,39 @@ def test_md_to_typst_error_maps(monkeypatch, tmp_path):
         tb.md_to_typst(md, "pandoc")
 
 
+# ------------------------------------------------- wikilinks (issue #69) --
+
+@pytest.mark.skipif(not HAVE_PANDOC, reason="needs pandoc")
+def test_md_to_typst_resolves_wikilink_display_text(tmp_path):
+    """Real render invocation (not a mock, not the Lua filter in isolation): a
+    `[[target|Display Text]]` source line must come out of md_to_typst with its
+    display text, and the literal brackets must never survive. Before the
+    issue #69 fix, this failed because md_to_typst did not pass --from at all,
+    so pandoc's plain `markdown` reader read the brackets as literal text."""
+    md = tmp_path / "wiki.md"
+    md.write_text("See [[some-target|Display Text]] for detail.\n", encoding="utf-8")
+    body = tb.md_to_typst(md, tb.find_pandoc())
+    assert "Display Text" in body
+    assert "[[" not in body and "]]" not in body
+
+
+@pytest.mark.skipif(not (HAVE_TYPST and HAVE_PANDOC), reason="needs typst + pandoc")
+def test_render_pdf_resolves_wikilink_display_text(tmp_path):
+    """End-to-end regression for issue #69: round-trip a `[[target|Display]]`
+    fixture through the REAL render_pdf() invocation (markdown -> pandoc ->
+    typst -> PDF) and assert the literal brackets never reach the compiled PDF
+    text while the display text does."""
+    pypdf = pytest.importorskip("pypdf")
+    md = tmp_path / "wiki.md"
+    md.write_text("# Wikilink check\n\nSee [[some-target|Display Text]] for detail.\n",
+                  encoding="utf-8")
+    out = tb.render_pdf(md, tmp_path / "wiki.pdf", title="Wikilink check")
+    reader = pypdf.PdfReader(str(out))
+    text = "".join(page.extract_text() or "" for page in reader.pages)
+    assert "Display Text" in text
+    assert "[[" not in text and "]]" not in text
+
+
 def test_render_pdf_missing_source(tmp_path):
     with pytest.raises(tb.TypstBackendError, match="source not found"):
         tb.render_pdf(tmp_path / "nope.md", typst="typst", pandoc="pandoc")
