@@ -77,6 +77,14 @@ HDR_FILL = THEME['accent']               # table header-row fill (hex string)
 # unchanged from before this key existed. Populated by apply_template_profile.
 STYLE_FONT_OVERRIDES = {}
 
+# Default body-paragraph style name (issue #101): a template-profile's optional
+# `body_style: "StyleName"` key (derived by import-template, see
+# template_import.py's body-style detection). None by default (no profile
+# applied, or the template has no dedicated body style distinct from Normal):
+# body paragraphs keep pandoc's own "Normal" styling, unchanged from before
+# this key existed. Populated by apply_template_profile.
+BODY_STYLE_NAME = None
+
 # Callout (info-box) palette: light fill + an accent left bar + a label colour.
 CALLOUT_INFO_FILL,   CALLOUT_INFO_BORDER,   CALLOUT_INFO_LABEL   = 'EAF3FB', '2F6FB6', '1F4E79'  # blue
 CALLOUT_WARN_FILL,   CALLOUT_WARN_BORDER,   CALLOUT_WARN_LABEL   = 'FDF3E7', 'C77700', '8A5300'  # amber
@@ -167,10 +175,16 @@ def apply_template_profile(path):
                       house body font/size is stamped onto every non-heading
                       paragraph even one carrying a custom style with its own
                       font. Default false respects a custom style's own font.
+      body_style:     "StyleName" (issue #101) -- remap ordinary Normal-styled
+                      body paragraphs to this style before font-styling runs, so
+                      a template's own dedicated body style (e.g. "Body") is
+                      respected via the styles:/override_custom_style_fonts logic
+                      above instead of falling back to Normal's usually-undefined
+                      font. None by default: no remap, unchanged behaviour.
     Unknown keys are ignored. Call BEFORE styling. With no profile, the neutral
     built-in defaults apply."""
     global NAVY, GREY_BODY, GREY_TABLE, BODY_DARK, FONT_NAME, ZEBRA_FILL, HDR_FILL
-    global NORMALIZE_PUNCTUATION, STYLE_FONT_OVERRIDES, OVERRIDE_CUSTOM_STYLE_FONTS
+    global NORMALIZE_PUNCTUATION, STYLE_FONT_OVERRIDES, OVERRIDE_CUSTOM_STYLE_FONTS, BODY_STYLE_NAME
     import yaml
     with open(path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f) or {}
@@ -208,6 +222,7 @@ def apply_template_profile(path):
     STYLE_FONT_OVERRIDES = overrides
     if 'override_custom_style_fonts' in data:
         OVERRIDE_CUSTOM_STYLE_FONTS = bool(data['override_custom_style_fonts'])
+    BODY_STYLE_NAME = data.get('body_style') or None
 
 
 def set_para_spacing(para, line=None, space_after=None, space_before=None):
@@ -984,6 +999,13 @@ def main(argv=None):
             set_para_font(p, prof['h4'], NAVY, bold=True, font_name=_style_font(style_name))
 
         elif text and not style_name.startswith('Heading'):
+            # Remap pandoc's default "Normal" body paragraph to the template's
+            # own dedicated body style, if one was derived (issue #101) -- must
+            # happen BEFORE the is_custom_style_paragraph check below so it
+            # evaluates against the real style, not "Normal".
+            if BODY_STYLE_NAME and style_name == 'Normal' and BODY_STYLE_NAME in doc.styles:
+                p.style = doc.styles[BODY_STYLE_NAME]
+                style_name = BODY_STYLE_NAME
             if OVERRIDE_CUSTOM_STYLE_FONTS or not is_custom_style_paragraph(p):
                 set_para_font(p, prof['body'], prof['body_color'], font_name=_style_font(style_name))
             # else: paragraph carries a custom style with its own font/size
