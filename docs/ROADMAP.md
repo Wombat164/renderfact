@@ -175,6 +175,13 @@ renderfact-tracked embedded OPC document (docx/xlsx/pptx/vsdx all share docProps
 generically) is routed to its own per-format path; an OOXML file without provenance is flagged
 unknown-origin (adopt candidate); any other type is tried through markitdown (optional extra)
 for a text preview. Embeddings are matched by path segment, covering XLSX/PPTX/VSDX hosts too.
+**Text-delta structural-noise fix (issue #72):** pandoc-specific structural syntax (fenced-divs,
+raw-attribute OOXML blocks, blockquote markers) never renders as literal DOCX text, so the delta
+used to show their absence as false-positive reviewer deletions. Fixed by stripping them from the
+canonical-markdown side before the diff, at the same normalization tier as the pre-existing
+list-bullet/auto-numbered-heading stripping (ordered-list markers were already handled correctly
+and are unaffected). `render reingest --strip-pattern <regex>` (repeatable) lets a project add its
+own structural-noise conventions without renderfact special-casing them.
 Remaining in Track D: 4.2 split-plus-embed dual output, 4.5 LLM contextualize (rides D8), 4.6
 three-way merge, 4.7 git finalize.
 
