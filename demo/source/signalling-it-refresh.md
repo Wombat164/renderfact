@@ -1,5 +1,5 @@
 ---
-title: "Signalling Estate IT Refresh: Tender Dossier"
+title: "Signalling Estate IT Refresh - Tender Dossier"
 version: v0.9
 lang: en
 summary: >
@@ -50,17 +50,25 @@ train describer data distribution service, and the signalling maintenance
 workbench, together with migration of historical data, integration into MRI
 operations tooling, and training.
 
-Out of scope: the interlockings themselves, level crossing control, and any
-equipment subject to approval by the national rail safety regulator. The
-refresh is confined to the supporting IT estate; safety-approved signalling
-equipment is untouched.
+Out of scope:
+
+- the interlockings themselves
+- level crossing control
+- equipment subject to approval by the national rail safety regulator
+
+The refresh is confined to the supporting IT estate; safety-approved
+signalling equipment is untouched.
 
 ::: {.block releasable="bidders"}
-Site visits: registered bidders will be offered escorted visits to the Harwick
-Junction telemetry room, the Dunmere maintenance depot, and the Aldervale
-operations centre. Visits are booked through the programme office. Attendees
-without a valid track-side safety briefing certificate remain within office
-areas.
+Site visits: registered bidders will be offered escorted visits to three
+locations.
+
+- Harwick Junction telemetry room
+- Dunmere maintenance depot
+- Aldervale operations centre
+
+Visits are booked through the programme office. Attendees without a valid
+track-side safety briefing certificate remain within office areas.
 :::
 
 ## 3. Requirements
@@ -81,15 +89,15 @@ specifications are provided to registered bidders as separate annexes.
 ## 4. Evaluation approach
 
 Offers are evaluated on quality (weight 60) and price (weight 40). The quality
-criterion is subdivided into migration approach, service organisation during
-the run phase, and usability of the maintenance workbench. The evaluation
-panel is appointed by the Programme Director and includes the Head of
-Signalling Engineering and the Commercial Officer.
+criterion covers migration approach, service organisation during the run
+phase, and usability of the maintenance workbench. The evaluation panel is
+appointed by the Programme Director and includes the Head of Signalling
+Engineering and the Commercial Officer.
 
 ::: {.block audience="programme-team"}
-Panel note (programme team only): score each sub-criterion on the shared
+Panel note (programme team only). Score each sub-criterion on the shared
 worksheet before the moderation session, not during it. Bring written
-justifications; the moderation session reconciles scores, it does not produce
+justifications. The moderation session reconciles scores; it does not produce
 them. The worksheet lives with the programme office.
 :::
 
@@ -122,7 +130,7 @@ may be adjusted in the final tender notice.
 ::: {.block clearance="commercial-confidential"}
 Commercial envelope (in confidence, for registered bidders): the indicative
 budget for SEIR is 14.2 million over five years, of which 8.9 million for
-implementation and 5.3 million for the run phase including evolutive
+the build phase and 5.3 million for the run phase including ongoing
 maintenance. Offers above the envelope are not automatically excluded but
 must justify the excess against the stated requirements.
 :::
@@ -132,7 +140,7 @@ Known schedule risk, shared for planning honesty: the migration of twelve
 years of telemetry history out of the legacy historians has never been
 rehearsed at production scale. The transition window above carries this risk.
 Bidders should treat the data migration milestone (R-04) as the critical path
-and cost the rehearsal accordingly.
+and cost the rehearsal into their offer.
 :::
 
 ## Annex A: Technical baseline
@@ -140,14 +148,19 @@ and cost the rehearsal accordingly.
 The current estate is summarised here so that offers can be dimensioned.
 
 ::: {.block detail="true"}
-Full baseline (internal working detail): 43 virtualised servers across the two
-data rooms at Harwick Junction (27) and Aldervale (16); telemetry collection
-from 312 lineside concentrators in four hardware generations, of which 41
-units are past vendor end-of-support; two historian clusters holding 74 TB of
-telemetry history; maintenance workbench with 214 named accounts, of which
-about 180 are active depot technicians. The oldest concentrator generation
-predates the current train describer interface and requires a protocol
-gateway that only one engineer still maintains.
+Full baseline (internal working detail):
+
+- 43 virtualised servers across the two data rooms at Harwick Junction (27)
+  and Aldervale (16)
+- telemetry collection from 312 lineside concentrators in four hardware
+  generations, of which 41 units are past vendor end-of-support
+- two historian clusters holding 74 TB of telemetry history
+- maintenance workbench with 214 accounts, of which about 180 are active
+  depot technicians
+
+The oldest concentrator generation predates the current train describer
+interface and requires a protocol gateway that only one engineer still
+maintains.
 :::
 
 ::: {.block variant="abstract"}
@@ -166,6 +179,6 @@ inventories are provided to registered bidders.
   track-side equipment and forwards it to the collection tier.
 - Maintenance workbench: the application used by depot technicians to plan,
   record, and report signalling maintenance work.
-- SEIR: Signalling Estate IT Refresh, this programme.
+- SEIR: the Signalling Estate IT Refresh, this programme.
 - Train describer: the system that tracks train identities across the
   signalling estate and distributes that data to consuming systems.

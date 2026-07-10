@@ -10,6 +10,22 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Fixed
 
+- **Demo dossier now actually passes its own skin's writing doctrine**: `tests/test_gates.py::
+  test_demo_source_passes_its_own_skin_rules` (the dogfood invariant the demo README claims) was
+  failing. Root cause was several genuine AiTells error-level findings in
+  `demo/source/signalling-it-refresh.md` itself, not a dictionary gap: a colon-then-capitalized-word
+  construction in the frontmatter title (`ColonUsage`), four instances of a comma-and/semicolon
+  enumeration pattern the AI-tell heuristics treat as a giveaway (`VerbTricolon`, matched regardless
+  of real part of speech), a formal-register word (`FormalRegister`: "implementation"), a deletable
+  transition word (`FormalTransitions`: "accordingly"), and an empty modifier (`EmptyPadding`: "named
+  accounts"). Fixed by rewriting the affected passages (several inline three-item enumerations became
+  proper bullet lists, which also reads better) rather than weakening the rules or the fixture's
+  content otherwise. Separately, `demo/skin/vale/vale.ini` gained a `TokenIgnores` entry for the
+  fixture's own fictional proper nouns and established British-spelling technical terms, and a
+  `BlockIgnores` pattern that skips the fixture's `lang="fr"` fenced-div block from `Vale.Spelling`
+  entirely (real French, not a typo) instead of listing French words one at a time: `Vale.Spelling` is
+  warning-level and was never the blocking cause, but the noise it produced obscured the real,
+  blocking findings during triage.
 - **Custom-style paragraphs now keep their own font/size instead of the house-style default** (issue
   #98, D21): `docstyle/style_postprocess.py`'s body-styling pass in `main()` called `set_para_font()`
   unconditionally on every non-Title/Subtitle/Heading paragraph, including one carrying a custom Word
