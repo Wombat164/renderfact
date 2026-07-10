@@ -16,6 +16,15 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   discoverability gap where `apply_table_widths()` and its sibling flags were only findable by reading
   `docstyle/style_postprocess.py` source end to end.
 
+### Fixed
+
+- **Bracket wikilinks silently lost their display text (#69)**: `pdf/typst_backend.py` (the PDF path)
+  built its pandoc `--from` value without `wikilinks_title_after_pipe`, so `[[target|Display Text]]`
+  was read as literal punctuation, not a `Link` node, while `container/render-doc.sh` (the DOCX path)
+  had the extension. Both paths now build `--from` from one shared constant,
+  `pandoc_markdown.MARKDOWN_FROM`, so the extension cannot drop out of one sibling script while
+  staying in another.
+
 ## [0.4.0] - 2026-07-04
 
 Completes render-as-a-service and rounds out onboarding. All additive over 0.3.0.

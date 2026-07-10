@@ -237,8 +237,14 @@ awk '
   { print }
 ' "$SOURCE" > "$TMP_INPUT"
 
+# Shared source of truth for the pandoc markdown reader extensions (issue #69):
+# pandoc_markdown.py is the ONE place wikilinks_title_after_pipe is listed, so
+# this script and pdf/typst_backend.py cannot drift apart the way they did
+# before the fix (the PDF path had silently dropped the extension entirely).
+PANDOC_FROM_MD="$("$PYTHON" "$REPO_ROOT/pandoc_markdown.py")"
+
 PANDOC_ARGS=(
-  --from=markdown+wikilinks_title_after_pipe+pipe_tables+yaml_metadata_block
+  --from="$PANDOC_FROM_MD"
   --resource-path="$RESOURCE_PATH"
   --toc --toc-depth=2
 )
