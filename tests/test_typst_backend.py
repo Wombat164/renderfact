@@ -118,6 +118,31 @@ def test_render_pdf_resolves_wikilink_display_text(tmp_path):
     assert "[[" not in text and "]]" not in text
 
 
+# ------------------------------------------------ raw_attribute (issue #96) --
+
+@pytest.mark.skipif(not HAVE_PANDOC, reason="needs pandoc")
+def test_md_to_typst_drops_openxml_raw_block_without_error(tmp_path):
+    """Regression for issue #96: pandoc_markdown.MARKDOWN_FROM now pins
+    raw_attribute for every call site, including this PDF/typst path, not
+    only the DOCX one. A ```{=openxml} fenced block is a legitimate RawBlock
+    on the reader side, but the typst writer does not recognise the
+    "openxml" format tag, so it must be silently dropped (the same filtering
+    behaviour as an unrecognised raw_html block), never raise, and never leak
+    the raw OOXML text or the fence syntax into the typst body."""
+    md = tmp_path / "raw-attribute.md"
+    md.write_text(
+        "Some prose before.\n\n"
+        "```{=openxml}\n<w:p><w:r><w:t>RAW OOXML MARKER TEXT</w:t></w:r></w:p>\n```\n\n"
+        "Some prose after.\n",
+        encoding="utf-8",
+    )
+    body = tb.md_to_typst(md, tb.find_pandoc())
+    assert "Some prose before." in body
+    assert "Some prose after." in body
+    assert "RAW OOXML MARKER TEXT" not in body
+    assert "{=openxml}" not in body
+
+
 def test_render_pdf_missing_source(tmp_path):
     with pytest.raises(tb.TypstBackendError, match="source not found"):
         tb.render_pdf(tmp_path / "nope.md", typst="typst", pandoc="pandoc")
