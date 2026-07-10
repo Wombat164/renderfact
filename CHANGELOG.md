@@ -40,6 +40,25 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   rule (the DSL cannot search for a pattern it does not know in advance) and ships instead as
   `docstyle/plain_language.py`, wired into `render gate` as a new `plainlang` stage; unlike the
   other gate stages this one is report-only by default (`--plainlang-fail-on-hits` opts in).
+- **`render reingest --apply-widths`** (issue #73): the `## 3. Table column widths` section already
+  detected and reported reviewer-applied column-width changes; there was no apply path for them the
+  way the text delta has `## 5. Fast-forward plan` / `--apply`. `--apply-widths <out.yaml>` now emits
+  a table column-width sidecar, in the exact `tables: [[...], ...]` (twips, ordinal-matched) shape
+  `docstyle/style_postprocess.py`'s `_load_table_widths()` / `apply_table_widths()` already consume via
+  `--table-widths`, so the round trip is `render reingest --apply-widths spec.yaml` then
+  `render docstyle --table-widths spec.yaml` on the next render. Does not touch the markdown source
+  (pipe tables carry no width information pandoc will honor); each entry is commented with its header
+  text + row count + column count for human/audit stability, since two tables can share an identical
+  header. Written regardless of the FAST_FORWARD/DIVERGED verdict, unlike `--apply`: it captures the
+  reviewer's current widths, not a canonical-source edit.
+- **`render reingest` `## 3b. Page breaks` report section** (issue #73): manual page-break
+  additions/removals (the pandoc `\newpage` token, or a raw-openxml `<w:br w:type="page"/>`) used to
+  surface only as generic `(deleted in the edited DOCX)` / `(added in the edited DOCX)` lines in the
+  manual-review list when they surfaced at all, indistinguishable from the structural noise issue #72
+  fixed. They now get their own report section: counts in the canonical-markdown source vs the edited
+  DOCX, plus source line numbers / DOCX paragraph offsets, so a reviewer moving a page break reads as a
+  deliberate structural edit rather than noise. Word's own `w:lastRenderedPageBreak` layout-cache
+  marker (regenerated on every open, not a deliberate edit) is never counted.
 - **`render docstyle`** (issue #74): the house-style DOCX post-processor's standalone CLI surface
   (`--profile`, `--template-profile`, `--table-widths`, `--cover-version`, `--cover-date`) is now a
   documented top-level subcommand, in addition to being invoked internally by `render docx`. Fixes the

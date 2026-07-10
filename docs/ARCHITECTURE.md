@@ -325,6 +325,28 @@ headings, fenced-div `::: {...}` / `:::` lines, the blockquote `> ` marker). `re
 --strip-pattern <regex>` (repeatable) adds caller-supplied patterns at the same per-line tier, for
 a project's own structural-noise conventions renderfact has no reason to special-case itself.
 
+**Table-width apply path + page-break reporting (issue #73).** The `## 3. Table column widths`
+section detects reviewer-applied column widths from the edited DOCX's `w:tblGrid`/`w:tcW` (twips),
+but pipe-table markdown carries no width information pandoc will honor, so there is no markdown-side
+apply. `render reingest --apply-widths <out.yaml>` instead emits a sidecar in the exact shape
+`docstyle/style_postprocess.py`'s `_load_table_widths()` already parses: a top-level `tables:` list of
+per-column-width lists in twips, matched to document tables by ordinal position on the next render
+(the same ordinal `apply_table_widths()` uses). Each entry carries a YAML comment keyed by header text
++ row count + column count (per the issue's own suggestion: two tables can share an identical header)
+for human/audit stability across re-ingestion runs; the comment is not part of the consumed shape, so
+the sidecar stays directly compatible with the flag `--table-widths` already wires into `render
+docstyle`, no new parallel format. Written unconditionally (not gated on FAST_FORWARD/DIVERGED like
+`--apply`): it captures the reviewer's current widths, a fact about the returned DOCX, not an edit to
+the canonical source.
+Page breaks (the pandoc `\newpage` token or a raw-openxml `<w:br w:type="page"/>`) get their own `## 3b`
+report section rather than folding into the generic manual-review list: `source_page_breaks()` scans
+the canonical markdown text directly for both marker forms (line numbers), and `docx_page_breaks()`
+walks the edited DOCX's body paragraphs directly for a literal `<w:br w:type="page"/>` (paragraph
+offsets), deliberately excluding Word's own `w:lastRenderedPageBreak` (a layout-cache marker Word
+regenerates on every open, not a deliberate edit). A page-break-only paragraph carries no visible text,
+so `walk_structure()`'s existing text filter (`if not txt: continue`) already keeps it out of the
+text-delta/manual-review path; the direct body walk is what makes it visible to a report at all.
+
 ## Pre-publish QA gate chain (B3)
 
 `gates/run_gates.py` (`render gate`) is the fail-closed sibling to the post-render `qa` gate below:
