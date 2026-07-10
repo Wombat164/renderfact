@@ -16,6 +16,21 @@ render docx <source.md> --profile <profile>
 The profile decides the disclosure rules, the brand skin, and whether provenance is embedded (internal)
 or stripped (external / publish).
 
+## Fit table columns and set a cover version/date on a DOCX
+
+```bash
+cat > widths.yaml <<'YAML'
+tables:
+  - [3000, 6000]   # table 0: two columns (twips), proportions preserved, scaled full-width
+YAML
+render docstyle draft.docx styled.docx --profile reference \
+  --table-widths widths.yaml --cover-version 1.2 --cover-date "2026-07-10"
+```
+
+This is the standalone entry point to the same house-style post-processor `render docx` calls
+internally; use it to restyle a DOCX directly, or to apply just `--table-widths` without a full
+`render docx` pass.
+
 ## Gate artifacts before publishing
 
 ```bash

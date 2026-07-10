@@ -23,6 +23,12 @@ Usage:
   python style_postprocess.py <input.docx> [output.docx]
       [--profile compact|reference] [--template-profile <yaml>]
       [--table-widths <yaml>] [--cover-version <v>] [--cover-date <d>]
+
+`render docx` (render-doc.sh) invokes this module directly as a subprocess as the
+house-style pass of its own pipeline. The same flags are also reachable standalone
+via `render docstyle <input.docx> [output.docx] ...` (see render.py) for callers
+who want this post-processor's capabilities (e.g. --table-widths) without going
+through the full docx pipeline (issue #74).
 """
 import os
 import sys
@@ -754,10 +760,27 @@ def style_callouts(doc, prof):
         prev = True
 
 
-def main():
+def main(argv=None):
+    """Entry point. `argv` defaults to sys.argv[1:] when run as a script (also how
+    render-doc.sh invokes this module: as a subprocess, unchanged); an explicit list
+    lets a caller (e.g. `render docstyle`, see render.py) invoke it in-process with
+    its own argument list, without touching sys.argv."""
     # Optional flag: --table-widths <yaml> applies operator-fitted, full-width,
     # fixed-layout column widths (generic; any document can pass its own config).
-    args = sys.argv[1:]
+    args = sys.argv[1:] if argv is None else list(argv)
+    if '-h' in args or '--help' in args:
+        print("Usage: python style_postprocess.py <input.docx> [output.docx]\n"
+              "    [--profile compact|reference] [--template-profile <yaml>]\n"
+              "    [--table-widths <yaml>] [--cover-version <v>] [--cover-date <d>]\n\n"
+              "Applies the house style (font, headings, tables, page geometry, header/\n"
+              "footer handling, punctuation normalization) to a pandoc-rendered DOCX, in\n"
+              "place unless [output.docx] is given.\n\n"
+              "  --profile compact|reference   style profile (default: compact)\n"
+              "  --template-profile <yaml>     override theme/marking/cover from a profile yaml\n"
+              "  --table-widths <yaml>         operator-fitted column widths (see apply_table_widths)\n"
+              "  --cover-version <v>           cover version-line value (reference profile)\n"
+              "  --cover-date <d>              cover date-line value (reference profile)")
+        return 0
     table_widths_path = None
     profile_name = 'compact'
     cover_version = None
@@ -897,6 +920,8 @@ def main():
     except OSError:
         print("  (file size check skipped: file not stat-able yet)")
 
+    return 0
+
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

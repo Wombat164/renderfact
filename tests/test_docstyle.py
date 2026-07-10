@@ -236,6 +236,96 @@ def test_punctuation_merges_only_the_split_hyphen_run_pair(tmp_path):
     assert p.runs[2].italic is True
 
 
+# ---------- (g) main(argv=...) explicit-arg entry point (issue #74) ----------
+
+def test_main_accepts_explicit_argv_list_without_touching_sys_argv(tmp_path, monkeypatch):
+    # render.py's `run_docstyle` calls style_postprocess.main(args) directly,
+    # in-process, rather than mutating sys.argv (see render.py). main() must
+    # honour an explicit argv list and leave sys.argv untouched.
+    src = _build_doc(tmp_path)
+    out = tmp_path / "styled.docx"
+    sentinel = ["style_postprocess.py", "--should-not-be-read"]
+    monkeypatch.setattr(sys, "argv", sentinel)
+
+    rc = sp.main([str(src), str(out)])
+
+    assert rc == 0
+    assert sys.argv == sentinel  # untouched
+    assert out.exists()
+
+
+def test_help_flag_returns_zero_and_does_not_require_a_docx(capsys):
+    rc = sp.main(["--help"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "--table-widths" in out
+    assert "--cover-version" in out
+
+
+# ---------- (h) --table-widths applies scaled, fixed-layout column widths ----------
+
+def test_table_widths_scales_proportionally_to_text_width(tmp_path):
+    src = _build_doc(tmp_path, "widths.docx")
+    out = tmp_path / "widths-out.docx"
+    widths_yaml = tmp_path / "widths.yaml"
+    # 1:2 ratio; absolute magnitude is irrelevant, only the ratio survives scaling.
+    widths_yaml.write_text("tables:\n  - [1000, 2000]\n", encoding="utf-8")
+
+    sp.main([str(src), str(out), "--table-widths", str(widths_yaml)])
+
+    doc = Document(str(out))
+    table = doc.tables[0]
+    text_w = sp._section_text_width_twips(doc)
+    grid = table._tbl.find(sp.qn("w:tblGrid"))
+    col_widths = [int(gc.get(sp.qn("w:w"))) for gc in grid.findall(sp.qn("w:gridCol"))]
+
+    assert len(col_widths) == 2
+    assert sum(col_widths) == text_w  # scaled to fill the section text width exactly
+    # 1:2 ratio preserved (within a rounding twip)
+    assert abs(col_widths[1] - 2 * col_widths[0]) <= 1
+
+
+def test_table_widths_skipped_on_column_count_mismatch(tmp_path):
+    # A spec with the wrong column count is a guard against source table-order
+    # drift: it must be skipped, not mis-fit onto the table. python-docx already
+    # writes a default tblGrid on table creation, so the guard is proven by
+    # checking apply_table_widths()'s own reported set, and that no fixed-layout
+    # width was stamped onto the table -- not by grid presence/absence.
+    src = _build_doc(tmp_path, "widths-mismatch.docx")
+    out = tmp_path / "widths-mismatch-out.docx"
+    widths_yaml = tmp_path / "widths-bad.yaml"
+    widths_yaml.write_text("tables:\n  - [1000, 2000, 3000]\n", encoding="utf-8")  # 3 cols, table has 2
+
+    sp.main([str(src), str(out), "--table-widths", str(widths_yaml)])
+
+    doc = Document(str(out))
+    tbl_pr = doc.tables[0]._tbl.tblPr
+    assert tbl_pr.find(sp.qn("w:tblLayout")) is None  # never switched to fixed layout
+
+
+# ---------- (i) --cover-version / --cover-date on the reference profile ----------
+
+def test_cover_version_and_date_render_the_cover_line(tmp_path):
+    from docx.enum.style import WD_STYLE_TYPE
+
+    doc = Document()
+    doc.styles.add_style("Date", WD_STYLE_TYPE.PARAGRAPH)
+    doc.add_heading("Report Title", level=1)
+    date_p = doc.add_paragraph("placeholder")
+    date_p.style = doc.styles["Date"]
+    doc.add_heading("Part I: Overview", level=1)
+    doc.add_paragraph("Body content.")
+    src = tmp_path / "cover-fields.docx"
+    doc.save(str(src))
+    out = tmp_path / "cover-fields-out.docx"
+
+    sp.main([str(src), str(out), "--profile", "reference",
+              "--cover-version", "1.2", "--cover-date", "2026-07-10"])
+
+    texts = [p.text for p in Document(str(out)).paragraphs]
+    assert any("1.2" in t and "2026-07-10" in t for t in texts)
+
+
 def test_caption_matching_uses_raw_pstyle_id(tmp_path):
     # Backport regression (2026-07-03): pandoc references pStyle id
     # 'ImageCaption', usually undefined in reference.docx, so p.style resolves

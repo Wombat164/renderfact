@@ -16,6 +16,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 |---|---|---|
 | `project` | one profiled source -> one governed render per audience/clearance/disclosure profile | shipped |
 | `docx` | annotated markdown -> styled DOCX (plus optional PDF) | shipped |
+| `docstyle` | standalone house-style DOCX post-processor (font/heading/table styling, `--table-widths`, `--cover-version`/`--cover-date`); the same engine `docx` calls internally, exposed directly (issue #74) | shipped |
 | `diagram` | mermaid / d2 rendering with pre-render lint and visual-QA metrics | shipped |
 | `tokens` | `brand.yaml` -> per-engine themes (mermaid JSON, marp CSS, pandoc profile, typst tokens) | shipped |
 | `init-ai` | install D8 step instructions into the user's own assistant | shipped |
@@ -61,11 +62,42 @@ The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero
 | `HEADING_NUMBERING` | field-based numbering injector | `docstyle/heading_numbering.py` (in-repo) |
 | `PROJECTION_CONFIG` | ladders-plus-profiles YAML for `--project` | `projection/profiles-example.yaml` |
 | `QC_SCRIPT` / `NLQA_DIR` / `PAGECHECK_SCRIPT` | optional pre/post checks | off when unset |
+| `QC_BLOCKING` | `1` makes a `QC_SCRIPT` finding stop the render (`--qc-blocking` is the flag form) | `0` (advisory) |
+| `POSTRENDER_GATE_SCRIPT` | post-render gate, called with the finished `<docx>` (`--postrender-gate`) | off when unset |
+| `POSTRENDER_GATE_ADVISORY` | `1` makes a `POSTRENDER_GATE_SCRIPT` finding advisory instead of blocking | `0` (blocking) |
 | `PDF_CONVERTER_PS1` | Windows Word-COM converter; otherwise LibreOffice is used when present | LibreOffice fallback |
 | `OUTPUT_DIR` / `RESOURCE_PATH` / `PANDOC` / `PYTHON` | output, image root, tool overrides | `./renders`, source dir, PATH |
 
+**One shared markdown-reader extension string.** Every call site that reads a renderfact markdown
+source into pandoc's AST (`container/render-doc.sh` for DOCX, `pdf/typst_backend.py` for PDF) builds
+its `--from` value from `pandoc_markdown.MARKDOWN_FROM` (Python callers import it; `render-doc.sh`
+shells out to `python pandoc_markdown.py`) instead of hand-rolling its own extension list. This is a
+single source of truth for `wikilinks_title_after_pipe`, the extension that makes
+`[[target|Display Text]]` bracket links resolve to their display text: without it, pandoc's plain
+`markdown` reader treats the brackets as literal punctuation rather than a `Link` node (issue #69).
+
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.
+
+**The gate-hook contract (D18).** `render-doc.sh` has two fail-closed hook points, and they default
+OPPOSITE ways on purpose:
+
+- `QC_SCRIPT` runs pre-render, against the SOURCE markdown, and defaults to ADVISORY (findings print;
+  the render continues). This is the more common case for lint-shaped pre-render checks, so it stays
+  the default; `QC_BLOCKING=1` / `--qc-blocking` opts a consumer into fail-closed.
+- `POSTRENDER_GATE_SCRIPT` runs post-render, against the FINISHED `<docx>` (after style, numbering,
+  and provenance have all touched it, before the completion summary), and defaults to BLOCKING (a
+  non-zero exit stops the run). Its purpose is "does the artifact contain content it must never
+  contain", not a lint pass a human might skim past in scrollback; a silently-advisory default would
+  undermine the one property the hook exists to guarantee. `POSTRENDER_GATE_ADVISORY=1` opts back into
+  advisory-only for a consumer that wants report-only behaviour.
+
+`gates/content_scan.py` is the generic reference implementation a consumer skin points
+`POSTRENDER_GATE_SCRIPT` at: it opens the DOCX with python-docx and regex-scans every paragraph and
+every table cell (recursively into nested tables) for a caller-supplied pattern, exiting 1 on any hit.
+It ships with NO default pattern (D3: the pattern is a required parameter, supplied via `--pattern`,
+`--pattern-file`, or the `RENDERFACT_GATE_PATTERN` / `RENDERFACT_GATE_PATTERN_FILE` env vars for
+zero-arg hook invocation) so the public core stays domain-neutral.
 
 ## The projection engine
 
@@ -126,6 +158,12 @@ document out of the box, and consumers override with `--template-profile`.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that
   renumber automatically on insert / reorder / delete. It is idempotent: re-running on an
   already-numbered document is a no-op. The source carries number-free headings.
+
+`render docx` (render-doc.sh) invokes `style_postprocess.py` directly as a subprocess for its own
+house-style pass; that call path is unchanged. `render docstyle` (issue #74) is an additional,
+directly documented entry point onto the same `main()`, for callers who want the post-processor's
+capabilities (most notably `--table-widths`, which the `docx` pipeline does not pass through today)
+without going through the full DOCX pipeline.
 
 ## The D8 dual-mode step contract
 
@@ -290,6 +328,8 @@ container/   OCI image (Containerfile) + render wrapper + render-doc.sh + bundle
 lint/        diagram render harness + pre-render linters + visual-QA metrics + the D8 step contract + render_qa
 tokens/      brand.yaml token mechanism + per-engine generators (tokens/gen/)
 contracts/   the generic D8 I/O-contract validator + harness-mode installer + copy-paste fallback
+gates/       fail-closed QA gate chain (run_gates.py, B3) + content_scan.py, the generic
+             post-render content-safety regex-scan gate (D18)
 roundtrip/   provenance embed/extract/adopt/retarget + stable source UID (named to avoid shadowing python-docx)
 demo/        a fictional railway-operator tender dossier exercising every projection gate
 docs/        DECISIONS + ROADMAP + ARCHITECTURE + CONTRIBUTING + SECURITY
