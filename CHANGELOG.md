@@ -10,6 +10,14 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`--no-toc` / `toc: false` opt-out for `render-doc.sh`** (issue #99): `container/render-doc.sh`
+  hardcoded `--toc --toc-depth=2` into the pandoc invocation unconditionally, with no flag, env var, or
+  template-profile key to disable it, a fidelity problem for a short document (a one-to-two-page
+  template, say) that never had a table of contents in the original. Two opt-out paths, either one
+  sufficient: the `--no-toc` CLI flag, or a top-level `toc: false` key in the `--template-profile` YAML
+  (the same either-one-is-enough interaction as `QC_BLOCKING` / `--qc-blocking`). Default stays on
+  (today's behavior), so this is a pure opt-out. New:
+  `tests/test_render_doc_toc_opt_out.py`.
 - **`render qa tables` slack signal** (issue #90): the column-geometry scan reported only a single
   squeeze-pressure score per table (`squeezed-col`), and any column with 5% or less of a table's
   content share was excluded from that scoring entirely, so a genuinely tiny but over-allocated

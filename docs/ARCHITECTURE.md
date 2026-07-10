@@ -58,7 +58,7 @@ The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero
 | `SKIN_DIR` | convenience root: the vars below default into it when set | unset |
 | `TEMPLATE_DOCX` | pandoc `--reference-doc` | pandoc built-in style |
 | `FILTERS_DIR` | directory of pandoc lua filters, applied in name order | none |
-| `TEMPLATE_PROFILE` | YAML consumed by the style post-processor | none (neutral defaults) |
+| `TEMPLATE_PROFILE` | YAML consumed by the style post-processor; a top-level `toc: false` key also opts out of the table of contents (`--no-toc` is the flag form; either is sufficient, issue #99) | none (neutral defaults) |
 | `STYLE_POSTPROCESS` | house-style DOCX post-processor | `docstyle/style_postprocess.py` (in-repo) |
 | `HEADING_NUMBERING` | field-based numbering injector | `docstyle/heading_numbering.py` (in-repo) |
 | `PROJECTION_CONFIG` | ladders-plus-profiles YAML for `--project` | `projection/profiles-example.yaml` |
@@ -79,6 +79,13 @@ single source of truth for `wikilinks_title_after_pipe`, the extension that make
 
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.
+
+**Table of contents opt-out (issue #99).** `--toc --toc-depth=2` used to be hardcoded into the pandoc
+invocation with no way to turn it off, a fidelity problem for a short document (a one-to-two-page
+template, say) that never had a table of contents in the original. `--no-toc` (CLI) and `toc: false`
+(a top-level key in the `--template-profile` YAML) both disable it; either one is sufficient, the same
+either-one-is-enough interaction as `QC_BLOCKING` / `--qc-blocking`. The default stays on (today's
+behavior), so this is a pure opt-out: nothing already depending on the table of contents breaks.
 
 **The gate-hook contract (D18).** `render-doc.sh` has two fail-closed hook points, and they default
 OPPOSITE ways on purpose:
