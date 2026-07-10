@@ -186,8 +186,8 @@ source sits in a clean git work tree, makes ancestor recovery a direct `git show
 ## Pre-publish QA gate chain (B3)
 
 `gates/run_gates.py` (`render gate`) is the fail-closed sibling to the post-render `qa` gate below:
-findings fail the run, AND a requested stage whose tool is not installed also fails the run (exit 2)
--- a gate you cannot execute is not a gate you passed. Every stage is a deterministic CLI subprocess
+findings fail the run, AND a requested stage whose tool is not installed also fails the run (exit 2):
+a gate you cannot execute is not a gate you passed. Every stage is a deterministic CLI subprocess
 or dependency-free Python, no LLM anywhere. Default chain: `vale,lychee,verapdf,uids,plainlang`,
 each stage self-scoping by file type so one `render gate <dir>` run applies each stage to the files
 it understands.
@@ -198,7 +198,7 @@ it understands.
   The demo skin (`demo/skin/vale/vale.ini`) is the worked example: `GoldenRules` (the deterministic
   slice of a house writing style), `AiTells` (vendored authorial-AI-tell detection: filler phrases,
   hedging, formal register, and so on), and `PlainLanguage` (issue #76: reader-facing plain-language
-  quality, a distinct concern from AiTells -- sentence length and nominalisation density, both
+  quality, a distinct concern from AiTells: sentence length and nominalisation density, both
   warning-level advisory rather than blocking, since both are tunable heuristics rather than
   clear-cut defects). `BeNl` (BE-NL lexical checks) is opt-in via a separate `vale.be-nl.ini`.
 - `lychee`: link integrity on markdown sources (lycheeverse/lychee), offline by default (relative
