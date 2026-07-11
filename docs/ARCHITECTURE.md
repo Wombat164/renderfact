@@ -469,6 +469,35 @@ regenerates on every open, not a deliberate edit). A page-break-only paragraph c
 so `walk_structure()`'s existing text filter (`if not txt: continue`) already keeps it out of the
 text-delta/manual-review path; the direct body walk is what makes it visible to a report at all.
 
+**Contextualize workflow surfacing + multi-round narrative (G8).** A consumer session hand-wrote
+prose changelog entries for every back-ported reviewer edit without ever invoking `render
+contextualize` (Track D 4.5/G6's own job): not render-help invisibility, but WORKFLOW invisibility
+plus one real functional gap. Two fixes:
+- **Surfacing.** `render reingest` prints a next-command hint whenever the run has manual-review
+  residue or a DIVERGED verdict (the exact condition `contextualize.confidence()` already treats as
+  "not a free pass" -- `needs_contextualize = bool(manual) or verdict == "DIVERGED"`, reused rather
+  than reinvented). `--contextualize` chains the two commands in one process: `reingest.py` imports
+  `contextualize.py` lazily (function-local, not at module load -- `contextualize.py` already
+  imports FROM `reingest.py` at ITS load time, so a top-level cross-import would be circular) and
+  runs its full deterministic-first/D16-gated pipeline directly on this run's own in-memory result,
+  no intermediate JSON file or subprocess. A run with nothing needing a decision (`FAST_FORWARD`,
+  empty `manual`) skips the chained call entirely rather than producing a redundant "nothing to
+  narrate" entry.
+- **Multi-round narrative.** `contextualize` was single-shot per reingest: it appended standalone
+  entries and never read the existing decision log, so a document reviewed three times got three
+  disconnected entries with no reference to what earlier rounds changed.
+  `contextualize.parse_prior_rounds(log_path, source_name)` mechanically parses the log's own
+  `render_markdown()` shape (`## title`, a `- Source: x` meta line, a blank line, then the summary
+  paragraph) for entries matching `source_name`, zero LLM cost. `assemble_input()` gains `round`
+  (`len(prior_rounds) + 1`) and `prior_rounds`, both optional `INPUT_SCHEMA` fields (omitted/1 =
+  first round, fully backward compatible with every existing caller). Round-awareness reaches both
+  paths: the deterministic entry gets a mechanical `"Round N: "` title prefix plus a summary note
+  naming the previous round (never applied to an escalated entry's title, which is author-written
+  and already has round context in its prompt -- avoiding a mechanical prefix clashing with a
+  human/LLM-chosen one); the escalation prompt (`_task_intent_for`) is extended, when `prior_rounds`
+  is non-empty, with each prior round's title+summary and an explicit instruction to write this
+  round as a continuation rather than repeating what earlier rounds already established.
+
 ## Pre-publish QA gate chain (B3)
 
 `gates/run_gates.py` (`render gate`) is the fail-closed sibling to the post-render `qa` gate below:

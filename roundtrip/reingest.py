@@ -599,6 +599,51 @@ def build_report(artifact: Path, prov, verdict: str, comments, ins, dele,
 
 # ---------------------------------------------------------------------- CLI --
 
+def _run_contextualize_chained(args, reingest_result: dict) -> dict:
+    """`--contextualize` (G8): run contextualize's pipeline in-process on THIS
+    run's own result -- no intermediate JSON file, no subprocess -- and always
+    append (no --dry-run surfaced here; run 'render contextualize' standalone
+    for that). Lazy import: contextualize.py imports FROM this module at its
+    own load time (ADDED_MARKER/DELETED_MARKER/WHY_HEADING), so importing it
+    back at reingest.py's own module level would be a circular import."""
+    _here = Path(__file__).resolve().parent
+    if str(_here) not in sys.path:
+        sys.path.insert(0, str(_here))
+    import contextualize as ctx
+    import provenance as prov_mod
+
+    title = args.title or args.source.stem
+    log_path = args.decision_log or args.source.with_suffix(".decisions.md")
+    prior_rounds = ctx.parse_prior_rounds(log_path, args.source.name)
+    input_obj = ctx.assemble_input(reingest_result, args.source.name, title, prior_rounds=prior_rounds)
+
+    threshold = args.threshold if args.threshold is not None else ctx.DEFAULT_THRESHOLD
+    from contracts import confidence_gate, copy_paste, direct_api
+    escalate = None
+    if args.escalate == "copy-paste":
+        def escalate():
+            return copy_paste.run_copy_paste_step("contextualize", ctx, input_obj, scratch_dir=Path("."))
+    elif args.escalate == "api":
+        def escalate():
+            return direct_api.api_then_copy_paste("contextualize", ctx, input_obj, scratch_dir=Path("."))
+    try:
+        entry, meta = confidence_gate.resolve("contextualize", ctx, input_obj, threshold, escalate=escalate)
+    except (confidence_gate.GateError, copy_paste.CopyPasteValidationError) as e:
+        raise ReingestError(f"--contextualize failed: {e}")
+
+    source_version = (reingest_result.get("provenance") or {}).get("source_version")
+    entry_md = ctx.render_markdown(entry, input_obj, source_version=source_version,
+                                   needs_review=meta["needs_review"], rendered_at=prov_mod.now_iso())
+    ctx.append_entry(log_path, entry_md)
+
+    return {
+        "decision": meta["decision"], "confidence": meta["score"], "threshold": threshold,
+        "needs_review": meta["needs_review"], "round": input_obj["round"],
+        "entry": entry, "log": str(log_path),
+    }
+
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="render reingest",
@@ -627,6 +672,24 @@ def main(argv: list[str] | None = None) -> int:
                          "information pandoc will honor, so widths live in this sidecar instead "
                          "(issue #73). Written regardless of the provenance verdict: it captures "
                          "the reviewer's current widths, not a canonical-source edit")
+    ap.add_argument("--contextualize", action="store_true",
+                    help="one-shot chain: immediately run 'render contextualize' on this run's "
+                         "own result (in-process, no intermediate JSON file/subprocess) instead of "
+                         "just reporting it (G8). Only meaningful when there is manual-review "
+                         "residue or a DIVERGED verdict; a no-op ('nothing to contextualize') "
+                         "otherwise -- contextualize's own zero-residue deterministic entry would "
+                         "just restate that, so this skips the redundant call")
+    ap.add_argument("--title", default=None,
+                    help="--contextualize pass-through: document title for the entry heading "
+                         "(default: source stem)")
+    ap.add_argument("--decision-log", type=Path, default=None,
+                    help="--contextualize pass-through: decision log to append to "
+                         "(default: <source-stem>.decisions.md)")
+    ap.add_argument("--threshold", type=float, default=None,
+                    help="--contextualize pass-through: confidence gate "
+                         "(default: contextualize's own default/env var)")
+    ap.add_argument("--escalate", choices=("copy-paste", "api"), default=None,
+                    help="--contextualize pass-through: how to escalate below threshold")
     args = ap.parse_args(argv)
 
     try:
@@ -680,23 +743,46 @@ def main(argv: list[str] | None = None) -> int:
             args.apply_widths.write_text(render_width_spec_yaml(width_entries),
                                          encoding="utf-8", newline="\n")
 
+        reingest_result = {
+            "verdict": verdict,
+            "provenance": asdict(prov),
+            "comments": comments,
+            "tracked_insertions": ins,
+            "tracked_deletions": dele,
+            "embedded_objects": embedded,
+            "delta": delta,
+            "safe_edits": [{"line": i, "new": n, "old": o} for i, _m, n, o in safe],
+            "manual": [list(m) for m in manual],
+            "applied": applied,
+            "table_width_spec": width_entries,
+            "table_width_spec_path": str(args.apply_widths) if args.apply_widths else None,
+            "source_page_breaks": src_breaks,
+            "docx_page_breaks": dx_breaks,
+        }
+        # Needs a decision narrated iff something didn't mechanically fast-forward,
+        # or the source moved out from under this render -- the exact condition
+        # contextualize's own confidence() already treats as "not a free pass"
+        # (see roundtrip/contextualize.py, G8).
+        needs_contextualize = bool(manual) or verdict == "DIVERGED"
+
+        if args.contextualize:
+            if not needs_contextualize:
+                if args.json:
+                    reingest_result["contextualize"] = {"skipped": "nothing needing a decision (no manual residue, FAST_FORWARD)"}
+                else:
+                    print("(--contextualize: nothing needing a decision -- no manual residue, FAST_FORWARD -- skipped)")
+            else:
+                ctx_result = _run_contextualize_chained(args, reingest_result)
+                if args.json:
+                    reingest_result["contextualize"] = ctx_result
+                else:
+                    print(f"\n# contextualize: {args.source.name} (round {ctx_result['round']})")
+                    print(f"confidence {ctx_result['confidence']} vs threshold {ctx_result['threshold']} "
+                          f"-> {ctx_result['decision']}")
+                    print(f"appended to {ctx_result['log']}")
+
         if args.json:
-            print(json.dumps({
-                "verdict": verdict,
-                "provenance": asdict(prov),
-                "comments": comments,
-                "tracked_insertions": ins,
-                "tracked_deletions": dele,
-                "embedded_objects": embedded,
-                "delta": delta,
-                "safe_edits": [{"line": i, "new": n, "old": o} for i, _m, n, o in safe],
-                "manual": [list(m) for m in manual],
-                "applied": applied,
-                "table_width_spec": width_entries,
-                "table_width_spec_path": str(args.apply_widths) if args.apply_widths else None,
-                "source_page_breaks": src_breaks,
-                "docx_page_breaks": dx_breaks,
-            }, indent=2))
+            print(json.dumps(reingest_result, indent=2))
             return 0
 
         report = build_report(args.artifact, prov, verdict, comments, ins, dele,
@@ -708,6 +794,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {args.report}")
         else:
             print(report)
+
+        if needs_contextualize and not args.contextualize:
+            print(f"\nNext: this run has content a reviewer changed intent on (not just mechanical "
+                  f"rewording) -- 'render contextualize --source {args.source} --reingest <this "
+                  f"run's --json output>' captures the decision, or re-run this command with "
+                  f"--contextualize to chain it automatically.")
         return 0
     except ReingestError as e:
         print(f"ERROR: {e}", file=sys.stderr)

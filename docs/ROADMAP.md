@@ -417,28 +417,34 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   finding. Recorded as D20: a legitimate D16 outcome (the gate's own vision-review worked example
   already treats "no deterministic signal" as valid), not an exception to it, simply the first step
   where that is the PERMANENT case rather than one branch of a heuristic. 26 tests.
-- **G8 - contextualize workflow surfacing + multi-round narrative.** `[build]`. Renumbered from G7
-  during PR #67's main-branch merge-conflict resolution (2026-07-11): G7 collided with issue #84's
-  comprehension gate, developed in parallel without either session aware of the other, the same class
-  of collision D18/D19 already hit elsewhere in this repo's decision/roadmap numbering. A consumer
-  session (2026-07-10) hand-wrote prose changelog entries for every back-ported reviewer edit, all
-  session, without ever invoking `render contextualize`: the exact job G6 shipped for. Root cause is
-  NOT render-help invisibility (contextualize is a registered mode with a real argparse `--help`,
-  unlike A8's case); it is WORKFLOW invisibility plus one real functional gap. (1) Surfacing:
-  `render reingest`'s report and CLI output never point at the next step, and its default
-  human-readable report is not even the `--json` input contextualize requires; add a printed
-  next-command hint after every reingest (**[imitate]** git's `advice.*` hint system and the
-  clig.dev "suggest the next command" guideline) and a `reingest --contextualize` one-shot chaining
-  flag so the two-command JSON plumbing disappears for the common case. (2) Multi-round narrative:
-  contextualize is single-shot per reingest; it appends standalone entries and never reads the
-  existing decision log, so a document that goes out for review three times gets three disconnected
-  entries with no round numbering and no reference to what earlier rounds changed, while the
-  consumer's real need was a cumulative changelog narrative referencing previous rounds. Make the
-  step round-aware: read prior entries for the same source_uid from the log, stamp a round counter,
-  and hand the previous rounds' titles/summaries to the escalation prompt as context
-  (**[imitate]** towncrier's fragments-then-assemble model and reno's keep-fragments-forever
-  philosophy: per-round entries stay the source of truth, the cumulative narrative is derived, so
-  nothing is rewritten after the fact). NEXT.
+- **G8 - contextualize workflow surfacing + multi-round narrative.** `[build]` **DONE.** Renumbered
+  from G7 during PR #67's main-branch merge-conflict resolution (2026-07-11): G7 collided with issue
+  #84's comprehension gate, developed in parallel without either session aware of the other, the same
+  class of collision D18/D19 already hit elsewhere in this repo's decision/roadmap numbering -- then
+  independently built as this exact feature in a separate PR before #67 itself landed, so this entry
+  reconciles two drafts of the same work rather than describing a collision alone. A consumer session
+  (2026-07-10) hand-wrote prose changelog entries for every back-ported reviewer edit, all session,
+  without ever invoking `render contextualize`: the exact job G6 shipped for. Root cause is NOT
+  render-help invisibility (contextualize is a registered mode with a real argparse `--help`, unlike
+  A8's case); it is WORKFLOW invisibility plus one real functional gap.
+  (1) **Surfacing DONE:** `render reingest` now prints a next-command hint whenever a run has
+  manual-review residue or a DIVERGED verdict -- the exact condition `contextualize.confidence()`
+  already treats as "not a free pass," reused rather than reinvented (**[imitate]** git's `advice.*`
+  hint system and the clig.dev "suggest the next command" guideline). `--contextualize` chains the
+  two commands in one process (`reingest.py` imports `contextualize.py` lazily, function-local, since
+  `contextualize.py` already imports FROM `reingest.py` at its own load time and a top-level
+  cross-import would be circular), skipping the call entirely when nothing needs a decision rather
+  than writing a redundant "nothing to narrate" entry.
+  (2) **Multi-round narrative DONE:** `contextualize.parse_prior_rounds()` mechanically parses the
+  existing decision log (zero LLM cost, **[imitate]** towncrier's fragments-then-assemble model and
+  reno's keep-fragments-forever philosophy: per-round entries stay the source of truth, the
+  cumulative narrative is derived, nothing is rewritten after the fact) for entries belonging to the
+  same source, and `assemble_input()` gains optional `round`/`prior_rounds` fields (fully backward
+  compatible -- every existing caller still gets round 1, no prior context) threading into both the
+  deterministic template (a mechanical "Round N:" title prefix + a prior-round note, never applied to
+  an escalated entry's author-written title) and the escalation prompt (told to continue the
+  narrative, not repeat it). 14 new tests across `tests/test_reingest.py` and
+  `tests/test_contextualize.py`.
 
 ---
 

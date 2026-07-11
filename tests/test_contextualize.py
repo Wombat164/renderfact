@@ -105,6 +105,82 @@ def test_assemble_input_shape():
     assert obj["task_intent"] == ctx.TASK_INTENT
     assert obj["source_name"] == "doc.md" and obj["doc_title"] == "My Doc"
     assert [c["kind"] for c in obj["manual_changes"]] == ["add", "reword"]
+    assert obj["round"] == 1
+    assert obj["prior_rounds"] == []
+
+
+# ------------------------------------------------ G8: multi-round narrative --
+
+def test_parse_prior_rounds_returns_empty_for_missing_log(tmp_path):
+    assert ctx.parse_prior_rounds(tmp_path / "does-not-exist.md", "doc.md") == []
+
+
+def test_parse_prior_rounds_returns_empty_when_no_matching_source(tmp_path):
+    log = tmp_path / "log.md"
+    entry = ctx.render_markdown(
+        {"title": "Other doc: 1 edit", "summary": "Some summary.", "changes": [], "capture_mode": "deterministic"},
+        {"source_name": "other.md", "verdict": "FAST_FORWARD"},
+    )
+    ctx.append_entry(log, entry)
+    assert ctx.parse_prior_rounds(log, "doc.md") == []
+
+
+def test_parse_prior_rounds_parses_matching_entries_in_order(tmp_path):
+    log = tmp_path / "log.md"
+    for i in range(2):
+        entry = ctx.render_markdown(
+            {"title": f"Doc: round {i + 1} edit", "summary": f"Summary for round {i + 1}.",
+             "changes": [f"change {i + 1}"], "capture_mode": "deterministic"},
+            {"source_name": "doc.md", "verdict": "FAST_FORWARD"},
+        )
+        ctx.append_entry(log, entry)
+    prior = ctx.parse_prior_rounds(log, "doc.md")
+    assert [p["round"] for p in prior] == [1, 2]
+    assert prior[0]["title"] == "Doc: round 1 edit"
+    assert prior[0]["summary"] == "Summary for round 1."
+    assert prior[1]["title"] == "Doc: round 2 edit"
+
+
+def test_assemble_input_round_increments_with_prior_rounds():
+    prior = [{"round": 1, "title": "Doc: 1 edit", "summary": "First round summary."}]
+    obj = ctx.assemble_input({"verdict": "FAST_FORWARD", "manual": []}, "doc.md", "My Doc", prior_rounds=prior)
+    assert obj["round"] == 2
+    assert obj["prior_rounds"] == prior
+
+
+def test_task_intent_extended_with_prior_round_context():
+    prior = [{"round": 1, "title": "Doc: 1 edit", "summary": "First round summary."}]
+    obj = ctx.assemble_input({"verdict": "FAST_FORWARD", "manual": []}, "doc.md", "My Doc", prior_rounds=prior)
+    assert obj["task_intent"] != ctx.TASK_INTENT
+    assert ctx.TASK_INTENT in obj["task_intent"]
+    assert "First round summary." in obj["task_intent"]
+    assert "Doc: 1 edit" in obj["task_intent"]
+
+
+def test_deterministic_entry_round_1_has_no_prefix_or_note():
+    obj = _input([[ADDED_MARKER, "x"]])
+    entry = ctx.deterministic_entry(obj)
+    assert not entry["title"].startswith("Round")
+    assert "round" not in entry["summary"].lower()
+
+
+def test_deterministic_entry_round_2_is_prefixed_and_notes_prior_round():
+    prior = [{"round": 1, "title": "My Doc: 1 edit", "summary": "First round summary."}]
+    obj = ctx.assemble_input({"verdict": "FAST_FORWARD", "manual": [[ADDED_MARKER, "x"]]},
+                             "doc.md", "My Doc", prior_rounds=prior)
+    entry = ctx.deterministic_entry(obj)
+    assert entry["title"].startswith("Round 2: ")
+    assert "round 1" in entry["summary"].lower()
+    assert "My Doc: 1 edit" in entry["summary"]
+
+
+def test_deterministic_entry_round_2_no_manual_changes_still_notes_prior_round():
+    prior = [{"round": 1, "title": "My Doc: 1 edit", "summary": "First round summary."}]
+    obj = ctx.assemble_input({"verdict": "FAST_FORWARD", "manual": []},
+                             "doc.md", "My Doc", prior_rounds=prior)
+    entry = ctx.deterministic_entry(obj)
+    assert entry["title"].startswith("Round 2: ")
+    assert "round 1" in entry["summary"].lower()
 
 
 # --------------------------------------------------------------------- CLI --
@@ -171,6 +247,28 @@ def test_cli_stdin_reingest(tmp_path):
     d = json.loads(r.stdout)
     # empty manual + DIVERGED -> confidence 0.7 -> accept at default 0.6, with reconciliation note
     assert d["decision"] == "accept"
+
+
+def test_cli_second_round_increments_and_references_first(tmp_path):
+    src = _src(tmp_path)
+    reingest = tmp_path / "r.json"
+    reingest.write_text(json.dumps({"verdict": "FAST_FORWARD", "provenance": {},
+                                    "manual": [[ADDED_MARKER, "first round content"]]}), encoding="utf-8")
+    r1, log = _cli(src, reingest, tmp_path=tmp_path)
+    assert r1.returncode == 0, r1.stderr
+    d1 = json.loads(r1.stdout)
+    assert d1["round"] == 1
+
+    reingest.write_text(json.dumps({"verdict": "FAST_FORWARD", "provenance": {},
+                                    "manual": [[ADDED_MARKER, "second round content"]]}), encoding="utf-8")
+    r2, _ = _cli(src, reingest, tmp_path=tmp_path)
+    assert r2.returncode == 0, r2.stderr
+    d2 = json.loads(r2.stdout)
+    assert d2["round"] == 2
+
+    log_text = log.read_text(encoding="utf-8")
+    assert "Round 2:" in log_text
+    assert log_text.count("## ") == 2  # both rounds present, not overwritten
 
 
 # --------------------------------------------------------------- harness --

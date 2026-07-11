@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -101,9 +102,16 @@ _CHANGE_ITEM_SCHEMA: list[FieldSpec] = [
     FieldSpec("kind", str, required=True, description="The classified change kind."),
 ]
 
+_PRIOR_ROUND_SCHEMA: list[FieldSpec] = [
+    FieldSpec("round", int, required=True, description="1-indexed round number."),
+    FieldSpec("title", str, required=True, description="That round's entry title."),
+    FieldSpec("summary", str, required=True, description="That round's entry summary."),
+]
+
 INPUT_SCHEMA: list[FieldSpec] = [
     FieldSpec("task_intent", str, required=True,
-              description="Fixed instruction text (see TASK_INTENT)."),
+              description="Instruction text -- TASK_INTENT, extended with prior-round context "
+                          "when round > 1 (see _task_intent_for)."),
     FieldSpec("source_name", str, required=True,
               description="The canonical source the document was rendered from."),
     FieldSpec("doc_title", str, required=True,
@@ -113,6 +121,13 @@ INPUT_SCHEMA: list[FieldSpec] = [
     FieldSpec("manual_changes", list, required=True,
               description="The classified manual-review diff items from the re-ingestion.",
               item_schema=_CHANGE_ITEM_SCHEMA),
+    FieldSpec("round", int, required=False,
+              description="1-indexed review round for this source_name in this decision log "
+                          "(G8: multi-round narrative). Omitted/1 means first round."),
+    FieldSpec("prior_rounds", list, required=False,
+              description="Earlier rounds' title+summary for this source_name, oldest first "
+                          "(G8). Empty/omitted means no prior rounds found.",
+              item_schema=_PRIOR_ROUND_SCHEMA),
 ]
 
 OUTPUT_SCHEMA: list[FieldSpec] = [
@@ -128,10 +143,36 @@ OUTPUT_SCHEMA: list[FieldSpec] = [
 ]
 
 
-def assemble_input(reingest_result: dict, source_name: str, doc_title: str) -> dict:
+def _task_intent_for(prior_rounds: list[dict]) -> str:
+    """TASK_INTENT, extended with prior-round context when this is not round 1
+    (G8). Deterministic string-building, zero LLM cost -- the same posture as
+    every other input-assembly step in this file; only the ESCALATION path
+    that eventually reads task_intent spends a token on it."""
+    if not prior_rounds:
+        return TASK_INTENT
+    prior_desc = "; ".join(
+        f"round {p['round']} ('{p['title']}'): {p['summary']}" for p in prior_rounds
+    )
+    return (
+        TASK_INTENT
+        + f" This document has gone out for review {len(prior_rounds)} time(s) before. Write "
+          "this round's decision as a CONTINUATION of that narrative -- reference what earlier "
+          "rounds already established rather than repeating it, and note what is NEW this round. "
+          f"Prior rounds: {prior_desc}"
+    )
+
+
+def assemble_input(reingest_result: dict, source_name: str, doc_title: str,
+                   prior_rounds: list[dict] | None = None) -> dict:
     """Deterministic input assembly from a `reingest --json` result. Classifies
     each `manual` tuple and keeps its old/new text for the template. Raises
-    ContextualizeError if the assembled object would fail its own schema."""
+    ContextualizeError if the assembled object would fail its own schema.
+
+    prior_rounds (G8, multi-round narrative): earlier rounds' title+summary for
+    this source_name, oldest first, from parse_prior_rounds() over the target
+    decision log -- the caller's responsibility to supply (this function stays
+    a pure assembler, no file I/O). Defaults to no prior rounds (round 1)."""
+    prior_rounds = prior_rounds or []
     manual = reingest_result.get("manual", [])
     changes = []
     for item in manual:
@@ -142,11 +183,13 @@ def assemble_input(reingest_result: dict, source_name: str, doc_title: str) -> d
             "new": item[1] if len(item) > 1 else "",
         })
     obj = {
-        "task_intent": TASK_INTENT,
+        "task_intent": _task_intent_for(prior_rounds),
         "source_name": source_name,
         "doc_title": doc_title,
         "verdict": reingest_result.get("verdict", "FAST_FORWARD"),
         "manual_changes": changes,
+        "round": len(prior_rounds) + 1,
+        "prior_rounds": prior_rounds,
     }
     errors = validate(obj, INPUT_SCHEMA)
     if errors:
@@ -193,21 +236,41 @@ def confidence(input_obj: dict):
                       reason=f"{intent}/{total} intent-bearing edits")
 
 
+def _round_prefix(input_obj: dict) -> str:
+    """'' for round 1, 'Round N: ' for round N>1 (G8). Mechanical prefixing
+    applies only to the DETERMINISTIC entry's title -- an escalated (harness/
+    copy-paste/api) entry's title is author-written with prior-round context
+    already in its prompt (_task_intent_for), not force-prefixed here, to
+    avoid a human or LLM title clashing with a second mechanical "Round N:"."""
+    round_no = input_obj.get("round", 1)
+    return f"Round {round_no}: " if round_no > 1 else ""
+
+
 def deterministic_entry(input_obj: dict) -> dict:
     """Template every manual edit into a factual decision entry -- no LLM.
     capture_mode='deterministic'."""
     changes = input_obj.get("manual_changes", [])
     title = input_obj.get("doc_title", "document")
     diverged = input_obj.get("verdict") == "DIVERGED"
+    prior_rounds = input_obj.get("prior_rounds") or []
+    round_prefix = _round_prefix(input_obj)
+    round_note = ""
+    if prior_rounds:
+        latest = prior_rounds[-1]
+        round_note = (
+            f" This is round {input_obj.get('round', len(prior_rounds) + 1)} of review for "
+            f"{input_obj.get('source_name', 'this source')}; round {latest['round']} "
+            f"('{latest['title']}') came before it."
+        )
 
     if not changes:
         summary = ("The re-ingested edit was fully absorbed by the mechanical fast-forward; "
-                   "no edit needed manual review. No content decision to narrate.")
+                   "no edit needed manual review. No content decision to narrate.") + round_note
         if diverged:
             summary += (" NB: the source evolved while the document was out (DIVERGED) -- "
                         "reconcile against the current source by hand.")
         return {
-            "title": f"{title}: no manual-review edits",
+            "title": f"{round_prefix}{title}: no manual-review edits",
             "summary": summary,
             "changes": [],
             "capture_mode": "deterministic",
@@ -219,12 +282,12 @@ def deterministic_entry(input_obj: dict) -> dict:
         f"{n} reviewer edit{'s' if n != 1 else ''} needing manual review, captured "
         f"mechanically from a re-ingested edit of {input_obj.get('source_name', 'the source')}. "
         "Intent was not narrated (deterministic capture)."
-    )
+    ) + round_note
     if diverged:
         summary += (" NB: the source evolved while the document was out (DIVERGED) -- "
                     "reconcile these edits against the current source by hand.")
     return {
-        "title": f"{title}: {n} reviewer edit{'s' if n != 1 else ''}",
+        "title": f"{round_prefix}{title}: {n} reviewer edit{'s' if n != 1 else ''}",
         "changes": lines,
         "summary": summary,
         "capture_mode": "deterministic",
@@ -270,6 +333,48 @@ def append_entry(log_path: Path, entry_md: str) -> None:
     existing = log_path.read_text(encoding="utf-8")
     sep = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
     log_path.write_text(existing + sep + entry_md, encoding="utf-8", newline="\n")
+
+
+def parse_prior_rounds(log_path: Path, source_name: str) -> list[dict]:
+    """Parse an existing decision log (render_markdown's own '## title' + '- Source:
+    x' + blank + summary shape, mechanically, no LLM) for entries belonging to
+    source_name, returning {round, title, summary} oldest-first (G8, multi-round
+    narrative). Missing file or zero matching entries returns [] -- round 1, no
+    prior context -- never raises, since "no log yet" is the normal first-run case."""
+    log_path = Path(log_path)
+    if not log_path.exists():
+        return []
+    text = log_path.read_text(encoding="utf-8")
+    # Split right before each level-2 heading; the file's own level-1 "# Document
+    # decision log" heading never matches ("## " requires the second '#').
+    sections = re.split(r"\n(?=## )", text)
+
+    matches: list[dict] = []
+    for section in sections:
+        if not section.startswith("## "):
+            continue
+        lines = section.splitlines()
+        title = lines[0][3:].strip()
+        i = 1
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        this_source = None
+        while i < len(lines) and lines[i].startswith("- "):
+            meta = lines[i][2:]
+            if meta.startswith("Source: "):
+                this_source = meta[len("Source: "):].strip()
+            i += 1
+        if this_source != source_name:
+            continue
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        summary_lines: list[str] = []
+        while i < len(lines) and lines[i].strip() and lines[i].strip() != "Changes:":
+            summary_lines.append(lines[i])
+            i += 1
+        matches.append({"title": title, "summary": " ".join(summary_lines).strip()})
+
+    return [{"round": idx + 1, **m} for idx, m in enumerate(matches)]
 
 
 # --------------------------------------------------------------------- CLI --
@@ -321,7 +426,9 @@ def main(argv: list[str] | None = None) -> int:
         # reproducible anchor: the source_version the artifact was rendered from
         source_version = (reingest.get("provenance") or {}).get("source_version")
 
-        input_obj = assemble_input(reingest, args.source.name, title)
+        log_path = args.decision_log or args.source.with_suffix(".decisions.md")
+        prior_rounds = parse_prior_rounds(log_path, args.source.name)
+        input_obj = assemble_input(reingest, args.source.name, title, prior_rounds=prior_rounds)
 
         from contracts import confidence_gate, copy_paste, direct_api
         escalate = None
@@ -344,14 +451,13 @@ def main(argv: list[str] | None = None) -> int:
         entry_md = render_markdown(entry, input_obj, source_version=source_version,
                                    needs_review=needs_review, rendered_at=prov_mod.now_iso())
 
-        log_path = args.decision_log or args.source.with_suffix(".decisions.md")
-
         if args.json:
             print(json.dumps({"decision": decision, "confidence": score,
                               "threshold": args.threshold, "needs_review": needs_review,
-                              "entry": entry, "log": str(log_path)}, indent=2))
+                              "entry": entry, "round": input_obj["round"],
+                              "log": str(log_path)}, indent=2))
         else:
-            print(f"# contextualize: {args.source.name}")
+            print(f"# contextualize: {args.source.name} (round {input_obj['round']})")
             print(f"confidence {score} vs threshold {args.threshold} -> {decision}"
                   + (" (escalated to copy-paste)" if decision == "escalate" and args.escalate else ""))
             print(f"capture mode: {entry['capture_mode']}"
