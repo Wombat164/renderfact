@@ -101,7 +101,7 @@ template, say) that never had a table of contents in the original. `--no-toc` (C
 either-one-is-enough interaction as `QC_BLOCKING` / `--qc-blocking`. The default stays on (today's
 behavior), so this is a pure opt-out: nothing already depending on the table of contents breaks.
 
-**The gate-hook contract (D18).** `render-doc.sh` has two fail-closed hook points, and they default
+**The gate-hook contract (D23).** `render-doc.sh` has two fail-closed hook points, and they default
 OPPOSITE ways on purpose:
 
 - `QC_SCRIPT` runs pre-render, against the SOURCE markdown, and defaults to ADVISORY (findings print;
@@ -602,13 +602,63 @@ The guard set (D9 hardened past a read-server posture per D15) runs on every req
 - binds `127.0.0.1` by default; binding wider prints an explicit runtime warning that the server has
   NO authentication or authorization controls;
 - rejects any non-loopback `Host` header with 403 (DNS-rebinding protection);
-- on every POST, rejects browser-signaled cross-origin requests (an `Origin` or `Sec-Fetch-Site`
-  allowlist; non-browser clients that carry neither header pass);
+- on every POST or PUT, rejects browser-signaled cross-origin requests (an `Origin` or
+  `Sec-Fetch-Site` allowlist; non-browser clients that carry neither header pass);
 - jails every request-named filesystem path under `--root` (default: the working directory at start);
 - applies a fixed-window per-client rate limit (429 when exceeded);
-- issues a per-session CSRF token from `/session`, ready for the first truly-mutating route.
+- issues a per-session CSRF token from `/session`, checked by every truly-mutating route.
 
-Current routes are compute/read-only; the CSRF mechanism exists for the editor's write endpoints.
+`POST /projects` and `PUT /projects/{name}/config` (Track J, chunk 6.2) are the first routes that
+persist server-side state, and the first to enforce the CSRF token (`_require_csrf`); every other
+route remains compute/read-only or (for `/render/pdf`, `/render/docx`) renders-and-returns without
+touching the server's own files.
+
+## Project registry (Track J)
+
+`api/store.py` is a small registry over a "projects" directory tree, read side shipped in chunk 6.1,
+write side (create + config mutation) in chunk 6.2. A project is identified by its directory name (a
+slug, no opaque ID) and holds a git-tracked `renderfact.yaml` manifest as its sole source of truth --
+there is no central database of record; discovery is a depth-limited scan with an mtime cache, and a
+future SQLite index is specified only as a disposable, rebuildable read-cache (not yet built). A
+`.renderfact/renders.jsonl` per-project ledger records render history; it is untracked by default
+(operations, not intent -- the git history already carries intent).
+
+`POST /projects` scaffolds a new project (manifest, a seeded source, a `profiles.yaml` skeleton,
+`.gitignore`, `git init` if needed, one initial commit). `PUT /projects/{name}/config` mutates the
+manifest's mutable fields (audience profile, template, doc type, diagram scaffold, render defaults)
+with the same optimistic-concurrency shape the (specified, not yet built) structured editor below
+uses: a content-hash `base_hash` guards against a stale write (409 on mismatch), and every diff-
+carrying change is exactly one commit with a required, sanitized commit message. `GET
+/projects/{name}` returns that hash (`manifest_hash`) alongside the manifest, ledger tail, and git
+facts, so a client always has a current token to write back with.
+
+Full design (audit, requirements, information architecture, template auto-choose, diff view, the
+rest of the Track J roadmap): `docs/2026-07-07-ui-ux-project-workspace-design-spike.md`.
+
+`api/templates.py` (chunk 6.3) is the template library the New Project wizard will draw from: a
+directory convention, `<library-root>/<name>/` (metadata + optional scaffold source + optional
+derived theme profile + optional reference DOCX), NOT the same thing as the pre-existing flat
+`templates/*.md` genre pack (that pack's own copy-and-instantiate workflow is untouched; project
+creation's best-effort source seed still reads it directly by filename). Two roots merge at read
+time -- built-in (`templates/library/`, ships two domain-neutral entries) and an operator's custom
+root -- with a custom entry shadowing a built-in of the same name (an intentional override, not a
+collision). `POST /templates/import` is a thin, D15-hardened wrapper over the shipped
+`import-template` (C7) pipeline: it calls that pipeline's own derivation in-process rather than
+re-implementing it, including its `--check` idempotency gate.
+
+`GET /projects/{name}/profiles` and `GET /profiles?path=` (chunk 6.4) list a profiles.yaml's
+audience profiles for the wizard/render-config menu: names + minimal metadata (clearance/
+distribution rank, lang, audience, disclosure), not the raw ladder-keyed governance dict --
+resolving the design spike's OQ11 as names+ranks.
+
+The workspace screens (chunk 6.5, D23) end the monolithic-`UI_HTML`-string pattern: first-party
+JS/CSS ship as real files under `api/static/`, served by an allowlisted `GET /ui/static/{name}`
+(exact filenames only, long-cache headers, gated behind `--enable-ui`) rather than growing
+`api.ui`'s single string further. `GET /ui/projects` (Dashboard), `GET /ui/projects/new` (New
+Project wizard, manual template/doc_type/scaffold selection only -- auto-choose is chunk 6.7),
+and `GET /ui/templates` (Template Library, with an import form over `POST /templates/import`)
+are each a small HTML shell plus one JS file; every mutating action goes through the same
+D15-hardened routes chunks 6.2/6.3 already built.
 
 ## Structured source editor (specified, not built)
 
@@ -648,7 +698,7 @@ lint/        diagram render harness + pre-render linters + visual-QA metrics + t
 tokens/      brand.yaml token mechanism + per-engine generators (tokens/gen/)
 contracts/   the generic D8 I/O-contract validator + harness-mode installer + copy-paste fallback
 gates/       fail-closed QA gate chain (run_gates.py, B3) + content_scan.py, the generic
-             post-render content-safety regex-scan gate (D18)
+             post-render content-safety regex-scan gate (D23)
 roundtrip/   provenance embed/extract/adopt/retarget + stable source UID (named to avoid shadowing python-docx)
 demo/        a fictional railway-operator tender dossier exercising every projection gate
 docs/        DECISIONS + ROADMAP + ARCHITECTURE + CONTRIBUTING + SECURITY

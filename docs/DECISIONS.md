@@ -608,3 +608,39 @@ NOT `.msg`, and NOT mail-client automation.
   to stderr, an eml with no `To:` header): the same "still produces a valid, honest artifact with
   less input" posture optional `--theme`/`--brand`/`--signature` flags take across every backend in
   this repo, useful for a draft written before the addressee is settled.
+
+## D23 - Workspace static assets: package-data files + GET /ui/static/{name}, not string literals
+
+The monolithic-`UI_HTML`-string pattern (api/ui.py, D9) ends at the Track J workspace boundary
+(design spike `docs/2026-07-07-ui-ux-project-workspace-design-spike.md` section 5, OQ8). First-party
+JS/CSS for the Dashboard/wizard/Template Library screens (chunk 6.5 onward) ship as real files under
+`api/static/`, served by a new `GET /ui/static/{name}` route: an exact-filename allowlist (no
+directory traversal possible by construction, no path-jail arithmetic needed), long-cache headers,
+gated behind `--enable-ui` like every other `/ui*` route. The HTML shell each screen returns stays a
+small Python string (matching `render_docs_html`'s existing pattern) that only assembles structure
+and links to the static files; the substantial JS/CSS logic lives in reviewable, cacheable files, not
+string literals.
+
+**Why now.** The extension-seam audit that produced the design spike flagged this as a genuine fork,
+not a mechanical continuation: `UI_HTML` as one string already works for a single studio page, but a
+multi-screen workspace (Dashboard, wizard, Template Library, and later the vendored D12 editor
+libraries, which are megabyte-class) would make every new screen bloat `api.ui`'s single string
+further and make diffs unreviewable. Splitting now, before chunk 6.5's first new screen, costs one
+small route and an allowlist; deferring it would mean rewriting three screens' worth of inline string
+literals later instead of one.
+
+**Why a plain filesystem read, not `importlib.resources`.** OQ8's own text floated
+`importlib.resources` for pip-installed-package portability; this repo's every other bundled-asset
+convention (the template library's `templates/library/`, the flat `templates/*.md` pack, `tools.lock`,
+`container/`) already reads via a `REPO_ROOT`-relative `Path`, with no `importlib.resources` usage
+anywhere in the codebase. Consistency with that established convention wins over anticipating a
+packaging concern no other module here has needed to solve yet; revisit if/when renderfact actually
+ships as a wheel with `api/static/` needing to travel inside it.
+
+**Renumbered from D18 to D23 during PR #67's main-branch merge-conflict resolution** (2026-07-11):
+D18 was independently assigned to two decisions developed in parallel without either session aware
+of the other (issue #71's gate-hook contract, merged first) -- the same class of collision D19
+(comprehension gate vs #77's purpose-annotations) already hit and was renumbered for earlier in this
+same file. D22 (sendable email output) was the highest number on `main` at merge time, so this
+decision becomes D23, immediately after it; content and reasoning are otherwise unchanged from the
+original PR #67 draft.

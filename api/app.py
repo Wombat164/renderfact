@@ -39,6 +39,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
 
+# Workspace static assets (Track J, chunk 6.5 / D23): package-data files, not
+# string literals. Exact-filename allowlist -- traversal is not possible by
+# construction, no path-jail arithmetic needed. Gated behind --enable-ui.
+STATIC_DIR = REPO_ROOT / "api" / "static"
+STATIC_ALLOWLIST = {
+    "common.js", "dashboard.css", "dashboard.js", "wizard.js", "templates-library.js",
+}
+_STATIC_CONTENT_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+
 
 class ApiError(Exception):
     def __init__(self, status: int, message: str):
@@ -81,11 +90,18 @@ class RateLimiter:
 
 class RenderfactApi:
     def __init__(self, root: Path | None = None, enable_ui: bool = False,
-                 rate_limit: int = 120):
+                 rate_limit: int = 120, projects_root: Path | None = None,
+                 templates_root: Path | None = None):
         self.root = (root or Path.cwd()).resolve()
         self.enable_ui = enable_ui
         self.limiter = RateLimiter(limit=rate_limit)
         self.csrf_tokens: set[str] = set()
+        self.projects_root = (Path(projects_root).resolve() if projects_root
+                              else self.root / "projects")
+        self.templates_root = (Path(templates_root).resolve() if templates_root
+                               else self.root / "templates")
+        self._store = None
+        self._templates = None
         sys.path.insert(0, str(REPO_ROOT))
         sys.path.insert(0, str(REPO_ROOT / "lint"))
         from contracts import init_ai  # noqa: PLC0415
@@ -101,15 +117,25 @@ class RenderfactApi:
         client = environ.get("REMOTE_ADDR", "?")
         if not self.limiter.allow(client):
             raise ApiError(429, "rate limit exceeded")
-        if environ["REQUEST_METHOD"] == "POST":
+        if environ["REQUEST_METHOD"] in ("POST", "PUT"):
             origin = environ.get("HTTP_ORIGIN")
             fetch_site = environ.get("HTTP_SEC_FETCH_SITE")
             if origin is not None:
                 m = re.match(r"https?://([^/:]+)(:\d+)?$", origin)
                 if not m or m.group(1) not in LOOPBACK_HOSTS:
-                    raise ApiError(403, f"cross-origin POST rejected: {origin!r}")
+                    raise ApiError(403, f"cross-origin {environ['REQUEST_METHOD']} rejected: {origin!r}")
             elif fetch_site is not None and fetch_site not in ("same-origin", "none"):
-                raise ApiError(403, f"cross-site POST rejected: Sec-Fetch-Site={fetch_site!r}")
+                raise ApiError(403, f"cross-site {environ['REQUEST_METHOD']} rejected: "
+                                    f"Sec-Fetch-Site={fetch_site!r}")
+
+    def _require_csrf(self, environ) -> None:
+        """D15 point 2: a per-session CSRF token, checked on every truly
+        mutating endpoint (chunk 6.2 is the first to enforce this; earlier
+        POST routes render-and-return, they do not persist server-side
+        state). Token comes from GET /session; it is not single-use."""
+        token = environ.get("HTTP_X_CSRF_TOKEN")
+        if not token or token not in self.csrf_tokens:
+            raise ApiError(403, "missing or invalid CSRF token (GET /session first)")
 
     def _jail(self, raw: str, what: str) -> Path:
         p = Path(raw)
@@ -122,9 +148,26 @@ class RenderfactApi:
             raise ApiError(403, f"{what} escapes the server root: {raw!r}") from None
         return p
 
+    def _require_ui(self) -> None:
+        if not self.enable_ui:
+            raise ApiError(404, "UI not enabled (start with --enable-ui)")
+
+    def _static_asset(self, name: str):
+        """GET /ui/static/{name} (D23): an exact-filename allowlist, so no
+        directory-traversal check is even needed -- an unlisted name never
+        reaches the filesystem at all."""
+        if name not in STATIC_ALLOWLIST:
+            raise ApiError(404, f"no such static asset: {name}")
+        path = STATIC_DIR / name
+        if not path.is_file():
+            raise ApiError(404, f"static asset missing on disk: {name}")
+        ctype = _STATIC_CONTENT_TYPES.get(path.suffix, "application/octet-stream")
+        return BinaryResponse(path.read_bytes(), ctype,
+                              extra_headers={"Cache-Control": "public, max-age=86400"})
+
     # ---- routes ----
 
-    def route(self, method: str, path: str, body: dict | None):
+    def route(self, method: str, path: str, body: dict | None, environ: dict | None = None):
         if method == "GET" and path == "/":
             return self._info()
         if method == "GET" and path == "/session":
@@ -141,6 +184,19 @@ class RenderfactApi:
             from api.ui import UI_HTML  # noqa: PLC0415
 
             return HtmlResponse(UI_HTML)
+        if method == "GET" and path == "/ui/projects":
+            self._require_ui()
+            return HtmlResponse(render_dashboard_html())
+        if method == "GET" and path == "/ui/projects/new":
+            self._require_ui()
+            return HtmlResponse(render_wizard_html())
+        if method == "GET" and path == "/ui/templates":
+            self._require_ui()
+            return HtmlResponse(render_template_library_html())
+        m = re.match(r"^/ui/static/([A-Za-z0-9_.-]+)$", path)
+        if method == "GET" and m:
+            self._require_ui()
+            return self._static_asset(m.group(1))
         if method == "GET" and path == "/steps":
             return {"steps": sorted(self.steps)}
         if method == "GET" and path == "/doctor":
@@ -163,7 +219,164 @@ class RenderfactApi:
             return self._render_pdf(body)
         if method == "POST" and path == "/render/docx":
             return self._render_docx(body)
+        if method == "GET" and path == "/projects":
+            return self._projects_list()
+        if method == "POST" and path == "/projects":
+            return self._project_create(body, environ)
+        m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)$", path)
+        if method == "GET" and m:
+            return self._project_detail(m.group(1), body)
+        m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)/config$", path)
+        if method == "PUT" and m:
+            return self._project_config_put(m.group(1), body, environ)
+        m = re.match(r"^/projects/([a-z0-9][a-z0-9-]*)/profiles$", path)
+        if method == "GET" and m:
+            return self._project_profiles(m.group(1))
+        if method == "GET" and path == "/profiles":
+            return self._profiles_by_path(body)
+        if method == "GET" and path == "/templates":
+            return self._templates_list()
+        if method == "POST" and path == "/templates/import":
+            return self._template_import(body, environ)
+        m = re.match(r"^/templates/([a-z0-9][a-z0-9-]*)$", path)
+        if method == "GET" and m:
+            return self._template_detail(m.group(1))
         raise ApiError(404, f"no route: {method} {path}")
+
+    # ---- project registry (Track J, chunk 6.1; read-side) ----
+
+    def _project_store(self):
+        if self._store is None:
+            sys.path.insert(0, str(REPO_ROOT))
+            from api import store  # noqa: PLC0415
+
+            self._store = store.ProjectStore(self.projects_root)
+        return self._store
+
+    def _projects_list(self):
+        store = self._project_store()
+        return {"projects_root": str(store.root), "projects": store.scan()}
+
+    def _project_detail(self, name: str, body: dict | None):
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import store  # noqa: PLC0415
+
+        limit = 20
+        if isinstance(body, dict) and body.get("limit") is not None:
+            try:
+                limit = max(0, int(body["limit"]))
+            except (TypeError, ValueError):
+                raise ApiError(400, "limit must be an integer") from None
+        try:
+            return self._project_store().get(name, limit=limit)
+        except store.ManifestError as e:
+            raise ApiError(404, str(e)) from None
+
+    def _project_create(self, body: dict | None, environ: dict | None):
+        """POST /projects (chunk 6.2): scaffold a new project. The first
+        route to enforce the full D15 mutating set: CSRF token (this
+        handler), Origin/Host (already enforced for every POST by _guard),
+        no path-jail needed beyond the slug regex + a fixed root (traversal
+        is structurally impossible: valid_slug forbids '/' and '..')."""
+        self._require_csrf(environ or {})
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import store  # noqa: PLC0415
+
+        if not isinstance(body, dict) or not body.get("name"):
+            raise ApiError(400, "missing required field 'name'")
+        formats = body.get("formats")
+        if formats is not None and not isinstance(formats, list):
+            raise ApiError(400, "'formats' must be a list of strings")
+        try:
+            return self._project_store().create(
+                body["name"], title=body.get("title"), template=body.get("template"),
+                doc_type=body.get("doc_type", "report"),
+                diagram_scaffold=body.get("diagram_scaffold", "none"),
+                default_profile=body.get("default_profile", "internal-full"),
+                formats=formats, locale=body.get("locale", "en-US"))
+        except store.ProjectExistsError as e:
+            raise ApiError(409, str(e)) from None
+        except store.ManifestError as e:
+            raise ApiError(400, str(e)) from None
+
+    def _project_config_put(self, name: str, body: dict | None, environ: dict | None):
+        """PUT /projects/{name}/config (chunk 6.2): mutate manifest fields.
+        Same optimistic-concurrency shape as the (specified, not yet built)
+        editor PUT /editor/section: base_hash + 409 on staleness, one commit
+        per diff-carrying change, required non-empty commit message."""
+        self._require_csrf(environ or {})
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import store  # noqa: PLC0415
+
+        if not isinstance(body, dict):
+            raise ApiError(400, "request body must be a JSON object")
+        for key in ("base_hash", "message", "patch"):
+            if not body.get(key):
+                raise ApiError(400, f"missing required field {key!r}")
+        if not isinstance(body["patch"], dict):
+            raise ApiError(400, "'patch' must be an object")
+        try:
+            return self._project_store().update_config(
+                name, body["patch"], body["base_hash"], body["message"])
+        except store.StaleManifestError as e:
+            raise ApiError(409, str(e)) from None
+        except store.CommitMessageError as e:
+            raise ApiError(400, str(e)) from None
+        except store.ManifestError as e:
+            status = 404 if "no such project" in str(e) else 400
+            raise ApiError(status, str(e)) from None
+
+    # ---- template library (Track J, chunk 6.3) ----
+
+    def _template_library(self):
+        if self._templates is None:
+            sys.path.insert(0, str(REPO_ROOT))
+            from api import templates as templates_mod  # noqa: PLC0415
+
+            self._templates = templates_mod.TemplateLibrary(self.templates_root)
+        return self._templates
+
+    def _templates_list(self):
+        lib = self._template_library()
+        return {"templates_root": str(lib.custom_root), "templates": lib.scan()}
+
+    def _template_detail(self, name: str):
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import templates as templates_mod  # noqa: PLC0415
+
+        try:
+            return self._template_library().get(name)
+        except templates_mod.TemplateError as e:
+            raise ApiError(404, str(e)) from None
+
+    def _template_import(self, body: dict | None, environ: dict | None):
+        """POST /templates/import (chunk 6.3): thin wrapper over the shipped
+        import-template pipeline, landing the derived profile + this
+        module's own template.yaml metadata in the custom library root.
+        D15-hardened (this writes into the library): CSRF required."""
+        self._require_csrf(environ or {})
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import templates as templates_mod  # noqa: PLC0415
+
+        if not isinstance(body, dict):
+            raise ApiError(400, "request body must be a JSON object")
+        for key in ("name", "source"):
+            if not body.get(key):
+                raise ApiError(400, f"missing required field {key!r}")
+        docx_path = self._jail(body["source"], "source")
+        check_probe = self._jail(body["check_probe"], "check_probe") if body.get("check_probe") else None
+        scaffolds = body.get("diagram_scaffolds")
+        if scaffolds is not None and not isinstance(scaffolds, list):
+            raise ApiError(400, "'diagram_scaffolds' must be a list of strings")
+        try:
+            return self._template_library().import_docx(
+                body["name"], docx_path, doc_type=body.get("doc_type"),
+                description=body.get("description"), diagram_scaffolds=scaffolds,
+                copy_reference=bool(body.get("copy_reference")), check_probe=check_probe)
+        except templates_mod.TemplateExistsError as e:
+            raise ApiError(409, str(e)) from None
+        except templates_mod.TemplateError as e:
+            raise ApiError(400, str(e)) from None
 
     def _info(self):
         sys.path.insert(0, str(REPO_ROOT / "roundtrip"))
@@ -183,6 +396,10 @@ class RenderfactApi:
                 "POST /steps/{name}/validate-output", "POST /project",
                 "POST /render/pdf", "POST /render/docx", "POST /statement/check",
                 "GET /doctor", "GET /locales", "GET /theme/variants",
+                "GET /projects", "POST /projects", "GET /projects/{name}",
+                "PUT /projects/{name}/config", "GET /projects/{name}/profiles",
+                "GET /profiles", "GET /templates", "GET /templates/{name}",
+                "POST /templates/import",
             ] + (["GET /ui"] if self.enable_ui else []),
         }
 
@@ -278,6 +495,72 @@ class RenderfactApi:
 
         theme = load_tokens(None).get("theme") or {}
         return {"variants": ["base"] + sorted((theme.get("variants") or {}).keys())}
+
+    # ---- profile discovery (Track J, chunk 6.4) ----
+
+    def _profiles_summary(self, profiles_path: Path) -> dict:
+        """Names + minimal metadata for the audience menu (OQ11: names+ranks,
+        not full ladder governance vocabulary -- a private skin's clearance
+        scheme is not something every consumer wants on an HTTP surface even
+        on loopback). Reuses projector.load_config exactly (F1's own fail-
+        closed ladder validation), so a broken profiles.yaml surfaces the
+        same error here as it would at render time."""
+        sys.path.insert(0, str(REPO_ROOT))
+        from projection import projector  # noqa: PLC0415
+
+        try:
+            ladders, profiles = projector.load_config(profiles_path)
+        except projector.ProjectionError as e:
+            raise ApiError(400, str(e)) from None
+        rows = []
+        for name, prof in profiles.items():
+            rows.append({
+                "name": name,
+                "clearance_ceiling": prof.get("clearance_ceiling"),
+                "clearance_rank": ladders["clearance"][prof["clearance_ceiling"]],
+                "releasable_to": prof.get("releasable_to"),
+                "distribution_rank": ladders["distribution"][prof["releasable_to"]],
+                "lang": prof.get("lang"),
+                "audience": prof.get("audience"),
+                "disclosure": prof.get("disclosure"),
+            })
+        rows.sort(key=lambda r: r["name"])
+        return {
+            "ladders": {
+                "clearance": sorted(ladders["clearance"], key=ladders["clearance"].get),
+                "distribution": sorted(ladders["distribution"], key=ladders["distribution"].get),
+            },
+            "profiles": rows,
+        }
+
+    def _profiles_by_path(self, body: dict | None):
+        if not isinstance(body, dict) or not body.get("path"):
+            raise ApiError(400, "missing required query param 'path'")
+        profiles_path = self._jail(body["path"], "path")
+        if not profiles_path.is_file():
+            raise ApiError(404, f"profiles config not found: {body['path']}")
+        return self._profiles_summary(profiles_path)
+
+    def _project_profiles(self, name: str):
+        sys.path.insert(0, str(REPO_ROOT))
+        from api import store  # noqa: PLC0415
+
+        try:
+            detail = self._project_store().get(name, limit=0)
+        except store.ManifestError as e:
+            raise ApiError(404, str(e)) from None
+        project_dir = Path(detail["path"])
+        profiles_rel = detail["manifest"].get("profiles")
+        if not profiles_rel:
+            raise ApiError(400, f"project {name!r} manifest has no 'profiles' field")
+        profiles_path = (project_dir / profiles_rel).resolve()
+        try:
+            profiles_path.relative_to(project_dir)  # a project's own jail, not self.root
+        except ValueError:
+            raise ApiError(403, f"profiles path escapes the project directory: {profiles_rel!r}") from None
+        if not profiles_path.is_file():
+            raise ApiError(404, f"profiles config not found: {profiles_rel}")
+        return self._profiles_summary(profiles_path)
 
     # ---- #43 statement reconciliation (no render) ----
 
@@ -462,8 +745,15 @@ def make_wsgi_app(api: RenderfactApi):
             api._guard(environ)
             method = environ["REQUEST_METHOD"]
             path = environ.get("PATH_INFO", "/")
+            query = environ.get("QUERY_STRING", "")
+            # Real WSGI servers split the query into QUERY_STRING; the in-process
+            # test driver leaves it on PATH_INFO. Normalise both so query params
+            # are available regardless of transport.
+            if "?" in path:
+                path, _, embedded = path.partition("?")
+                query = embedded if not query else f"{query}&{embedded}"
             body = None
-            if method == "POST":
+            if method in ("POST", "PUT"):
                 try:
                     length = int(environ.get("CONTENT_LENGTH") or 0)
                 except ValueError:
@@ -474,7 +764,13 @@ def make_wsgi_app(api: RenderfactApi):
                         body = json.loads(raw.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         raise ApiError(400, "request body is not valid JSON") from None
-            result = api.route(method, path, body)
+            # For requests carrying no JSON body, expose query params as
+            # `body` so read handlers (e.g. ?limit=) can consume them uniformly.
+            if body is None and query:
+                from urllib.parse import parse_qsl  # noqa: PLC0415
+
+                body = dict(parse_qsl(query))
+            result = api.route(method, path, body, environ)
         except ApiError as e:
             payload = json.dumps({"error": e.message}).encode("utf-8")
             start_response(f"{e.status} {_reason(e.status)}",
@@ -504,7 +800,8 @@ def make_wsgi_app(api: RenderfactApi):
 
 def _reason(status: int) -> str:
     return {400: "Bad Request", 403: "Forbidden", 404: "Not Found",
-            413: "Payload Too Large", 429: "Too Many Requests"}.get(status, "Error")
+            409: "Conflict", 413: "Payload Too Large",
+            429: "Too Many Requests"}.get(status, "Error")
 
 
 def openapi_spec(api: RenderfactApi) -> dict:
@@ -596,6 +893,94 @@ def openapi_spec(api: RenderfactApi) -> dict:
                                  "responses": {"200": {"description": "locales"}}}},
             "/theme/variants": {"get": {"summary": "Theme variants from brand.yaml",
                                         "responses": {"200": {"description": "variants"}}}},
+            "/projects": {
+                "get": {"summary": "List projects under the projects root (Track J, 6.1)",
+                       "responses": {"200": {"description": "project summaries"}}},
+                "post": {"summary": "Create a new project (Track J, 6.2). Requires a CSRF token from GET /session.",
+                         "requestBody": {"content": {"application/json": {"schema": {
+                             "type": "object", "required": ["name"],
+                             "properties": {
+                                 "name": {"type": "string", "description": "project slug"},
+                                 "title": {"type": "string"},
+                                 "template": {"type": "string", "description": "built-in templates/ pack name"},
+                                 "doc_type": {"type": "string", "enum": ["report", "deck", "poster", "sheet"]},
+                                 "diagram_scaffold": {"type": "string", "enum": ["none", "mermaid", "d2"]},
+                                 "default_profile": {"type": "string"},
+                                 "formats": {"type": "array", "items": {"type": "string"}},
+                                 "locale": {"type": "string"}}}}}},
+                         "responses": {"200": {"description": "the new project's manifest + history + git"},
+                                       "400": {"description": "bad input"},
+                                       "403": {"description": "missing/invalid CSRF token or cross-origin"},
+                                       "409": {"description": "a project with that name already exists"}}}},
+            "/projects/{name}": {
+                "get": {"summary": "One project's manifest, render-ledger tail, and git facts",
+                        "parameters": [
+                            {"name": "name", "in": "path", "required": True,
+                             "schema": {"type": "string"}},
+                            {"name": "limit", "in": "query", "required": False,
+                             "schema": {"type": "integer", "default": 20},
+                             "description": "render-ledger entries to include"}],
+                        "responses": {"200": {"description": "manifest + history + git + manifest_hash"},
+                                      "404": {"description": "unknown or invalid project name"}}}},
+            "/projects/{name}/config": {
+                "put": {"summary": "Mutate manifest fields (Track J, 6.2), hash-guarded + one commit per change. "
+                                   "Requires a CSRF token from GET /session.",
+                        "parameters": [{"name": "name", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "requestBody": {"content": {"application/json": {"schema": {
+                            "type": "object", "required": ["patch", "base_hash", "message"],
+                            "properties": {
+                                "patch": {"type": "object", "description": "mutable manifest fields to merge"},
+                                "base_hash": {"type": "string", "description": "manifest_hash from a prior GET"},
+                                "message": {"type": "string", "description": "required non-empty commit message"}}}}}},
+                        "responses": {"200": {"description": "{changed, manifest_hash[, commit]}"},
+                                      "400": {"description": "bad patch, empty message, or not a git work tree"},
+                                      "403": {"description": "missing/invalid CSRF token or cross-origin"},
+                                      "404": {"description": "unknown project"},
+                                      "409": {"description": "base_hash is stale; re-GET and retry"}}}},
+            "/projects/{name}/profiles": {
+                "get": {"summary": "Audience profiles defined in a project's own profiles.yaml (Track J, 6.4): "
+                                   "names + minimal metadata (clearance/distribution rank, lang, audience, "
+                                   "disclosure), not the full ladder governance vocabulary",
+                        "parameters": [{"name": "name", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "ladders (ordered value lists) + profile rows"},
+                                      "400": {"description": "manifest has no 'profiles' field, or it fails to parse"},
+                                      "404": {"description": "unknown project or missing profiles file"}}}},
+            "/profiles": {
+                "get": {"summary": "Same shape as /projects/{name}/profiles for an arbitrary profiles.yaml "
+                                   "path (the New Project wizard's profile-source step, before a project exists)",
+                        "parameters": [{"name": "path", "in": "query", "required": True,
+                                        "schema": {"type": "string"}, "description": "path under server root"}],
+                        "responses": {"200": {"description": "ladders + profile rows"},
+                                      "400": {"description": "config fails to parse"},
+                                      "404": {"description": "path not found"}}}},
+            "/templates": {
+                "get": {"summary": "List template library entries (Track J, 6.3): built-in + custom root, merged",
+                       "responses": {"200": {"description": "template summaries"}}}},
+            "/templates/{name}": {
+                "get": {"summary": "One template entry's metadata, scaffold source, and derived profile",
+                        "parameters": [{"name": "name", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "metadata + scaffold + profile"},
+                                      "404": {"description": "unknown template"}}}},
+            "/templates/import": {
+                "post": {"summary": "Import a branded DOCX into the custom library root via the C7 "
+                                    "import-template pipeline. Requires a CSRF token from GET /session.",
+                         "requestBody": {"content": {"application/json": {"schema": {
+                             "type": "object", "required": ["name", "source"],
+                             "properties": {
+                                 "name": {"type": "string", "description": "new library entry slug"},
+                                 "source": {"type": "string", "description": "path under server root: the .docx to import"},
+                                 "doc_type": {"type": "string"}, "description": {"type": "string"},
+                                 "diagram_scaffolds": {"type": "array", "items": {"type": "string"}},
+                                 "copy_reference": {"type": "boolean"},
+                                 "check_probe": {"type": "string",
+                                                "description": "path under server root: idempotency-gate probe .md"}}}}}},
+                         "responses": {"200": {"description": "the new entry's metadata + import_output + idempotency_check_passed"},
+                                       "400": {"description": "bad input or derivation failure"},
+                                       "403": {"description": "missing/invalid CSRF token or cross-origin"},
+                                       "409": {"description": "a template with that name already exists"}}}},
         },
     }
 
@@ -618,6 +1003,105 @@ def render_docs_html(api: RenderfactApi) -> str:
             "</table><p>Machine-readable: <a href='/openapi.json'>/openapi.json</a></p>")
 
 
+# ---- workspace screens (Track J, chunk 6.5 / D23) ----
+# Each shell is a small Python string (matching render_docs_html's pattern);
+# the substantial JS/CSS logic lives in api/static/ files, not inline.
+
+_WORKSPACE_STYLE = (
+    "body{font-family:sans-serif;margin:1.5rem;max-width:78rem}"
+    "h1{font-size:1.3rem}h2{font-size:1.05rem;margin-top:1.6rem}"
+    ".hint{color:#666;font-size:.85rem}"
+    ".err{color:#b00;font-family:monospace;white-space:pre-wrap;font-size:.85rem}"
+    "nav a{margin-right:1rem}"
+)
+
+
+def render_dashboard_html() -> str:
+    """GET /ui/projects: the Projects Dashboard (design spike 5.1)."""
+    return (
+        "<!doctype html><meta charset='utf-8'><title>renderfact projects</title>"
+        f"<link rel='stylesheet' href='/ui/static/dashboard.css'>"
+        f"<style>{_WORKSPACE_STYLE}</style>"
+        "<h1>Projects <span id='doctor' class='hint'></span></h1>"
+        "<nav><a href='/ui/projects/new'>+ New project</a>"
+        "<a href='/ui/templates'>Template library</a>"
+        "<a href='/ui'>Scratchpad studio</a></nav>"
+        "<div id='cards' class='cards'></div>"
+        "<div id='err' class='err'></div>"
+        "<script src='/ui/static/common.js'></script>"
+        "<script src='/ui/static/dashboard.js'></script>"
+    )
+
+
+def render_wizard_html() -> str:
+    """GET /ui/projects/new: the New Project wizard, manual path only (design
+    spike 5.2; auto-choose is chunk 6.7, deferred so this ships without any
+    LLM machinery)."""
+    return (
+        "<!doctype html><meta charset='utf-8'><title>renderfact: new project</title>"
+        f"<style>{_WORKSPACE_STYLE}"
+        ".step{margin:1rem 0}label{display:block;margin:.4rem 0 .15rem;font-size:.9rem}"
+        "input,select,textarea{font-family:monospace;box-sizing:border-box;width:100%;"
+        "max-width:28rem;padding:.3rem}"
+        ".cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:.8rem}"
+        ".card{border:1px solid #ccc;border-radius:.3rem;padding:.6rem;cursor:pointer}"
+        ".card.selected{border-color:#2E7D32;box-shadow:0 0 0 1px #2E7D32}"
+        "</style>"
+        "<h1>New project</h1>"
+        "<nav><a href='/ui/projects'>&larr; Dashboard</a></nav>"
+        "<div class='step'><label for='w-name'>Project name (slug)</label>"
+        "<input id='w-name' placeholder='q3-partner-briefing'></div>"
+        "<div class='step'><label for='w-title'>Display title (optional)</label>"
+        "<input id='w-title' placeholder='Q3 Partner Briefing'></div>"
+        "<div class='step'><label>Template <span class='hint'>(manual selection -- "
+        "renderfact does not choose for you yet)</span></label>"
+        "<div id='w-templates' class='cards'></div></div>"
+        "<div class='step'><label for='w-doctype'>Document type</label>"
+        "<select id='w-doctype'><option value='report'>report</option>"
+        "<option value='deck'>deck</option><option value='poster'>poster</option>"
+        "<option value='sheet'>sheet</option></select></div>"
+        "<div class='step'><label for='w-scaffold'>Diagram scaffold</label>"
+        "<select id='w-scaffold'><option value='none'>none</option>"
+        "<option value='mermaid'>mermaid</option><option value='d2'>d2</option></select></div>"
+        "<div class='step'><button onclick='createProject()'>Create project</button></div>"
+        "<div id='err' class='err'></div>"
+        "<script src='/ui/static/common.js'></script>"
+        "<script src='/ui/static/wizard.js'></script>"
+    )
+
+
+def render_template_library_html() -> str:
+    """GET /ui/templates: the Template Library (design spike 5.6)."""
+    return (
+        "<!doctype html><meta charset='utf-8'><title>renderfact: templates</title>"
+        f"<style>{_WORKSPACE_STYLE}"
+        ".cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));gap:.8rem}"
+        ".card{border:1px solid #ccc;border-radius:.3rem;padding:.6rem}"
+        ".tag{font-size:.75rem;color:#666;border:1px solid #ccc;border-radius:.2rem;"
+        "padding:0 .3rem;margin-left:.3rem}"
+        "form.import{margin-top:1rem;max-width:28rem}"
+        "form.import input{font-family:monospace;box-sizing:border-box;width:100%;padding:.3rem;"
+        "margin:.2rem 0}"
+        "</style>"
+        "<h1>Template library</h1>"
+        "<nav><a href='/ui/projects'>&larr; Dashboard</a></nav>"
+        "<div id='cards' class='cards'></div>"
+        "<h2>Import a branded DOCX</h2>"
+        "<p class='hint'>Wraps <code>render import-template</code> (C7). Path is under the "
+        "server root.</p>"
+        "<form class='import' onsubmit='return false'>"
+        "<input id='t-name' placeholder='new template slug'>"
+        "<input id='t-source' placeholder='path/to/corporate.docx'>"
+        "<input id='t-doctype' placeholder='doc_type (default: report)'>"
+        "<input id='t-description' placeholder='description (optional)'>"
+        "<button onclick='importTemplate()'>Import</button>"
+        "</form>"
+        "<div id='err' class='err'></div>"
+        "<script src='/ui/static/common.js'></script>"
+        "<script src='/ui/static/templates-library.js'></script>"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     from wsgiref.simple_server import make_server, WSGIRequestHandler
@@ -630,6 +1114,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--root", default=None,
                         help="filesystem jail root for request paths (default: cwd)")
+    parser.add_argument("--projects-root", default=None,
+                        help="project registry root scanned by /projects "
+                             "(default: <root>/projects)")
+    parser.add_argument("--templates-root", default=None,
+                        help="custom template library root for /templates "
+                             "(default: <root>/templates; merged with the built-in "
+                             "templates/library/ entries shipped in this repo)")
     parser.add_argument("--enable-ui", action="store_true",
                         help="mount the thin reference UI at /ui (off by default)")
     parser.add_argument("--rate-limit", type=int, default=120,
@@ -641,7 +1132,9 @@ def main(argv: list[str] | None = None) -> int:
               "only bind to non-localhost in trusted network environments.", file=sys.stderr)
 
     api = RenderfactApi(root=Path(args.root) if args.root else None,
-                        enable_ui=args.enable_ui, rate_limit=args.rate_limit)
+                        enable_ui=args.enable_ui, rate_limit=args.rate_limit,
+                        projects_root=Path(args.projects_root) if args.projects_root else None,
+                        templates_root=Path(args.templates_root) if args.templates_root else None)
 
     class QuietHandler(WSGIRequestHandler):
         def log_message(self, fmt, *log_args):  # one line, no noise
