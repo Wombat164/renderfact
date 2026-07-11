@@ -8,6 +8,8 @@ A governed **docs-as-code render framework**: one full-candor markdown/YAML sour
 governed, audience-specific projections -- styled DOCX, accessible + archival PDF, diagrams, decks,
 posters -- each carrying hidden provenance and passing deterministic QA gates.
 
+![renderfact pipeline: one full-candor source, projected per audience, rendered through pinned engines to governed outputs, fail-closed gated, and round-tripped back through mechanical re-ingestion and decision capture](assets/pipeline-overview.svg)
+
 **Generic core, private skin.** The engine is domain-agnostic and OSS; an organisation's house style,
 terminology, and disclosure rules live in a private "skin" it consumes. The demo ships a fictional rail
 operator's procurement dossier so you can taste the whole pipeline with zero real-world coupling.

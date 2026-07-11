@@ -132,6 +132,48 @@ render provenance strip  <artifact.docx>                        # external / pub
 Strip is surgical: it only clears renderfact's own identifier, never a foreign DOI or an
 organisation's document number.
 
+## Onboard a branded corporate template
+
+Derive a skin from a real DOCX template instead of hand-writing a profile:
+
+```bash
+render import-template corporate.docx --out-dir skin --copy-reference
+```
+
+This derives `skin/template-profile.yaml` (theme, per-style font overrides, body style, section
+geometry) plus a probe-render idempotency gate (`--check probe.md`). If the template shipped
+alongside a separate style/usage guide (a policy paper explaining what each section is for), point
+`--guidance-doc` at it:
+
+```bash
+render import-template corporate.docx --out-dir skin --guidance-doc style-guide.docx
+```
+
+This runs a mechanical structural scan (heading/paragraph counts, a heading-text preview) of the
+guidance document and prints it back as a pointer toward hand-seeding an `editorial-doctrine.yaml`
+(the authoring-rules layer, not yet built) -- deliberately not automated extraction, since judging
+what the doctrine actually says is a summarization task for the operator, not the tool. Omit the
+flag and `import-template` still reminds you to check for one, so it is not forgotten once the
+template itself has been imported.
+
+## Re-ingest a reviewer's DOCX edits and capture the decision behind them
+
+```bash
+render reingest edited.docx --source canonical.md --contextualize
+```
+
+`reingest` mechanically diffs the edited artifact against its source (comments, tracked changes, a
+normalized text delta) and reports what a reviewer touched. `--contextualize` chains straight into
+`render contextualize` on that same result -- deterministic first, escalating to an LLM only past
+the D16 confidence gate -- so one command produces both the mechanical report AND the decision-log
+entry explaining WHY the content changed, skipping the chained step entirely when nothing needed a
+decision (a clean fast-forward). Omit the flag and a run with real reviewer edits prints a
+next-command hint instead of a silent dead end.
+
+If the same document goes out for review more than once, `contextualize` reads its own decision log
+for prior entries on that source and narrates each round as a continuation -- "Round 2: ..." with a
+note on what round 1 already established -- rather than three disconnected, repetitive entries.
+
 ## Draw a layered technology stack with interface boundaries
 
 Author a plain YAML source (no ArchiMate/Archi dependency) and render it like any other diagram:
@@ -147,6 +189,28 @@ A `chains` entry in the `stack` list lays out N realizing chains side by side un
 interface (N=1 is an ordinary pass-through segment); see `demo/diagrams/layered-stack-example.yaml`
 for a worked two-vendor example and `lint/layered_stack.py`'s module docstring for the full source
 shape.
+
+## Render a layered stack from an ArchiMate model instead of hand-authored YAML
+
+If your Technology/Physical/Application-layer model already lives in Archi (or any tool producing an
+Open Group ArchiMate Model Exchange File), skip hand-authoring the YAML entirely:
+
+```bash
+render diagram model.xml
+```
+
+`render diagram` recognizes an Exchange File by content-sniff (root `<model>`, an
+`archimate`-bearing namespace), the same idiom the plain-YAML archetype source already uses -- no
+new flag, no extension special-casing beyond `.xml`. A fixed element-type allowlist maps ArchiMate
+types onto the archetype's roles (`Node`/`Device`/`SystemSoftware`/`ApplicationComponent`-family ->
+a layer box; `TechnologyInterface`/`ApplicationInterface` -> an interface marker); an element type
+outside the allowlist (a Motivation-layer `Capability`, say) fails the render closed, naming the
+unsupported type and element, rather than silently dropping it. Two things this adapter does NOT do,
+by design: it does not infer vertical stack order from ArchiMate relationships (order = the Exchange
+File's own `<elements>` document order -- re-arrange the model tree in Archi to change it), and it
+does not auto-detect N-parallel realizing chains from Serving/Realization relationships (every
+mapped element renders as a plain layer or interface, never a chain). See
+`lint/archimate_exchange.py`'s module docstring for the full mapping table and both scope decisions.
 
 ## Round-trip an editable diagram
 
