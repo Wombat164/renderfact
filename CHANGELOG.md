@@ -40,6 +40,22 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`render reingest --contextualize` chaining + multi-round narrative for `render contextualize`**
+  (Track G8): a consumer session hand-wrote prose changelog entries for every back-ported reviewer
+  edit without ever invoking `render contextualize`, the exact job G6 shipped for -- WORKFLOW
+  invisibility, not render-help invisibility, plus one real functional gap. `render reingest` now
+  prints a next-command hint whenever a run has manual-review residue or a DIVERGED verdict; new
+  `--contextualize` flag chains the two commands in one process (`reingest.py` lazily imports
+  `contextualize.py` at call time, never at module load, since `contextualize.py` already imports
+  FROM `reingest.py` at its own load time), skipping the call entirely when nothing needs a decision
+  rather than writing a redundant "nothing to narrate" entry. `contextualize.parse_prior_rounds()`
+  mechanically parses an existing decision log (zero LLM cost) for entries belonging to the same
+  source; `assemble_input()` gains optional `round`/`prior_rounds` fields, fully backward compatible
+  (every existing caller still gets round 1, no prior context), reaching both the deterministic
+  template (a mechanical "Round N:" title prefix, never applied to an escalated entry's
+  author-written title) and the escalation prompt (told to continue the narrative referencing prior
+  rounds, not repeat them). 14 new tests across `tests/test_reingest.py` (5) and
+  `tests/test_contextualize.py` (9).
 - **ArchiMate Exchange-XML adapter for the `layered-stack` diagram archetype** (issue #86, FR4-FR6
   of the #68 follow-up): `lint/archimate_exchange.py` transforms an Open Group ArchiMate Model
   Exchange File into the archetype's existing `StackModel` shape (stdlib `xml.etree.ElementTree`

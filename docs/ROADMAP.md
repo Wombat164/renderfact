@@ -373,6 +373,19 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   finding. Recorded as D20: a legitimate D16 outcome (the gate's own vision-review worked example
   already treats "no deterministic signal" as valid), not an exception to it, simply the first step
   where that is the PERMANENT case rather than one branch of a heuristic. 26 tests.
+- **G8 - contextualize workflow surfacing + multi-round narrative.** `[build]` **DONE:** a consumer
+  session hand-wrote prose changelog entries for every back-ported reviewer edit without ever
+  invoking `render contextualize` (G6's own job) -- not render-help invisibility, WORKFLOW
+  invisibility plus a real functional gap. Surfacing: `render reingest` now prints a next-command
+  hint whenever a run has manual-review residue or a DIVERGED verdict; `--contextualize` chains the
+  two commands in one process (no intermediate JSON file/subprocess), skipping the call entirely
+  when nothing needs a decision. Multi-round narrative: `contextualize.parse_prior_rounds()`
+  mechanically parses the existing decision log (zero LLM cost) for entries belonging to the same
+  source, and `assemble_input()` gains optional `round`/`prior_rounds` fields (fully backward
+  compatible -- every existing caller still gets round 1, no prior context) threading into both the
+  deterministic template (a mechanical "Round N:" title prefix + a prior-round note) and the
+  escalation prompt (told to continue the narrative, not repeat it). 14 new tests across
+  `tests/test_reingest.py` and `tests/test_contextualize.py`.
 
 ---
 

@@ -515,6 +515,101 @@ def test_cli_report_apply_and_diverged_refusal(tmp_path):
     assert "DIVERGED" in refusal.stderr
 
 
+# ---- G8: workflow surfacing (--contextualize chaining + next-step hint) ----
+
+def _make_rendered_docx_with_extra_paragraph(tmp_path: Path, source: Path, extra: str) -> Path:
+    """A reviewer-added paragraph with no source counterpart -- lands in the
+    `manual` bucket (an 'add'), not `safe`, unlike a clean 1:1 reword."""
+    doc = Document()
+    doc.add_heading("Overview", level=1)
+    doc.add_paragraph("The plan starts in March.")
+    doc.add_paragraph(extra)
+    path = tmp_path / "rendered.docx"
+    doc.save(str(path))
+    provenance.embed(path, provenance.build_provenance(source))
+    return path
+
+
+def test_cli_contextualize_chains_when_manual_residue_exists(tmp_path):
+    src = _make_source(tmp_path)
+    art = _make_rendered_docx_with_extra_paragraph(tmp_path, src, "A brand new reviewer paragraph.")
+    log = tmp_path / "out.decisions.md"
+    r = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src), "--json",
+         "--contextualize", "--decision-log", str(log)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert r.returncode == 0, r.stderr
+    payload = json.loads(r.stdout)
+    assert payload["manual"], "fixture should have manual-review residue"
+    assert "contextualize" in payload
+    assert payload["contextualize"]["round"] == 1
+    assert log.exists() and "## " in log.read_text(encoding="utf-8")
+
+
+def test_cli_contextualize_skipped_when_nothing_needs_it(tmp_path):
+    src = _make_source(tmp_path)
+    art = _make_rendered_docx(tmp_path, src, ["The plan starts in March."])
+    log = tmp_path / "out.decisions.md"
+    r = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src), "--json",
+         "--contextualize", "--decision-log", str(log)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert r.returncode == 0, r.stderr
+    payload = json.loads(r.stdout)
+    assert payload["contextualize"] == {"skipped": "nothing needing a decision (no manual residue, FAST_FORWARD)"}
+    assert not log.exists()
+
+
+def test_cli_second_reingest_contextualize_increments_round(tmp_path):
+    src = _make_source(tmp_path)
+    art = _make_rendered_docx_with_extra_paragraph(tmp_path, src, "Round one reviewer content.")
+    log = tmp_path / "out.decisions.md"
+    r1 = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src), "--json",
+         "--contextualize", "--decision-log", str(log)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert r1.returncode == 0, r1.stderr
+    assert json.loads(r1.stdout)["contextualize"]["round"] == 1
+
+    # Re-render (fresh provenance against the now-unchanged source) then add a
+    # second reviewer edit, so this is a genuine second round for the SAME doc.
+    art2 = _make_rendered_docx_with_extra_paragraph(tmp_path, src, "Round two reviewer content.")
+    r2 = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art2), "--source", str(src), "--json",
+         "--contextualize", "--decision-log", str(log)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert r2.returncode == 0, r2.stderr
+    assert json.loads(r2.stdout)["contextualize"]["round"] == 2
+    assert "Round 2:" in log.read_text(encoding="utf-8")
+
+
+def test_cli_next_step_hint_printed_when_manual_residue_without_contextualize_flag(tmp_path):
+    src = _make_source(tmp_path)
+    art = _make_rendered_docx_with_extra_paragraph(tmp_path, src, "A brand new reviewer paragraph.")
+    r = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "render contextualize" in r.stdout
+    assert "--contextualize" in r.stdout
+
+
+def test_cli_no_next_step_hint_when_nothing_needs_contextualize(tmp_path):
+    src = _make_source(tmp_path)
+    art = _make_rendered_docx(tmp_path, src, ["The plan starts in March."])
+    r = subprocess.run(
+        [sys.executable, str(RENDER_PY), "reingest", str(art), "--source", str(src)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "render contextualize" not in r.stdout
+
+
 # ---- source_commit hardening ----
 
 def test_source_commit_in_a_git_repo(tmp_path):
