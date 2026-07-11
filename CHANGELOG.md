@@ -40,6 +40,20 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`import-template --guidance-doc`: mechanical structural scan of a template's accompanying
+  style/usage guide** (issue #100): a branded template often ships alongside a SEPARATE document (a
+  policy/methodology paper explaining what each section is for, what's out of scope, how it fits the
+  surrounding process) that `import-template` previously had no awareness of, leaving that
+  authoring-doctrine mining as a fully manual, easy-to-forget step done after the fact. New
+  `--guidance-doc <path>` (`.docx`/`.md`/`.markdown`/`.txt`) runs `scan_guidance_doc()`: counts
+  section headings and body paragraphs and previews the heading text, printed back as a pointer
+  toward hand-seeding `editorial-doctrine.yaml` (issue #84's concept, not yet built) — deliberately
+  not automated extraction, a judgment-heavy summarization task left to the operator. Omitting the
+  flag prints a one-line reminder (not a blocking stdin prompt: this CLI has no other interactive
+  input, and a prompt would hang CI/scripted runs) at the one moment an operator has both artifacts
+  in hand and is thinking about this template. New tests in `tests/test_template_import.py` (10
+  cases: `.docx`/`.md`/`.txt` scanning, heading-preview truncation, unsupported-extension error,
+  report formatting, and three CLI-integration paths).
 - **`render eml`: plain-text sendable email output with a skin signature block** (issue #95): closes
   the gap where the actual deliverable is an email, not a rendered document (previously bridged by
   hand: copy the rendered body into a mail client, re-add the signature, with no reconciliation path

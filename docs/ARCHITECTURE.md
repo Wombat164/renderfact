@@ -204,6 +204,16 @@ document out of the box, and consumers override with `--template-profile`.
   It injects a multilevel list bound to Heading1..9 so the section numbers are Word FIELDS that
   renumber automatically on insert / reorder / delete. It is idempotent: re-running on an
   already-numbered document is a no-op. The source carries number-free headings.
+- **Guidance-doc scan (issue #100).** A branded template often ships alongside a SEPARATE document
+  (a policy/methodology paper explaining what each section is for, what's out of scope, how it fits
+  the surrounding process) that `import-template` previously had no awareness of. `--guidance-doc
+  <path>` (`.docx`/`.md`/`.markdown`/`.txt`) runs a MECHANICAL structural scan (`scan_guidance_doc`):
+  heading count, body-paragraph count, and a capped heading-text preview, surfaced back to the
+  operator as a pointer toward hand-seeding `editorial-doctrine.yaml` (issue #84's concept, not yet
+  built) — deliberately not automated extraction, which is a judgment-heavy summarization task. When
+  `--guidance-doc` is omitted, `import-template` prints a one-line reminder rather than a blocking
+  stdin prompt (this CLI has no other interactive input, and a prompt would hang CI/scripted runs),
+  at the one moment an operator has both artifacts in hand and is thinking about this template.
 
 `render docx` (render-doc.sh) invokes `style_postprocess.py` directly as a subprocess for its own
 house-style pass; that call path is unchanged. `render docstyle` (issue #74) is an additional,

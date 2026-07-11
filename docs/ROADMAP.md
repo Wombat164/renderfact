@@ -184,7 +184,11 @@ for zero-arg hook invocation), keeping the public core domain-neutral.
   wants one uniform house font regardless of custom styles. The two features compose: a per-style
   `styles:` override (#97) still applies whenever a style IS styled (built-in categories, or a custom
   style with the override flag forcing it); a respected custom style's own font (#98) wins outright
-  when it is not. Remaining `[build]`: the PPTX and XLSX importers and
+  when it is not. **Guidance-doc scan (issue #100) DONE:** `--guidance-doc <path>` runs a mechanical
+  structural scan (heading/paragraph counts, heading preview) of a template's accompanying style/
+  usage guide and surfaces it as a pointer toward hand-seeding `editorial-doctrine.yaml` (#84's
+  concept); omitting the flag prints a one-line reminder instead of a blocking prompt. Remaining
+  `[build]`: the PPTX and XLSX importers and
   the content-skeleton axis: derive the
   skin config FROM an imported branded template so the FIRST render is idempotent with the template's
   look (a shared OOXML DrawingML theme extractor plus per-format derivation, a derived
