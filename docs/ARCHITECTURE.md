@@ -30,7 +30,16 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `container` | raw passthrough to the OCI render wrapper | shipped |
 | `doctor` | native version-drift check against `tools.lock` | stub, not built |
 | `eml` | annotated markdown -> a plain-text, sendable RFC822 `.eml`, with a skin-supplied signature block (issue #95) | shipped |
-| `pdf` / `deck` / `poster` | typst archival/tagged PDF, marp decks, A2 posters | roadmap (v0.2.x), not wired |
+| `pdf` | layout-native branded PDF via typst (archival/tagged; statement tables; semantic blocks), a peer of the DOCX path, no LibreOffice | shipped |
+| `reingest` | mechanical DOCX re-ingestion: provenance verdict, reviewer-edit report, narrow fast-forward apply, `--contextualize` chaining (issue #95/#72/#73, Track G8) | shipped |
+| `contextualize` | capture document-edit intent from a reingest diff; deterministic first, LLM past the D16 gate; multi-round aware (Track G8) | shipped |
+| `drawio` | editable-diagram round-trip, draw.io adapter: stable IDs, semantic/style/layout routing (C8.1) | shipped |
+| `vsdx` | editable-diagram round-trip, Visio adapter: NameU anchors, OPC provenance (C8.2; needs the optional `vsdx` lib) | shipped |
+| `decision-capture` | capture diagram-edit intent from a drawio/vsdx reingest diff; deterministic first, LLM past the D16 gate (C8.3) | shipped |
+| `gate-stats` | D16 gate escalation-rate stats + storm detection from an opt-in decision log | shipped |
+| `projects` | project registry (Track J): `list`/`show` a project's manifest, render-ledger tail, git facts, concurrency hash; `new` scaffolds one | shipped |
+| `templates` | template library (Track J): built-in genre entries (`templates/library/`) merged with a custom root, distinct from the flat `templates/*.md` pack | shipped |
+| `deck` / `poster` | marp decks, A2 posters | roadmap (v0.2.x), not wired |
 
 The advertised-but-unwired formats are annotated, not claimed: the README carries a
 shipped-vs-roadmap capability matrix stating exactly what runs today.
