@@ -8,6 +8,8 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-11
+
 ### Fixed
 
 - **Demo dossier now actually passes its own skin's writing doctrine**: `tests/test_gates.py::
