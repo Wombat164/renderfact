@@ -143,13 +143,16 @@ for zero-arg hook invocation), keeping the public core domain-neutral.
   distinct interface boundary between adjacent layers, and N parallel realizing chains laid out side
   by side under one shared interface (N=1 is the degenerate default). `lint/layered_stack.py`; wired
   into `render diagram` via content-sniff dispatch on `.yaml`/`.yml` (no new subcommand); NFR6
-  element-budget discipline reuses `lint/element_budget.py`'s existing tier table. **NEXT:** the
-  optional ArchiMate Exchange-XML adapter for the same archetype (issue #68's own FR4-FR7: accept an
-  Open Group Exchange File as an alternate source via stdlib-only `xml.etree.ElementTree`, map
-  ArchiMate layer/element types onto the archetype's layer + boundary model, fail closed on an
-  unsupported construct) - deliberately out of scope for the core-archetype PR and filed as its own
-  follow-up issue, since the issue's own UX analysis splits it cleanly from the core (invisible when
-  unused, no new heavy dependency in the core install).
+  element-budget discipline reuses `lint/element_budget.py`'s existing tier table. **ArchiMate
+  Exchange-XML adapter (issue #86, FR4-FR6) DONE:** `lint/archimate_exchange.py` maps an Open Group
+  Exchange File onto the SAME `StackModel` shape (stdlib `xml.etree.ElementTree` only, zero new
+  dependency), reusing `render_d2()`/`check_element_budget()` unchanged; a fixed element-type
+  allowlist, fail-closed (FR5) on anything outside it; `.xml` content-sniff dispatch alongside the
+  existing `.yaml`/`.yml` path (FR6). v1 deliberately does not auto-detect N-parallel chains from
+  ArchiMate relationships (every element renders as a plain Layer/Interface) or infer stack order
+  from relationship topology (order = the Exchange File's own document order) - both documented
+  scope decisions, not gaps found later. **NEXT (stretch, FR7):** fast re-render on a re-exported
+  file, not started.
 - **C2 - Projection / clearance gate for decks and diagrams (today the projection engine gates the
   DOCX path).** **[imitate]** Asciidoctor's `ifdef` / `ifndef` / `ifeval` preprocessor-level
   exclusion as the SECURITY model (excluded content never enters the parsed tree); **[imitate]**

@@ -50,6 +50,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import layered_stack  # noqa: E402  (lint/layered_stack.py: issue #68 archetype, FR1-FR3)
+import archimate_exchange  # noqa: E402  (lint/archimate_exchange.py: issue #86, FR4-FR6)
 
 DRAWIO_EXE = Path(r"C:\Program Files\draw.io\draw.io.exe")
 D2_EXE = Path(r"C:\Program Files\D2\d2.exe")
@@ -259,6 +260,32 @@ def render_file(src: Path, out_dir: Path, formats: list[str]) -> bool:
             return True
         try:
             d2_source = layered_stack.generate_d2_source(src)
+        except layered_stack.LayeredStackError as err:
+            print(f"  REJECT  {src.name}  ({err})", file=sys.stderr)
+            return False
+        generated_d2 = out_dir / f"{stem}.generated.d2"
+        generated_d2.write_text(d2_source, encoding="utf-8")
+        ok = True
+        if "svg" in formats and not render_d2(generated_d2, out_svg):
+            ok = False
+        if "pdf" in formats:
+            if not out_svg.exists():
+                if not render_d2(generated_d2, out_svg):
+                    ok = False
+            if ok and not render_svg_to_pdf(out_svg, out_pdf):
+                ok = False
+        return ok
+
+    if ext == ".xml":
+        # Content-sniff, not extension-sniff (FR6, the same idiom the .yaml/.yml
+        # branch above already uses): most .xml files are not ArchiMate Exchange
+        # Files at all. validate_xml_wellformed() already ran above for this
+        # extension; this is the archetype-specific dispatch on top of it.
+        if not archimate_exchange.sniff_archimate_exchange(src):
+            print(f"  SKIP    {src.name}  (not a recognized ArchiMate Exchange file)")
+            return True
+        try:
+            d2_source = archimate_exchange.generate_d2_source_from_exchange(src)
         except layered_stack.LayeredStackError as err:
             print(f"  REJECT  {src.name}  ({err})", file=sys.stderr)
             return False
