@@ -41,8 +41,21 @@ Usage:
     render vsdx generate|reingest ...          # C8.2 editable-diagram round-trip, Visio adapter
     render decision-capture --source <g> --reingest <j>  # C8.3 capture edit intent (deterministic+gate)
     render contextualize --source <md> --reingest <j>    # 4.5 capture document-edit intent (deterministic+gate)
+    render docstyle <input.docx> [output.docx] [--profile compact|reference]
+                                               [--template-profile <yaml>] [--table-widths <yaml>]
+                                               [--cover-version <v>] [--cover-date <d>]
+                                               # standalone house-style DOCX post-processor CLI (issue
+                                               # #74): the same engine `render docx` already invokes
+                                               # internally, exposed as its own documented entry point
+    render comprehension-review <docx-or-md> [--escalate copy-paste|api]  # #84 fresh-reader
+                                               # comprehension gate for rendered text documents
+                                               # (D16-gated, always escalates -- see DECISIONS.md D20)
+    render eml <source.md> [-o out.eml] [--signature <yaml>] [--recipient R]
+                                               [--subject S] [--sender F]  # #95 plain-text,
+                                               # sendable RFC822 email output with a skin-supplied
+                                               # signature block (see DECISIONS.md D22)
 
-Modes not yet wired: pdf (typst path), deck (marp path), poster -- tracked in
+Modes not yet wired: deck (marp path), poster, tracked in
 docs/ROADMAP.md (Track A entry A3; see also the roadmap-formats note in CHANGELOG.md).
 """
 
@@ -123,6 +136,16 @@ def run_pdf(args: list[str]) -> int:
     import typst_backend  # pdf/typst_backend.py
 
     return typst_backend.main(args)
+
+
+def run_eml(args: list[str]) -> int:
+    """Dispatch to mail/eml_backend.py (issue #95): markdown -> pandoc plain-text
+    writer -> a skin-supplied signature block -> a plain-text RFC822 .eml, a
+    peer of the DOCX/PDF paths (no LibreOffice, no MAPI)."""
+    sys.path.insert(0, str(REPO_ROOT / "mail"))
+    import eml_backend  # mail/eml_backend.py
+
+    return eml_backend.main(args)
 
 
 def run_container(args: list[str]) -> int:
@@ -296,6 +319,22 @@ def run_copy_paste(args: list[str]) -> int:
     return 0
 
 
+def run_comprehension_review(args: list[str]) -> int:
+    """Dispatch to lint/comprehension_review_contract.py: the fresh-reader
+    comprehension gate for rendered TEXT documents (issue #84), the text peer of
+    lint/vision_review_contract.py's diagram vision-review gate. Chunks a
+    rendered .md/.docx into reader-sized snippets by section boundary and has a
+    fresh-context LLM (harness/copy-paste/API, the D8 contract) read them in
+    order, reporting per-snippet purpose/confusion/fluff/cuttable content plus a
+    whole-document synthesis. D16-gated, but with no accept path: comprehension
+    has no deterministic sufficiency proxy (see docs/DECISIONS.md D20), so this
+    always escalates unless --threshold <= 0. Report-only -- never rewrites."""
+    sys.path.insert(0, str(LINT_DIR))
+    import comprehension_review_contract as comprehension_review
+
+    return comprehension_review.main(args)
+
+
 def run_provenance(args: list[str]) -> int:
     """Dispatch to roundtrip/provenance.py -- D11 part 2 provenance embed/extract/
     adopt (chunk 4.1). Not yet auto-called by render-doc.sh: the script is
@@ -340,8 +379,9 @@ def run_serve(args: list[str]) -> int:
 def run_qa(args: list[str]) -> int:
     """Dispatch to lint/render_qa.py, the deterministic post-render QA gate:
     leak scan on rendered text, table-geometry pressure, overweight paragraphs,
-    figure contrast pre-filter. Report-only by default; leaks --fail-on-hits
-    turns it into a CI gate."""
+    figure contrast pre-filter, purpose-comment coverage (#77). Report-only by
+    default; leaks --fail-on-hits turns it into a CI gate (purpose never
+    fails: it is advisory-only by design)."""
     sys.path.insert(0, str(LINT_DIR))
     import render_qa
 
@@ -409,6 +449,22 @@ def run_vsdx(args: list[str]) -> int:
     return visio.main(args)
 
 
+def run_docstyle(args: list[str]) -> int:
+    """Dispatch to docstyle/style_postprocess.py's main(): the house-style DOCX
+    post-processor's own standalone CLI surface (--profile, --template-profile,
+    --table-widths, --cover-version, --cover-date). `render docx` (render-doc.sh)
+    invokes this same module directly as a subprocess for its own internal
+    house-style pass, unchanged by this; this subcommand only ADDS a documented,
+    directly reachable entry point for callers who want the post-processor's
+    capabilities (e.g. --table-widths, which render-doc.sh does not pass through
+    today) without going through the full docx pipeline (issue #74)."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from docstyle import style_postprocess
+
+    style_postprocess.main(args)
+    return 0
+
+
 def run_gate(args: list[str]) -> int:
     """Dispatch to gates/run_gates.py: the deterministic fail-closed QA gate
     chain (B3). Findings fail; a requested stage with no tool installed fails."""
@@ -445,7 +501,9 @@ def run_templates(args: list[str]) -> int:
 
 MODES = {
     "docx": run_docx,
+    "docstyle": run_docstyle,
     "pdf": run_pdf,
+    "eml": run_eml,
     "diagram": run_diagram,
     "tokens": run_tokens,
     "init-ai": run_init_ai,
@@ -456,6 +514,7 @@ MODES = {
     "vsdx": run_vsdx,
     "decision-capture": run_decision_capture,
     "contextualize": run_contextualize,
+    "comprehension-review": run_comprehension_review,
     "gate-stats": run_gate_stats,
     "import-template": run_import_template,
     "project": run_project,

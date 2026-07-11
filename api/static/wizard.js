@@ -1,4 +1,4 @@
-// wizard.js: New Project wizard, manual path only (chunk 6.5 / D18, design
+// wizard.js: New Project wizard, manual path only (chunk 6.5 / D23, design
 // spike 5.2). Auto-choose (the manual-vs-auto toggle, chooser confidence
 // panel, copy-paste escalation surface) is chunk 6.7 -- this ships with zero
 // LLM machinery, exactly as the roadmap sequences it.

@@ -1,4 +1,4 @@
-// dashboard.js: Projects Dashboard (chunk 6.5 / D18, design spike 5.1).
+// dashboard.js: Projects Dashboard (chunk 6.5 / D23, design spike 5.1).
 
 async function loadProjects() {
   const cardsEl = document.getElementById('cards');

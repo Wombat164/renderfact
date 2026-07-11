@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -160,6 +161,40 @@ def extract_docx_styles(doc, theme: Theme) -> dict[str, dict[str, Any]]:
     return out
 
 
+def derive_style_font_overrides(doc, theme: Theme, global_font: str | None) -> dict[str, str]:
+    """Walk EVERY paragraph w:style definition's w:rPr/w:rFonts (not just Normal),
+    with the same one-level basedOn fallback style_font_info() already applies, and
+    return only the styles whose resolved font is a GENUINE override: explicit,
+    and different from global_font (the single value the top-level 'font' key
+    would otherwise apply to every paragraph, see issue #97).
+
+    global_font=None (the top-level key itself was not derivable) means there is
+    no baseline to diff against, so any style with an explicit resolvable font is
+    reported as an override. Keeps the profile minimal: a template where every
+    style resolves to the same font yields an empty dict, not a redundant
+    per-style entry that just repeats the global default."""
+    from docx.enum.style import WD_STYLE_TYPE
+
+    overrides: dict[str, str] = {}
+    for style in doc.styles:
+        if style.type != WD_STYLE_TYPE.PARAGRAPH:
+            continue
+        try:
+            name = style.name
+        except Exception:
+            continue
+        if not name:
+            continue
+        info = style_font_info(style, theme)
+        font_name = info["name"]
+        if not font_name:
+            continue
+        if global_font is not None and font_name == global_font:
+            continue
+        overrides[name] = font_name
+    return overrides
+
+
 def _margins_cm(section) -> dict[str, float | None]:
     sides = {"top": section.top_margin, "bottom": section.bottom_margin,
              "left": section.left_margin, "right": section.right_margin}
@@ -195,6 +230,8 @@ def section_geometry_cm(section) -> dict[str, Any]:
 class DerivedProfile:
     derived: dict[str, Any] = field(default_factory=dict)
     not_derived: dict[str, str] = field(default_factory=dict)
+    style_fonts: dict[str, str] = field(default_factory=dict)
+    body_style: str | None = None
 
 
 _NOT_DERIVABLE_ALWAYS = {
@@ -227,6 +264,25 @@ def derive_profile(doc, theme: Theme) -> DerivedProfile:
     else:
         not_derived["font"] = ("the Normal style has no explicit font and the template's "
                                "theme has no minor-latin typeface")
+
+    style_fonts = derive_style_font_overrides(doc, theme, derived.get("font"))
+
+    # Default body-paragraph style detection (issue #101). pandoc's docx writer
+    # styles an ordinary body paragraph "Normal" regardless of whether the
+    # template defines its own dedicated body style (commonly named "Body" or
+    # Word's built-in "Body Text") with its own font -- so that style sits
+    # unused and the paragraph falls back to Normal's (often undefined) font.
+    # Prefer "Body" (seen in real institutional templates) over "Body Text"
+    # (Word's own built-in name) if a template somehow defines both distinctly.
+    # Only counts as a real body style if it's already confirmed in style_fonts
+    # (i.e. derive_style_font_overrides found it has a genuine font override,
+    # distinct from Normal) -- a style with the right name but no distinguishing
+    # font isn't worth remapping paragraphs into, nothing would change.
+    body_style = None
+    for candidate in ("Body", "Body Text"):
+        if candidate in style_fonts:
+            body_style = candidate
+            break
 
     accent = h1.get("color") or theme.colors.get("accent1")
     if accent:
@@ -263,7 +319,8 @@ def derive_profile(doc, theme: Theme) -> DerivedProfile:
             f"({sides_str} cm) and the profile only supports one margin_cm value"
         )
 
-    return DerivedProfile(derived=derived, not_derived=not_derived)
+    return DerivedProfile(derived=derived, not_derived=not_derived, style_fonts=style_fonts,
+                          body_style=body_style)
 
 
 def extract_rendered_style_properties(docx_path: Path) -> dict[str, Any]:
@@ -367,6 +424,42 @@ def render_profile_yaml(provenance: dict[str, str], dp: DerivedProfile) -> str:
         else:
             reason = dp.not_derived.get(key, "not derivable from this template")
             lines.append(f"# {key}: not derivable from this template ({reason}); kept at built-in default")
+    lines.append("")
+    if dp.style_fonts:
+        lines += [
+            "# Per-style font overrides: this template defines a distinct font for these",
+            "# named paragraph styles (derived by walking each w:style's w:rPr/w:rFonts,",
+            "# one level of basedOn fallback, same as 'font' above). Falls back to 'font'",
+            "# for any paragraph style not listed here.",
+            "styles:",
+        ]
+        for name in sorted(dp.style_fonts):
+            lines.append(f'  "{name}":')
+            lines.append(f"    font: {dp.style_fonts[name]}")
+    else:
+        lines += [
+            "# No per-style font overrides found: every paragraph style in this template",
+            "# resolves to the same font as 'font' above.",
+        ]
+    if dp.body_style:
+        lines += [
+            "",
+            "# Default body-paragraph style (issue #101): pandoc styles an ordinary body",
+            '# paragraph "Normal" regardless of whether the template defines its own',
+            f'# dedicated body style -- this template does ("{dp.body_style}", see styles:',
+            "# above). style_postprocess.py remaps Normal-styled body paragraphs to this",
+            "# style before font-styling runs, so its own font/size is respected via the",
+            "# existing per-style-font-override + custom-style-preservation logic",
+            "# (issues #97/#98) instead of falling back to Normal's (often undefined) font.",
+            f'body_style: "{dp.body_style}"',
+        ]
+    else:
+        lines += [
+            "",
+            "# body_style: not derivable -- no paragraph style named \"Body\" or \"Body Text\"",
+            "# with its own distinct font was found in this template; ordinary body",
+            "# paragraphs render via Normal as before.",
+        ]
     lines += [
         "",
         "# Optional marking / cover behaviour: authoring hints, NOT derived from the",
@@ -516,6 +609,108 @@ def run_idempotency_check(probe_md: Path, template: Path, profile_path: Path,
 
 
 # --------------------------------------------------------------------------
+# Guidance-doc scan (issue #100)
+# --------------------------------------------------------------------------
+#
+# A branded template often ships alongside a SEPARATE document -- a policy or
+# methodology paper explaining what each section is for, what's out of scope,
+# how the document fits the surrounding process. import-template previously had
+# no awareness that this second artifact usually exists; mining it for
+# authoring doctrine was a fully manual, easy-to-forget step done after the
+# fact. This is deliberately a MECHANICAL structural scan (heading/paragraph
+# counts + a heading-text preview), not extraction: judging what the doctrine
+# actually says and seeding editorial-doctrine.yaml (issue #84's concept, not
+# yet built) from it is a judgment-heavy summarization task left to the
+# operator, not automated here.
+
+_HEADING_STYLE_PREFIXES = ("Heading", "Title", "Subtitle")
+_MD_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$")
+
+
+class GuidanceScanError(Exception):
+    """Raised when --guidance-doc points at a file type this scan can't read."""
+
+
+@dataclass
+class GuidanceScan:
+    path: Path
+    heading_count: int
+    paragraph_count: int
+    headings: list[str]          # preview, capped at heading_preview_cap
+    headings_truncated: bool
+
+
+def scan_guidance_doc(path: Path, heading_preview_cap: int = 12) -> GuidanceScan:
+    """Mechanical structural scan of an accompanying guidance/usage document.
+
+    .docx: a paragraph is a heading if its style name starts with
+    Heading/Title/Subtitle (same convention KNOWN_NON_CUSTOM_STYLE_NAMES-
+    adjacent code elsewhere in this repo already uses), else it counts as a
+    body paragraph if non-empty. .md/.markdown/.txt: an ATX heading line
+    (# through ######) starting a blank-line-separated block counts as a
+    heading; any other non-empty block counts as a paragraph.
+    """
+    suffix = path.suffix.lower()
+    headings: list[str] = []
+    paragraph_count = 0
+
+    if suffix == ".docx":
+        from docx import Document
+        doc = Document(str(path))
+        for p in doc.paragraphs:
+            text = p.text.strip()
+            if not text:
+                continue
+            style_name = (p.style.name if p.style else "") or ""
+            if style_name.startswith(_HEADING_STYLE_PREFIXES):
+                headings.append(text)
+            else:
+                paragraph_count += 1
+    elif suffix in (".md", ".markdown", ".txt"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for block in re.split(r"\n\s*\n", text.strip()):
+            block = block.strip()
+            if not block:
+                continue
+            m = _MD_HEADING_RE.match(block.splitlines()[0])
+            if m:
+                headings.append(m.group(1).strip())
+            else:
+                paragraph_count += 1
+    else:
+        raise GuidanceScanError(
+            f"unsupported --guidance-doc type: {suffix or '(no extension)'} "
+            "(expected .docx, .md, .markdown, or .txt)"
+        )
+
+    return GuidanceScan(
+        path=path,
+        heading_count=len(headings),
+        paragraph_count=paragraph_count,
+        headings=headings[:heading_preview_cap],
+        headings_truncated=len(headings) > heading_preview_cap,
+    )
+
+
+def format_guidance_scan_report(scan: GuidanceScan) -> str:
+    lines = [
+        f"Guidance-doc scan: {scan.path}",
+        f"  {scan.heading_count} section heading(s), {scan.paragraph_count} paragraph(s) "
+        "that look like authoring guidance",
+    ]
+    if scan.headings:
+        preview = "; ".join(scan.headings)
+        if scan.headings_truncated:
+            preview += "; ..."
+        lines.append(f"  Headings: {preview}")
+    lines.append(
+        "  Mechanical structural scan only, nothing extracted or summarized -- consider "
+        "seeding editorial-doctrine.yaml from this by hand (issue #84 covers that schema)."
+    )
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -534,6 +729,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--date", default=None,
                     help="import date stamped into the provenance header (YYYY-MM-DD); "
                          "default: today")
+    ap.add_argument("--guidance-doc", type=Path, default=None, metavar="DOC",
+                    help="an accompanying style/usage guide for this template (.docx/.md/.txt), "
+                         "if one exists -- gets a mechanical structural scan (heading/paragraph "
+                         "count + heading preview) surfaced back to you as a pointer toward "
+                         "seeding editorial-doctrine.yaml (issue #84); not auto-extracted")
     ap.add_argument("--check", type=Path, default=None, metavar="PROBE.md",
                     help="idempotency gate: render PROBE.md through render-doc.sh (--profile "
                          "reference, the only profile that actually uses the derived 'body' "
@@ -572,6 +772,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  {len(dp.derived)} key(s) derived: {', '.join(sorted(dp.derived))}")
     print(f"  {len(dp.not_derived)} key(s) not derivable, kept at built-in default: "
           f"{', '.join(sorted(dp.not_derived))}")
+    if dp.style_fonts:
+        print(f"  {len(dp.style_fonts)} per-style font override(s) derived: "
+              f"{', '.join(sorted(dp.style_fonts))}")
 
     template_docx_env = template.resolve()
     if args.copy_reference:
@@ -584,6 +787,28 @@ def main(argv: list[str] | None = None) -> int:
     print("Consumer wrapper env:")
     print(f"TEMPLATE_DOCX={template_docx_env}")
     print(f"TEMPLATE_PROFILE={profile_path.resolve()}")
+
+    print()
+    if args.guidance_doc is not None:
+        if not args.guidance_doc.exists():
+            print(f"ERROR: --guidance-doc not found: {args.guidance_doc}", file=sys.stderr)
+            return 2
+        try:
+            scan = scan_guidance_doc(args.guidance_doc)
+        except GuidanceScanError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(format_guidance_scan_report(scan))
+    else:
+        # A printed reminder, not a blocking stdin prompt (this CLI has no other
+        # interactive input anywhere, and a blocking prompt would hang CI/scripted
+        # runs) -- but still an active nudge at the one moment an operator has both
+        # artifacts in hand and is thinking about this template, per issue #100.
+        print("No --guidance-doc given. If this template ships with a separate style/usage "
+              "guide (a policy paper explaining what each section is for), re-run with "
+              "--guidance-doc <path> for a structural pointer toward seeding "
+              "editorial-doctrine.yaml (issue #100/#84) -- easy to forget once the template "
+              "itself has been imported.")
 
     if args.check is not None:
         if not args.check.exists():

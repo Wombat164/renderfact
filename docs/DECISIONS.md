@@ -350,7 +350,266 @@ backpressure) applies to it. Implementation is sequenced last in the fuzzy-gate 
 (docs/2026-07-04-fuzzy-gate-architecture-plan.md, item G5) because it is the largest surface and the
 only one that touches the D8 trust boundary.
 
-## D18 - Workspace static assets: package-data files + GET /ui/static/{name}, not string literals
+## D18 - The gate-hook contract: QC_SCRIPT advisory-by-default, POSTRENDER_GATE_SCRIPT blocking-by-default, generic regex-scan as a real gates/ module
+
+Issue #71: a consumer with a hard content-safety requirement (its own example: a render must never
+carry a currency figure once it is bound for an external vendor, because disclosing an internal
+budget ceiling to a counterparty is a real negotiating-leverage risk) found two gaps in
+`render-doc.sh`'s hook set, and contributed the fix upstream rather than keeping it private.
+
+**1. `QC_SCRIPT` gains an opt-in blocking mode, default unchanged.** `QC_SCRIPT` (`--qc`) has always
+run pre-render, against the source markdown, with its exit code print-and-continue: `"$PYTHON"
+"$QC_SCRIPT" "$SOURCE" || echo "(advisory, not blocking)"`. That default stays: a pre-render lint pass
+being advisory is the common case (a consumer runs a stricter check without every finding gating every
+draft render), so backward compatibility for existing skins matters here. `QC_BLOCKING=1` (or the
+equivalent `--qc-blocking` flag, which also implies `--qc`) turns a non-zero `QC_SCRIPT` exit into a
+build failure, for the consumer that specifically wants pre-render fail-closed behaviour.
+
+**2. A new hook, `POSTRENDER_GATE_SCRIPT`, called with the finished `<docx>` path, same calling
+convention as `PAGECHECK_SCRIPT`** (a path in, run after render and before the completion summary),
+but distinct in purpose: `PAGECHECK_SCRIPT` is page-economy-focused and already advisory
+(`|| true`); `POSTRENDER_GATE_SCRIPT` is content-safety-focused, and scans the ARTIFACT rather than
+the source, which matters because a reference template, a lua filter, or the house-style
+post-processor can inject content that never existed in the markdown source `QC_SCRIPT` saw.
+
+**Decision: `POSTRENDER_GATE_SCRIPT` defaults to BLOCKING, the opposite of `QC_SCRIPT`.** These two
+hooks are not the same shape wearing different names; they earn different defaults:
+
+- `QC_SCRIPT` is a pre-render LINT: findings are advice a human can act on before the artifact even
+  exists, so the more common posture is "print it and let the author decide", matching every other
+  advisory hook already in this script (`--lint`, `--page-check`).
+- `POSTRENDER_GATE_SCRIPT` is a post-render GATE whose entire reason to exist is "does the artifact
+  contain content it must never contain." A gate with that job description that defaults to
+  advisory-only is close to useless: the whole point is that a human should not have to notice a
+  finding in scrollback for the guarantee to hold. Defaulting it to fail-closed is what makes it a
+  gate rather than a second linter with a different name. `POSTRENDER_GATE_ADVISORY=1` is the escape
+  hatch for a consumer that genuinely wants report-only behaviour instead, kept symmetric with
+  `QC_BLOCKING` so both hooks are governed the same way (an env var or flag that inverts the default),
+  just inverted in which direction is the default.
+
+**3. The generic regex-scan pattern ships as `gates/content_scan.py`, pattern-as-parameter, never a
+built-in default.** The issue's own reference implementation ("open the DOCX with python-docx, regex
+over every paragraph and every table cell, `raise SystemExit(1)` on any hit") is domain-neutral
+already; the only domain-specific part was the currency regex the issue used to motivate the ask. Per
+D3 (generic core, private skin), the pattern is a REQUIRED parameter (`--pattern` / `--pattern-file`,
+or `RENDERFACT_GATE_PATTERN` / `RENDERFACT_GATE_PATTERN_FILE` for the zero-arg hook-invocation case,
+since `render-doc.sh` calls every hook with only its target path, no extra flags): this module never
+ships a currency regex, a codename list, or any other example as a default. A consumer skin points
+`POSTRENDER_GATE_SCRIPT` at this script directly (via the env-var pattern) or through a thin wrapper
+that hardcodes its own pattern; either way the "open docx, scan every paragraph and cell, exit 1 on
+hit" mechanics stop being re-implemented per consumer, which was the issue's actual complaint.
+
+## D19 - Purpose annotations and dossier role: annotative-only, never a gate
+
+A specific editorial discipline ("everything in this document should be prunable, as long as its
+stated purpose is still achieved") has no way to be checked mechanically, or even by inspection
+months later, without an explicit record of what each paragraph, section, or document was FOR. An
+author (human or LLM) ends up including detail because it is true and available, not because it is
+load-bearing for the document's actual goal, and a later editor has no record of which paragraphs
+were serving which purpose to safely decide what to cut (issue #77).
+
+**Rule: two structurally separate, purely annotative mechanisms, neither a hard gate.**
+1. Paragraph/section purpose: an HTML comment, `<!-- PURPOSE: ... -->`, stated immediately above the
+   block it explains.
+2. Document-level dossier relation: a frontmatter field, `dossier_role:`, stating what a document
+   uniquely contributes relative to its siblings in a broader dossier/collection.
+
+**Why HTML comments are safe.** Pandoc's markdown reader parses `<!-- ... -->` as a raw-HTML AST node
+that neither the DOCX writer nor the typst writer (the PDF path's markdown-to-typst-markup step, the
+only step that touches the original markdown -- typst itself never parses it) emits. Verified
+empirically (`tests/test_purpose_annotations.py` drives the real pandoc/typst subprocess pipelines
+and asserts the marker is absent from both outputs), not assumed. This is the SAME mechanism D14's
+projection-provenance header stamp already relies on (`projector.py`'s `<!-- projected: ... -->`
+line): #77 generalizes it from per-document render metadata, stamped by the tool, to per-block
+authoring intent, stated by the author.
+
+**Why `dossier_role` is freeform, not an enum.** The projection engine's clearance/distribution
+ladders already establish the precedent that this repo's engine ships no fixed classification
+vocabulary of its own (`profiles-example.yaml`'s ladders are an illustration, not a standard);
+`dossier_role` follows the same posture. Read via the repo's existing frontmatter-read idiom
+(`gates/run_gates.py`'s `run_uids`, `roundtrip/source_uid.py`), not a new parsing path.
+
+**Why this is explicitly NOT a D16 fuzzy-gate step.** D16 governs LLM-touching steps: deterministic
+result first, confidence score, gate past a threshold. Purpose annotation is deliberately outside
+that doctrine because it is not LLM-touching at all -- the issue's stated non-goal is exactly that an
+LLM summarization pass CANNOT substitute for the author stating intent explicitly (a summarizer
+reconstructs what a paragraph SAYS, not what it is FOR, and the whole point is capturing the latter
+before it is lost). The optional lint pass (`render qa purpose`) that flags an unannotated prominent
+block is a plain deterministic pattern match, not a confidence-gated step, and it never fails a run:
+the same never-fails posture as `QC_SCRIPT`'s off-when-unset default (`container/render-doc.sh`), not
+the fail-closed posture of `render gate`. Not every document needs this level of authoring rigor, and
+a document that never adopts the convention pays no penalty -- the issue explicitly rules out both a
+blocking enforcement gate and automatic purpose inference.
+
+## D20 - Comprehension gate for text documents, and a D16 gate that legitimately never accepts
+
+Issue #84: the diagram vision-review gate (chunk 3.1, D8/D16) already establishes that a fresh,
+author-independent LLM read catches subjective failures a deterministic pass structurally cannot. No
+equivalent existed for rendered TEXT documents -- Vale and the plain-language work catch phrasing
+patterns, but neither can answer "does a reader who has never seen this understand what each section is
+for, and where does the flow break down." This decision adds `lint/comprehension_review_contract.py`
+(`render comprehension-review`) as that peer, reusing the SAME D8 contract machinery
+(`contracts/schema_utils.py`, `contracts/copy_paste.py`, `contracts/init_ai.py`) rather than inventing
+parallel plumbing: one INPUT_SCHEMA (an ordered list of reader-sized snippets, chunked at section
+boundaries), one OUTPUT_SCHEMA (per-snippet purpose/confusion/fluff/cuttable findings plus a
+whole-document synthesis), identical across harness, copy-paste, and the D17 direct-API channel.
+
+**The D16 gate decision, made explicit.** D16 requires every LLM-touching step to produce a
+deterministic result first, score confidence that it suffices, and gate on a threshold. Every existing
+gated step has a real deterministic proxy to score: vision-review has hard geometry/contrast/a11y
+numbers; decision-capture and contextualize have a change-kind taxonomy splitting edits the template
+states fully (descriptive) from edits it can describe but not justify (intent-bearing). Comprehension has
+no such proxy. Document length, section count, sentence length, and similar structural signals predict
+review COST, not comprehension risk, in either direction: a single dense paragraph can bury its point as
+badly as a long, well-structured document reads cleanly. Building a confidence formula from those
+signals anyway would dress up a coin flip as a measurement -- and the entire reason this gate exists is
+to catch exactly what deterministic checks (Vale, plain-language, `render qa`'s zero-LLM probes)
+structurally cannot reach. So `comprehension_review_contract.confidence()` returns a CONSTANT 0.0: this
+step always escalates.
+
+**Concretely, against the signals that actually exist (issue #76, landed alongside this one).**
+`demo/skin/vale/styles/PlainLanguage/` ships `SentenceLength` (word-count threshold per sentence) and
+`NominalisationDensity` (`-tion`/`-ance`/`-ment` suffix density per paragraph); `docstyle/plain_language.py`
+adds a repeated-phrase-across-sections scan. All three are real, useful, deterministic, and were
+considered as a confidence input. All three were rejected for the same reason: a long sentence, a dense
+paragraph, or a repeated phrase is a STYLE finding a reader can often work around; whether the reader
+loses the thread entirely is a different question these checks do not and cannot answer (a document with
+zero PlainLanguage hits can still bury its point, and a document flagged throughout can still read
+clearly to a patient reader). Wiring any of them into `confidence()` would make the gate's escalation
+depend on a signal that does not measure what the gate exists to check.
+
+**This is a D16 outcome, not an exception to it.** D16's own vision-review worked example already
+treats "no deterministic signal" as valid (confidence 0.0 when neither of its two metrics fired); this
+step is simply the first where that is the PERMANENT case rather than one branch of a heuristic. The gate
+mechanics stay identical: `gate()` still compares the score to a threshold via the shared
+`contracts/confidence_gate.decide()`, so an operator who explicitly sets `--threshold <= 0` still gets
+the accept path -- an honest "not reviewed" stub (`status: WARN`, empty findings, `reviewer_mode:
+deterministic`), never a fabricated verdict. That is the same `needs_review` fallback every gated step
+already offers when no escalation channel is available; here it is also reachable by deliberate choice,
+not only by channel absence. Report-only throughout: the step never rewrites the document, matching the
+propose-only contract every gated step in this repo follows.
+
+**Scope note for future gated steps.** A step with a genuinely judgment-based question and no
+deterministic proxy should follow this pattern rather than inventing a superficial heuristic to satisfy
+D16's shape: state the absence explicitly, pin confidence at 0.0, and record the reasoning in a decision
+entry (this one). D16's "Scope" paragraph already anticipated this kind of retrofit; this is the first
+step in the repo where it applies to the step's ENTIRE lifetime, not a transitional phase.
+
+## D21 - Custom-style fonts win by default over the house-style body pass
+
+Issue #98: `docstyle/style_postprocess.py`'s per-paragraph body-styling loop in `main()` called
+`set_para_font()` unconditionally on every paragraph that was not Title/Subtitle/Heading 1-4, including
+one carrying a genuinely custom Word style (reached via a pandoc `::: {custom-style="X"} ... :::` fenced
+div) that already defines its OWN font and size in `reference.docx`'s `styles.xml`. The paragraph came
+out with the right `w:pStyle` (pandoc resolves the style name correctly) but a direct-formatting
+run-level `w:rFonts`/`w:sz` override, injected by the post-processor, shadowed the style's own
+definition: a Word-rendering fact (direct run formatting always outranks paragraph-style formatting),
+not a pandoc writer bug. Confirmed by reproduction: a fixture `reference.docx` with a `PullQuote` style
+set to Georgia 16pt in its own `w:rPr`, run through the real pandoc + style_postprocess pipeline,
+produced a `PullQuote`-styled paragraph whose runs carried Arial at the house body size instead.
+
+**The default changes: a custom style's own font/size now wins.** `is_custom_style_paragraph()` treats a
+paragraph as template-fidelity-worthy when its style name falls outside a known built-in/default-body
+set (Title, Subtitle, Heading 1-4, Normal, Body Text, and similar) AND that style's own `w:rPr` (not an
+inherited base style; python-docx's `Font` getters only read a style's own direct properties) explicitly
+sets `w:rFonts` and/or `w:sz`. For such a paragraph, the body-styling loop now skips `set_para_font()`
+entirely, leaving the run with no direct formatting so it falls through to pure Word style inheritance.
+Chosen as the default rather than an opt-in because "apply style X" reasonably means "look like style
+X": a caller who references a custom style by name is expressing a template-fidelity intent, and silently
+overriding it with the house look is the surprising behaviour, not the other way round. Built-in
+categories (Title/Subtitle/Heading 1-4) and the generic default-body case (Normal / no style) are
+UNCHANGED: they still get the house font/size unconditionally, matching renderfact's primary use case
+(an opinionated house typography over otherwise-plain source content).
+
+**The old blanket-override behaviour is kept as an explicit opt-in**, for callers who genuinely want one
+uniform house font everywhere regardless of any custom style a source paragraph names: a CLI flag
+(`--override-custom-style-fonts`, standalone `render docstyle` surface, same shape as `--table-widths` /
+`--cover-version`) and a `template-profile.yaml` key (`override_custom_style_fonts: true`, same shape as
+`normalize_punctuation`) both set the same module-level gate; the CLI flag wins when both are present.
+Scope note: this is narrower than the issue's own follow-up comment, which also flagged built-in styles
+(Title, numbered headings) as unconditionally overridden. That is true but out of scope here by design:
+overriding a BUILT-IN category is exactly the documented primary use case (a consistent house look over
+plain content), so changing that default would break the common case to fix an uncommon one. A future
+issue can add a broader `preserve_reference_styles` escape hatch (skip ALL font/size injection, not only
+for custom styles) if a template-fidelity use case needs the built-in categories left alone too; this
+decision deliberately does not reach for that yet.
+
+## D22 - Sendable email output is `.eml` (RFC822), not `.msg` (MAPI) or mail-client automation
+
+Issue #95: the pipeline had `docx`/`pdf` body-output modes plus diagram-only modes, but no mode for
+rendering a governed markdown source directly to a sendable email, so a real deliverable that is
+"an email" rather than "a document" was bridged manually: copy the rendered body into a mail client,
+re-add the signature by hand, with no reconciliation path back to source the way `docx` has
+`reingest`. The issue's own framing named three candidate shapes: (1) declare a signature block in
+skin config, (2) map frontmatter fields to headers, and (3) produce a `.msg`/`.eml` file OR drive a
+local mail client's compose window through its automation interface, and noted the project's
+existing OOXML-manipulation infrastructure (`docstyle/style_postprocess.py`) as a possible `.msg`
+building block, since `.msg` is also an Office/MAPI-family binary format.
+
+**This decision, following the same core-vs-adapter split issue #68 used for the layered-stack
+diagram archetype (ship the general core, name the narrower adapter as an explicit follow-up rather
+than build it now):** the core of this change is `.eml` (RFC822, plain text, stdlib `email` module),
+NOT `.msg`, and NOT mail-client automation.
+
+- **`.eml` is the right primary deliverable.** It is a portable, openly documented, dependency-free
+  format that essentially every mail client (Outlook included) can open or import directly, so it
+  solves the actual "sendable email with a reconciliation path" need without touching a binary
+  format at all. It needs no optional dependency (the stdlib `email` module both builds and parses
+  it), which makes it directly testable the same way every other backend in this repo is tested: a
+  fixture in, a real parse of the artifact out, asserted against.
+- **`.msg` (MAPI) is explicitly deferred, not built here.** Unlike DOCX (OOXML, a documented open
+  zip-of-XML format `python-docx` already reads/writes), `.msg` is Microsoft's binary Compound File
+  Binary / MAPI property-stream format: heavier to write correctly, platform-adjacent in practice
+  (real-world producers overwhelmingly lean on Windows COM automation or a native MAPI library,
+  neither of which is portable or testable in CI the way this repo's other backends are), and it
+  buys nothing `.eml` does not already deliver for the "sendable, reconcilable email" goal an
+  organisation actually has. `docstyle/style_postprocess.py`'s OOXML-manipulation experience does not
+  transfer the way the issue speculated: OOXML and CFB/MAPI are unrelated container formats sharing
+  only the "Microsoft Office binary" label, not any parsing machinery.
+- **Mail-client automation is explicitly deferred, not built here.** Driving a compose window through
+  a platform automation interface (Outlook COM on Windows, AppleScript on macOS, no equivalent at all
+  on Linux) is inherently platform-specific, untestable in a cross-platform CI matrix the way this
+  repo's other modes are (`render eml` runs the same on every OS `render pdf` does), and adds a
+  different kind of coupling (to a running, licensed desktop application) than anything else in this
+  toolchain. A `.eml` file already solves delivery: it is one double-click (or one drag-and-drop, or
+  one `mailto:`-adjacent import) away from a compose window in every mail client tested.
+- **Signature-block config is freeform text lines**, the same non-enum, freeform posture `dossier_role`
+  (D19) and the projection engine's clearance/distribution ladders already use, rather than a rigid
+  structured name/title/department/phone schema: a consumer's own house style for a sign-off varies
+  too much for the generic core to usefully constrain, and a list of strings is trivially sufficient.
+  It lives in its own `mail/signature-example.yaml` (the `docstyle/template-profile-example.yaml` /
+  `projection/profiles-example.yaml` naming and loading pattern), not folded into `brand.yaml`: the
+  signature block is CONTENT (a name, a role, a phone number, a directory link), and `brand.yaml` is
+  DESIGN TOKENS (colour, type, geometry) consumed by a deep-merge generator pipeline with a fixed
+  known-keys schema: mixing the two would either force the token generators to tolerate an
+  arbitrary freeform key they do not otherwise need to understand, or force the signature block into
+  an enum-shaped shell it does not need.
+- **v1 is plain text, with PNG image(s) riding along as inline MIME parts, not HTML.** The signature
+  block's text is rendered as a plain-text block, appended after a plain-text body (pandoc's plain
+  writer over the same shared `pandoc_markdown.MARKDOWN_FROM` `--from` every markdown-reading call
+  site in this repo already uses), in a single `text/plain` MIME part. A signature MAY also declare
+  `images:` (PNG only, resolved skin-relative): each becomes its own `Content-Disposition: inline`
+  `image/png` part (`EmailMessage.add_attachment`, which promotes the message to `multipart/mixed`
+  automatically), so a logo genuinely travels embedded inside the .eml rather than as a hyperlink to
+  a hosted image. This is deliberately NOT the `multipart/alternative` + `multipart/related` shape a
+  styled HTML signature (coloured text, a clickable button, an inline-`cid:`-referenced logo sitting
+  inside markup) would need: no HTML part is generated, so an attached image is not laid out or
+  positioned by anything, it simply rides along as a real embedded part most mail clients show inline
+  or as a thumbnail near the body. A full HTML signature remains a real, useful, materially larger
+  extension (a second content type, an HTML-authoring surface for the signature block, and layout
+  decisions this repo has no existing pattern for), tracked as a roadmap follow-up
+  (`docs/ROADMAP.md` Track J), not built here.
+- **Frontmatter-to-header mapping** follows the field-naming style already established by `dossier_role`
+  and `renderfact_uid`: `recipient:` (with `to:` accepted as a synonym) maps to the eml's `To:`
+  header, and `subject:` (with the document's own `title:` as the natural fallback, the same
+  subject-equivalent field a document already carries) maps to `Subject:`. Both are read-only over
+  the source, the same posture `roundtrip/dossier_role.read_dossier_role()` uses: nothing is
+  generated or persisted back into frontmatter. A missing recipient is advisory, not fatal (a WARNING
+  to stderr, an eml with no `To:` header): the same "still produces a valid, honest artifact with
+  less input" posture optional `--theme`/`--brand`/`--signature` flags take across every backend in
+  this repo, useful for a draft written before the addressee is settled.
+
+## D23 - Workspace static assets: package-data files + GET /ui/static/{name}, not string literals
 
 The monolithic-`UI_HTML`-string pattern (api/ui.py, D9) ends at the Track J workspace boundary
 (design spike `docs/2026-07-07-ui-ux-project-workspace-design-spike.md` section 5, OQ8). First-party
@@ -377,3 +636,11 @@ convention (the template library's `templates/library/`, the flat `templates/*.m
 anywhere in the codebase. Consistency with that established convention wins over anticipating a
 packaging concern no other module here has needed to solve yet; revisit if/when renderfact actually
 ships as a wheel with `api/static/` needing to travel inside it.
+
+**Renumbered from D18 to D23 during PR #67's main-branch merge-conflict resolution** (2026-07-11):
+D18 was independently assigned to two decisions developed in parallel without either session aware
+of the other (issue #71's gate-hook contract, merged first) -- the same class of collision D19
+(comprehension gate vs #77's purpose-annotations) already hit and was renumbered for earlier in this
+same file. D22 (sendable email output) was the highest number on `main` at merge time, so this
+decision becomes D23, immediately after it; content and reasoning are otherwise unchanged from the
+original PR #67 draft.

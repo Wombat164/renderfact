@@ -9,23 +9,26 @@ title: Reference
 | Command | What it does |
 |---|---|
 | `render docx <src> --profile <p>` | Project one source to a governed DOCX for one audience profile. |
+| `render docstyle <in.docx> [out.docx] [--table-widths <yaml>]` | Standalone house-style DOCX post-processor: font/heading/table styling, punctuation normalization, `--cover-version`/`--cover-date`, operator-fitted `--table-widths`. The same engine `render docx` calls internally, exposed directly. |
 | `render pdf <src> [--engine typst]` | Render a source to a layout-native branded A4 PDF via typst (a peer of the DOCX path, no LibreOffice). |
-| `render diagram ...` | Render a diagram from its source. |
+| `render eml <src> [--signature <yaml>] [--recipient R] [--subject S] [--sender F]` | Render a source to a plain-text, sendable RFC822 `.eml`, with an optional skin-supplied signature block (freeform text lines, plus PNG images as inline MIME parts). Frontmatter `recipient:`/`to:` and `subject:`/`title:` map to `To:`/`Subject:`. A peer of the docx/pdf paths (issue #95, `docs/DECISIONS.md` D22). |
+| `render diagram ...` | Render a diagram from its source (mermaid, d2, svg, drawio; and the `layered-stack` archetype from a plain YAML source, content-sniffed). |
 | `render project ...` | Audience/clearance/disclosure projection of a source (the preprocessor). |
 | `render tokens ...` | Compile brand tokens to per-engine themes. |
 | `render import-template <docx>` | Derive a brand skin from any branded DOCX. |
-| `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight). |
+| `render qa <files> ...` | Post-render QA probes (leaks, table geometry, paragraph weight, purpose-comment coverage). |
 | `render serve [--enable-ui]` | Localhost HTTP API + thin reference UI. |
 | `render projects list\|show\|new [--projects-root DIR]` | Project registry (Track J): `list`/`show` scan the projects root and report each project's manifest, render-ledger tail, git facts, and concurrency hash; `new` scaffolds a project (manifest, seeded source, profiles skeleton, git init + initial commit). Config mutation (`PUT /projects/{name}/config`, hash-guarded, one commit per change) is API/UI-only. |
 | `render templates list\|show [--templates-root DIR]` | Template library (Track J): built-in entries (`templates/library/`, e.g. `plain-report`, `plain-deck`) merged with a custom root. Distinct from the pre-existing flat `templates/*.md` genre pack. Import (`POST /templates/import`, wraps `render import-template`) is API-only. |
-| `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids). |
+| `render gate <files> --stages ...` | Fail-closed QA gate chain (vale, lychee, verapdf, uids, plainlang). |
 | `render doctor [--json]` | Host tools vs `tools.lock`: report OK/DRIFT/MISSING; always exit 0. |
 | `render provenance embed\|extract\|strip\|adopt\|retarget` | D11 provenance operations on DOCX/XLSX/PPTX/VSDX. |
-| `render reingest <edited.docx> --source <md>` | Mechanical re-ingestion of an edited document. |
+| `render reingest <edited.docx> --source <md> [--strip-pattern <re>] [--apply-widths <yaml>]` | Mechanical re-ingestion of an edited document; `--strip-pattern` (repeatable) strips extra project-specific structural-noise regexes from the text-diff; `--apply-widths` emits a table column-width sidecar (consumed by `render docstyle --table-widths`) from the `## 3` detection, and page-break adds/removals get their own `## 3b` report section. |
 | `render drawio generate\|reingest` | Editable-diagram round-trip, draw.io adapter (C8.1). |
 | `render vsdx generate\|reingest` | Editable-diagram round-trip, Visio adapter (C8.2; needs `vsdx`). |
 | `render decision-capture --source <g> --reingest <j>` | Capture diagram-edit intent; deterministic first, LLM past the gate (C8.3). |
 | `render contextualize --source <md> --reingest <j>` | Capture document-edit intent from a reingest diff; deterministic first, LLM past the gate (Track D 4.5). |
+| `render comprehension-review <docx-or-md> [--escalate copy-paste\|api]` | Fresh-reader comprehension gate for a rendered text document: chunks it by section boundary and has an author-independent LLM read the snippets in order, reporting purpose/confusion/fluff/cuttable content per snippet plus a whole-document synthesis. Report-only. D16-gated with NO accept path -- confidence is always 0.0, so it always escalates unless `--threshold` is `<= 0` (issue #84, `docs/DECISIONS.md` D20). |
 | `render copy-paste vision-review --image <svg>` | Gated visual-quality review of a diagram. |
 | `render gate-stats` | D16 gate escalation-rate stats + storm detection. |
 | `render init-ai [--assistant ...]` | Install renderfact-aware instruction files into your assistant. |
@@ -33,6 +36,54 @@ title: Reference
 | `render container <podman-args>` | Passthrough to the container render entry. |
 
 Run any subcommand with `--help` for its flags.
+
+## `render docstyle` -- standalone house-style DOCX post-processor
+
+`render docx` (render-doc.sh) already calls `docstyle/style_postprocess.py` internally as the
+house-style pass of its own pipeline. `render docstyle` is the same engine reachable directly, for
+callers who want its capabilities (most usefully `--table-widths`, which `render docx` does not pass
+through) without going through the full docx pipeline. Also useful for restyling a DOCX that was not
+itself produced by `render docx`.
+
+```bash
+render docstyle draft.docx styled.docx --profile reference --table-widths widths.yaml \
+  --cover-version 1.2 --cover-date "2026-07-10"
+```
+
+| Flag | Meaning |
+|---|---|
+| `<input.docx>` | Source DOCX (styled in place unless `[output.docx]` is given). |
+| `[output.docx]` | Optional destination path. |
+| `--profile compact\|reference` | Style profile (default `compact`: dense, justified; `reference`: reader-friendly, cover page). |
+| `--template-profile <yaml>` | Override the whole theme (palette/font/geometry/marking/cover) from a profile yaml. |
+| `--table-widths <yaml>` | Operator-fitted column widths (twips), matched to tables by ordinal, scaled proportionally to fill the actual section text width (`apply_table_widths()`). |
+| `--cover-version <v>` / `--cover-date <d>` | Cover version/date line overrides (`--profile reference`). |
+| `--override-custom-style-fonts` | Restore the pre-#98 blanket house font/size override even on paragraphs carrying a custom style with its own font (default: a custom style's own font/size wins). Same effect as the `override_custom_style_fonts: true` template-profile key. |
+
+## Purpose annotations and dossier role (#77)
+
+An annotative-only authoring convention: no blocking gate, degrades to nothing for a consumer who
+ignores it. See [Explanation](../explanation/index.md#purpose-annotations-and-dossier-role) for why it
+is shaped this way, and the [how-to recipe](../how-to/index.md#annotate-a-documents-purpose-and-dossier-role)
+for a worked example.
+
+```markdown
+---
+title: Onboarding overview
+dossier_role: the single-page entry point; every other document in this dossier goes deeper on one facet
+---
+
+<!-- PURPOSE: states the tradeoff up front so a skimming reader gets the decision before the detail -->
+
+## Cost vs lead time
+...
+```
+
+| Piece | Where | Notes |
+|---|---|---|
+| `<!-- PURPOSE: ... -->` | immediately above a paragraph or heading | Dropped by pandoc's raw-HTML handling on every writer this repo uses (DOCX, typst/PDF) -- never reaches a reader. |
+| `dossier_role:` | document frontmatter | Freeform text, no fixed vocabulary. Read via `roundtrip/dossier_role.read_dossier_role()`. |
+| `render qa purpose <source.md>` | CLI | Advisory-only lint: flags a prominent block (a heading, or a paragraph at or above `--min-words`, default 40) with no preceding purpose comment. Always exits 0. |
 
 ## `render pdf` -- layout-native PDF backend (typst)
 
@@ -153,6 +204,49 @@ rows:
   state the `currency` (or nothing) -- amounts and dates are supplied as raw values and formatted per
   locale. An explicit `format` key in the data still overrides the locale.
 
+## `render eml`: plain-text sendable email output (issue #95)
+
+The email peer of the DOCX and PDF paths: a governed markdown source becomes a directly-openable,
+plain-text RFC822 `.eml`, with an optional skin-supplied signature block reused across every email a
+skin produces (the email analogue of a letterhead). See
+[Explanation](../explanation/index.md#eml-vs-msg-a-core-vs-adapter-split) for why this is `.eml`
+rather than the binary Outlook `.msg`/MAPI format or mail-client compose-window automation
+(`docs/DECISIONS.md` D22), and the [how-to recipe](../how-to/index.md#render-a-governed-source-to-a-sendable-eml)
+for a worked example.
+
+```bash
+render eml status-update.md --signature mail/signature-example.yaml
+# -> renders/status-update.eml
+```
+
+| Flag | Meaning |
+|---|---|
+| `<source.md>` | Markdown source; `recipient:`/`to:` and `subject:`/`title:` frontmatter map to the `To:`/`Subject:` headers. |
+| `-o, --output <path>` | Output `.eml` path (default: `renders/<stem>.eml`; `OUTPUT_DIR` overrides the dir). |
+| `--signature <yaml>` | A skin's `signature.yaml` (see `mail/signature-example.yaml`); omitted means no signature block is appended. |
+| `--recipient <addr>` | Overrides the source's `recipient:`/`to:` frontmatter. |
+| `--subject <text>` | Overrides the source's `subject:`/`title:` frontmatter. |
+| `--sender <addr>` | Overrides the signature config's `from_email:` (the `.eml`'s `From:`). |
+
+**Signature config (`signature.yaml`).** Freeform `lines:` (a list of strings, no fixed
+name/title/department/phone schema), an optional `from_email:` for the `From:` header, and optional
+`images:` (a list of PNG file paths, resolved relative to the signature YAML's own directory): each
+becomes its own `Content-Disposition: inline` `image/png` MIME part, so a logo travels embedded in the
+`.eml` rather than as a hyperlink. Appended after the body behind the sig-dash delimiter (`-- ` alone
+on its own line), the plain-text-email convention that lets a mail client fold or strip the signature
+on reply.
+
+**Body.** The markdown body is translated with pandoc's plain-text writer, `--reference-links` so a
+link's URL survives as a trailing `[text]: url` reference instead of being silently dropped. A
+`[[target|Display Text]]` wikilink resolves to its display text, the same `pandoc_markdown.MARKDOWN_FROM`
+`--from` value every markdown-reading call site in this repo shares.
+
+**A missing recipient is advisory, not fatal:** a WARNING to stderr, and an `.eml` with no `To:`
+header, useful for a draft written before the addressee is settled.
+
+**Out of scope, by design:** a binary `.msg`/MAPI writer, mail-client compose-window automation, and a
+MIME-multipart HTML signature (`docs/ROADMAP.md` Track J).
+
 ## Environment variables
 
 | Variable | Used by | Meaning |
@@ -160,6 +254,7 @@ rows:
 | `RENDERFACT_VISION_THRESHOLD` | vision-review | D16 gate confidence threshold (default 0.6). |
 | `RENDERFACT_DECISION_THRESHOLD` | decision-capture | D16 gate confidence threshold (default 0.6). |
 | `RENDERFACT_CONTEXTUALIZE_THRESHOLD` | contextualize | D16 gate confidence threshold (default 0.6). |
+| `RENDERFACT_COMPREHENSION_THRESHOLD` | comprehension-review | D16 gate confidence threshold (default 0.6). Confidence is always 0.0 (D20), so any positive value always escalates; `<= 0` accepts the unreviewed stub. |
 | `RENDERFACT_GATE_LOG` | all gated steps | Path to the append-only gate decision log (opt-in). |
 | `RENDERFACT_MODELS_CONFIG` | direct-API channel | Path to the `[models]` TOML (default `./renderfact-models.toml`). |
 | `RENDERFACT_FONT_PATH` | render pdf | Default brand-font directories (os-pathsep-separated) passed to typst as `--font-path`. |
@@ -197,6 +292,7 @@ export RENDERFACT_LLM_API_KEY=...         # omit for a keyless local endpoint
 render copy-paste vision-review --image d.svg --tier tier-3   # uses the API when configured
 render copy-paste vision-review --image d.svg --tier tier-3 --no-api   # force copy-paste
 render contextualize --source doc.md --reingest r.json --escalate api  # try API, fall back to copy-paste
+render comprehension-review report.docx --escalate api                 # try API, fall back to copy-paste
 ```
 
 Routing: a step whose input carries a `rendered_image_path` (vision-review) routes to the `[vlm]`
@@ -225,6 +321,11 @@ The shared `contracts/confidence_gate.py` provides `decide(score, threshold)` an
 gate -> telemetry -> accept/escalate/needs-review orchestration); the per-step `confidence()` heuristic
 stays local. Sub-signals are logged to the gate telemetry (`render gate-stats`) for per-signal
 calibration. See [Explanation](../explanation/index.md#the-d16-fuzzy-gate).
+
+`comprehension-review` implements the SAME contract with a deliberately constant `confidence()`:
+it always returns 0.0, so the step always escalates (see `docs/DECISIONS.md` D20). This is a
+legitimate D16 outcome, not an exception to it -- there is no deterministic proxy for "a cold
+reader will follow this," so the honest confidence is the one that never claims otherwise.
 
 ## HTTP API (`render serve`)
 

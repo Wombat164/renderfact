@@ -30,7 +30,7 @@ port (stdlib only: zipfile, ElementTree, difflib).
 
 Usage:
     render reingest <edited.docx> --source <canonical.md>
-                    [--report out.md] [--json] [--apply]
+                    [--report out.md] [--json] [--apply] [--strip-pattern <regex>]...
 """
 
 from __future__ import annotations
@@ -213,19 +213,90 @@ def walk_structure(body) -> list[tuple]:
                 "rows": rows,
                 "cm": [round(c / TWIPS_PER_CM, 2) for c in cols],
                 "pct": [round(100 * c / tot) for c in cols],
+                "twips": cols,
                 "header": rows[0] if rows else [],
             }))
     return items
 
 
+# ---------------------------------------------------------------- page breaks --
+
+# A deliberate manual page break is <w:br w:type="page"/>: the same construct
+# the raw-openxml mechanism documented in md_plaintext() emits. Word's own
+# w:lastRenderedPageBreak is a layout-cache marker Word regenerates on every
+# open (not a deliberate edit) and is never counted here.
+_MD_NEWPAGE_LINE = re.compile(r"^\\newpage\s*$")
+_PAGE_BREAK_XML = re.compile(r'<w:br\b[^>]*\bw:type="page"[^>]*/?>')
+
+
+def source_page_breaks(md_text: str) -> list[int]:
+    """1-based line numbers in the canonical markdown carrying a deliberate page
+    break marker: the pandoc `\\newpage` token, or a raw-openxml block carrying
+    a literal <w:br w:type="page"/>. Both are dropped whole from the text-diff
+    (issue #72's structural-noise stripping), so this is a separate, deliberate
+    scan of the source text, not a byproduct of that path (issue #73)."""
+    offsets = []
+    for i, ln in enumerate(md_text.split("\n"), start=1):
+        s = ln.strip()
+        if _MD_NEWPAGE_LINE.match(s) or _PAGE_BREAK_XML.search(s):
+            offsets.append(i)
+    return offsets
+
+
+def docx_page_breaks(body) -> list[int]:
+    """0-based offsets (among the body's direct paragraph children) where a
+    manual <w:br w:type="page"/> occurs in the edited DOCX. Walks the body
+    directly rather than the text-filtered items list from walk_structure():
+    a page-break-only paragraph carries no visible text and is dropped by that
+    filter (`if not txt: continue`), so today such a break is simply invisible
+    to the report, neither surfaced nor reported as noise (issue #73)."""
+    offsets = []
+    for idx, el in enumerate(list(body)):
+        if el.tag.split("}")[-1] != "p":
+            continue
+        for br in el.iter(f"{W}br"):
+            if br.get(f"{W}type") == "page":
+                offsets.append(idx)
+                break
+    return offsets
+
+
 # ------------------------------------------------------------- normalization --
 
-def _norm(s: str) -> str:
+# Pandoc-specific structural syntax that never renders as literal text in the
+# DOCX: it is a structural marker, not content, so it is stripped from the
+# SOURCE side before the text-diff, at the same normalization tier as the
+# list-bullet/auto-numbered-heading stripping just below (issue #72). Without
+# this, the diff treats the marker's absence on the docx side as a deletion:
+# a false-positive "reviewer edit" for every fenced-div/blockquote line.
+#   - fenced-div open/close lines (`::: {custom-style="Title"}` / bare `:::`):
+#     dropped whole (the whole line is markup, no comparable content survives).
+#   - blockquote marker (`> `): stripped, not dropped: the quoted text itself
+#     is real content and already matches the docx side once dequoted.
+_FENCED_DIV_LINE = re.compile(r"^:::\s*(\{.*\})?\s*$")
+_BLOCKQUOTE_MARKER = re.compile(r"^>\s+")
+_STRUCTURAL_STRIP_PATTERNS: tuple[re.Pattern, ...] = (_FENCED_DIV_LINE, _BLOCKQUOTE_MARKER)
+
+# Raw-attribute OOXML blocks (e.g. a manual page break via ```{=openxml} ... ```)
+# are pandoc's escape hatch for literal OOXML: pipeline plumbing invisible to a
+# reviewer in Word. Unlike the line-level patterns above, the block spans
+# multiple lines (open fence, raw XML body, close fence), so it cannot be
+# stripped per-line: it is dropped whole, before line-splitting, in
+# md_plaintext(), the same pre-split tier already used there for frontmatter
+# and HTML-comment stripping.
+_RAW_ATTR_BLOCK = re.compile(r"^```\{=[^}]*\}\n.*?\n```[ \t]*$\n?", re.DOTALL | re.MULTILINE)
+
+
+def _norm(s: str, extra_patterns: tuple[re.Pattern, ...] = ()) -> str:
     """Normalize away render artifacts so the diff shows only real reviewer edits:
-    non-breaking spaces, list bullets, auto-numbered headings, collapsed whitespace."""
+    non-breaking spaces, list bullets, auto-numbered headings, fenced-div/blockquote
+    structural markers, caller-supplied --strip-pattern regexes (issue #72), collapsed
+    whitespace."""
     s = s.replace(" ", " ").replace("﻿", "")
     s = re.sub(r"^#> \s*\d+(\.\d+)*\.?\s+", "#> ", s)  # docx auto-numbers headings; md does not
     s = re.sub(r"^[-*•]\s+", "", s)               # list bullets are formatting, not text
+    for pat in _STRUCTURAL_STRIP_PATTERNS + tuple(extra_patterns):
+        s = pat.sub("", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -245,9 +316,13 @@ def docx_plaintext(items) -> list[str]:
 
 
 def md_plaintext(md: str) -> list[str]:
-    """Strip frontmatter + HTML comments + image lines; normalize headings/tables to compare."""
+    """Strip frontmatter + HTML comments + image lines + raw-attribute OOXML blocks
+    (issue #72: pipeline plumbing, never literal DOCX text); normalize headings/tables
+    to compare. Fenced-div lines and blockquote markers are stripped per-line in
+    _norm(), the same tier as the existing list-bullet/heading-number stripping."""
     md = re.sub(r"^---\n.*?\n---\n", "", md, flags=re.DOTALL)
     md = re.sub(r"<!--.*?-->", "", md, flags=re.DOTALL)
+    md = _RAW_ATTR_BLOCK.sub("", md)
     out = []
     for ln in md.split("\n"):
         s = ln.strip()
@@ -323,11 +398,15 @@ WHY_HEADING = "heading edits change structure: review by hand"
 
 
 def plan_fast_forward(md_text: str, md_lines_norm: list[str],
-                      dx_lines_norm: list[str], dx_lines_raw: list[str]) -> tuple[list, list]:
+                      dx_lines_norm: list[str], dx_lines_raw: list[str],
+                      extra_patterns: tuple[re.Pattern, ...] = ()) -> tuple[list, list]:
     """The mechanically safe subset: 1:1 reworded lines (equal-length replace
     opcodes) whose markdown original is markup-free beyond a leading marker and
     whose normalized text occurs exactly once in the source. Returns
-    (applicable edits, manual-review edits); an edit is (old_norm, new_raw)."""
+    (applicable edits, manual-review edits); an edit is (old_norm, new_raw).
+    extra_patterns: caller-supplied --strip-pattern regexes (issue #72), threaded
+    through to the source-line reverse lookup so it stays consistent with the
+    normalization the delta itself was computed with."""
     apply_list, manual = [], []
     sm = difflib.SequenceMatcher(a=md_lines_norm, b=dx_lines_norm, autojunk=False)
     for op, a1, a2, b1, b2 in sm.get_opcodes():
@@ -348,7 +427,8 @@ def plan_fast_forward(md_text: str, md_lines_norm: list[str],
     source_lines = md_text.split("\n")
     safe, deferred = [], []
     for old_norm, new_raw in apply_list:
-        matches = [k for k, ln in enumerate(source_lines) if _norm_source_line(ln) == old_norm]
+        matches = [k for k, ln in enumerate(source_lines)
+                  if _norm_source_line(ln, extra_patterns) == old_norm]
         if len(matches) != 1:
             deferred.append((old_norm, new_raw, WHY_NOT_UNIQUE))
             continue
@@ -366,13 +446,13 @@ def plan_fast_forward(md_text: str, md_lines_norm: list[str],
     return safe, manual
 
 
-def _norm_source_line(ln: str) -> str:
+def _norm_source_line(ln: str, extra_patterns: tuple[re.Pattern, ...] = ()) -> str:
     s = ln.strip()
     if not s or s.startswith("![") or s == "\\newpage" or set(s) <= set("|:- "):
         return ""
     if re.match(r"^#{1,6}\s", s):
-        return _norm("#> " + re.sub(r"^#{1,6}\s+", "", s).replace("**", ""))
-    return _norm(s.replace("**", "").replace("`", ""))
+        return _norm("#> " + re.sub(r"^#{1,6}\s+", "", s).replace("**", ""), extra_patterns)
+    return _norm(s.replace("**", "").replace("`", ""), extra_patterns)
 
 
 def apply_fast_forward(source_path: Path, safe_edits: list) -> int:
@@ -384,11 +464,60 @@ def apply_fast_forward(source_path: Path, safe_edits: list) -> int:
     return len(safe_edits)
 
 
+# ---------------------------------------------------------- table-width spec --
+
+def build_table_width_entries(tables: list[dict]) -> list[dict]:
+    """Build the width-spec entries from the ## 3 table-column-widths detection,
+    in document order (the same order apply_table_widths() itself matches by
+    ordinal, see docstyle/style_postprocess.py). Each entry is keyed, for
+    human/audit stability across re-ingestion runs, by header text + column
+    count + row count (issue #73's own suggestion: two tables can share an
+    identical header, so column and row count disambiguate them)."""
+    entries = []
+    for t in tables:
+        entries.append({
+            "header": t["header"],
+            "rows": len(t["rows"]),
+            "cols": len(t["twips"]),
+            "widths": t["twips"],
+        })
+    return entries
+
+
+def render_width_spec_yaml(entries: list[dict]) -> str:
+    """Render the width-spec entries as the YAML shape
+    docstyle/style_postprocess.py's `_load_table_widths()` / `apply_table_widths()`
+    already expect: a top-level `tables:` list of column-width lists in twips,
+    matched to document tables by ordinal position on the next render. The
+    header/row/column identity that keys each entry for stability is not part
+    of the consumed shape (apply_table_widths() only reads twips by ordinal),
+    so it is carried as a per-entry YAML comment instead: informative for a
+    human/audit trail, invisible to the YAML parser, no new incompatible shape."""
+    lines = [
+        "# renderfact reingest --apply-widths sidecar (issue #73).",
+        "# Column widths in twips (1/1440 inch), captured from the reviewer-edited",
+        "# DOCX. Consumed directly by 'render docstyle --table-widths <this-file>'",
+        "# (docstyle/style_postprocess.py's apply_table_widths()), which matches",
+        "# tables by ordinal document position: entries below stay in document",
+        "# order so that ordinal match holds on the next render.",
+    ]
+    if not entries:
+        lines.append("tables: []")
+        return "\n".join(lines) + "\n"
+    lines.append("tables:")
+    for i, e in enumerate(entries, 1):
+        hdr = " | ".join(h[:18] for h in e["header"])
+        lines.append(f"  - {e['widths']}  # T{i} ({e['rows']} rows) [{hdr}]")
+    return "\n".join(lines) + "\n"
+
+
 # ------------------------------------------------------------------- report --
 
 def build_report(artifact: Path, prov, verdict: str, comments, ins, dele,
                  items, delta_lines: list[str], safe, manual, applied: int | None,
-                 embedded: list[dict] | None = None) -> str:
+                 embedded: list[dict] | None = None,
+                 src_breaks: list[int] | None = None, dx_breaks: list[int] | None = None,
+                 widths_path: Path | None = None) -> str:
     tables = [p for k, p in items if k == "table"]
     R = [f"# Re-ingestion extract: {artifact.name}\n"]
     R.append(f"## 0. Provenance verdict: {verdict}\n")
@@ -430,6 +559,26 @@ def build_report(artifact: Path, prov, verdict: str, comments, ins, dele,
         hdr = " | ".join(h[:18] for h in t["header"])
         R.append(f"- T{i} ({len(t['rows'])} rows) [{hdr}]")
         R.append(f"    widths %: {t['pct']}   cm: {t['cm']}")
+    if not tables:
+        R.append("- (none)")
+    if widths_path is not None:
+        R.append(f"- wrote width spec to {widths_path} "
+                 f"(apply via: render docstyle --table-widths {widths_path})")
+    R.append("")
+    src_breaks = src_breaks or []
+    dx_breaks = dx_breaks or []
+    R.append("## 3b. Page breaks (structural, not text noise)\n")
+    R.append(f"- source markdown: {len(src_breaks)} manual page break(s)" +
+             (f" at line(s) {src_breaks}" if src_breaks else ""))
+    R.append(f"- edited DOCX: {len(dx_breaks)} manual page break(s)" +
+             (f" at paragraph offset(s) {dx_breaks}" if dx_breaks else ""))
+    delta_count = len(dx_breaks) - len(src_breaks)
+    if delta_count > 0:
+        R.append(f"- delta: +{delta_count} (reviewer likely ADDED {delta_count} page break(s))")
+    elif delta_count < 0:
+        R.append(f"- delta: {delta_count} (reviewer likely REMOVED {-delta_count} page break(s))")
+    else:
+        R.append("- delta: 0 (same count; a moved break can still change the offsets above)")
     R.append("")
     R.append("## 4. Text delta vs canonical markdown\n")
     R.append("> `+` = in the edited DOCX (reviewer ADDED); `-` = only in the md "
@@ -463,6 +612,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--apply", action="store_true",
                     help="apply the mechanically safe fast-forward subset to the source "
                          "(refused on a DIVERGED verdict)")
+    ap.add_argument("--strip-pattern", action="append", default=[], metavar="REGEX",
+                    help="extra regex stripped from each line before the text-diff/fast-forward "
+                         "comparison (repeatable). Same normalization tier as the built-in "
+                         "fenced-div/blockquote-marker/list-bullet stripping, for a project's own "
+                         "structural-noise conventions (e.g. a custom heading-anchor sigil) that "
+                         "renderfact itself has no reason to special-case (issue #72)")
+    ap.add_argument("--apply-widths", type=Path, default=None, metavar="OUT_YAML",
+                    help="write a table column-width sidecar (YAML) capturing the ## 3 detection's "
+                         "widths from the edited DOCX, keyed for stability by header text + column "
+                         "count + row count, in the exact shape 'render docstyle --table-widths' "
+                         "already consumes (docstyle/style_postprocess.py's apply_table_widths()). "
+                         "Does not modify the markdown source: pipe tables carry no width "
+                         "information pandoc will honor, so widths live in this sidecar instead "
+                         "(issue #73). Written regardless of the provenance verdict: it captures "
+                         "the reviewer's current widths, not a canonical-source edit")
     args = ap.parse_args(argv)
 
     try:
@@ -472,6 +636,10 @@ def main(argv: list[str] | None = None) -> int:
             raise ReingestError(f"artifact not found: {args.artifact}")
         if not args.source.exists():
             raise ReingestError(f"source not found: {args.source}")
+        try:
+            extra_patterns = tuple(re.compile(p) for p in args.strip_pattern)
+        except re.error as e:
+            raise ReingestError(f"invalid --strip-pattern regex: {e}")
 
         prov, verdict = check_provenance(args.artifact, args.source)
 
@@ -484,15 +652,19 @@ def main(argv: list[str] | None = None) -> int:
         items = walk_structure(body)
 
         md_text = args.source.read_text(encoding="utf-8")
-        md_lines = [x for x in (_norm(y) for y in md_plaintext(md_text)) if x]
+        md_lines = [x for x in (_norm(y, extra_patterns) for y in md_plaintext(md_text)) if x]
         dx_raw = docx_plaintext(items)
-        dx_lines = [x for x in (_norm(y) for y in dx_raw) if x]
-        dx_raw = [r for r in dx_raw if _norm(r)]
+        dx_lines = [x for x in (_norm(y, extra_patterns) for y in dx_raw) if x]
+        dx_raw = [r for r in dx_raw if _norm(r, extra_patterns)]
 
         diff = difflib.unified_diff(md_lines, dx_lines, lineterm="", n=1)
         delta = [d for d in diff if d and d[0] in "+-" and not d.startswith(("+++", "---"))]
 
-        safe, manual = plan_fast_forward(md_text, md_lines, dx_lines, dx_raw)
+        safe, manual = plan_fast_forward(md_text, md_lines, dx_lines, dx_raw, extra_patterns)
+
+        tables = [p for k, p in items if k == "table"]
+        src_breaks = source_page_breaks(md_text)
+        dx_breaks = docx_page_breaks(body)
 
         applied = None
         if args.apply:
@@ -502,6 +674,11 @@ def main(argv: list[str] | None = None) -> int:
                     "(DIVERGED); three-way merge is not built yet (chunk 4.6)"
                 )
             applied = apply_fast_forward(args.source, safe)
+
+        width_entries = build_table_width_entries(tables)
+        if args.apply_widths:
+            args.apply_widths.write_text(render_width_spec_yaml(width_entries),
+                                         encoding="utf-8", newline="\n")
 
         if args.json:
             print(json.dumps({
@@ -515,11 +692,17 @@ def main(argv: list[str] | None = None) -> int:
                 "safe_edits": [{"line": i, "new": n, "old": o} for i, _m, n, o in safe],
                 "manual": [list(m) for m in manual],
                 "applied": applied,
+                "table_width_spec": width_entries,
+                "table_width_spec_path": str(args.apply_widths) if args.apply_widths else None,
+                "source_page_breaks": src_breaks,
+                "docx_page_breaks": dx_breaks,
             }, indent=2))
             return 0
 
         report = build_report(args.artifact, prov, verdict, comments, ins, dele,
-                              items, delta, safe, manual, applied, embedded=embedded)
+                              items, delta, safe, manual, applied, embedded=embedded,
+                              src_breaks=src_breaks, dx_breaks=dx_breaks,
+                              widths_path=args.apply_widths)
         if args.report:
             args.report.write_text(report, encoding="utf-8", newline="\n")
             print(f"wrote {args.report}")

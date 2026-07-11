@@ -1,4 +1,4 @@
-// templates-library.js: Template Library screen (chunk 6.5 / D18, design
+// templates-library.js: Template Library screen (chunk 6.5 / D23, design
 // spike 5.6). GET /templates listing + a POST /templates/import form.
 
 async function loadTemplates() {

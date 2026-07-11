@@ -9,7 +9,17 @@
 #
 # Colours are 6-hex, no leading '#'. Unknown keys are ignored.
 
-font: Arial            # body + heading + table font
+font: Arial            # body + heading + table font (global fallback)
+
+# Per-named-style font overrides (issue #97): a source template can define a
+# distinct font for a specific paragraph style (e.g. a Quote or Caption style
+# using a different typeface than body text). `render import-template` derives
+# this block automatically by walking the source template's styles.xml; only
+# genuine overrides are emitted (a style resolving to the same font as 'font'
+# above is left out). Any style not listed here falls back to 'font'.
+# styles:
+#   Quote:
+#     font: Georgia
 
 accent: "1F3864"       # headings, table header-row fill, cover version line
 body: "262626"         # reference-profile body text (near-black, reader-friendly)

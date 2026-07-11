@@ -1,0 +1,23 @@
+---
+extends: occurrence
+message: "Nominalisation density: %s noun-suffix words in one paragraph. Consider a verb-first rewrite (e.g. 'decide' instead of 'reach a decision')."
+level: warning
+scope: paragraph
+ignorecase: true
+max: 4
+# English suffix set (v1). A noun built on one of these suffixes is very
+# often a verb wearing a noun costume ("make an implementation" instead of
+# "implement"); a paragraph carrying several of them at once reads noticeably
+# more bureaucratic than the same content verb-first. Known heuristic
+# limitation, accepted deliberately (issue #76 asks for "simple suffix-based,"
+# not a lexical model): this also matches ordinary nouns that happen to share
+# the ending ("moment," "government," "distance") with no nominalisation
+# reading. Suffix-only matching cannot tell those apart; a human (or the LLM
+# tone pass this check sits underneath) makes that call, this rule only flags
+# density worth a second look.
+#
+# Suffix set is deliberately isolated on this one `token:` line so a sibling
+# Dutch rule (NominalisationDensityNl.yml, -atie/-heid/-ing-as-noun, wired
+# only into vale.be-nl.ini the way BeNl/NlNlForms.yml is today) can be added
+# later without touching this file or its English default.
+token: '\b[a-z]+(?:tion|tions|ance|ances|ment|ments)\b'

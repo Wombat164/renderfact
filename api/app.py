@@ -39,7 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
 
-# Workspace static assets (Track J, chunk 6.5 / D18): package-data files, not
+# Workspace static assets (Track J, chunk 6.5 / D23): package-data files, not
 # string literals. Exact-filename allowlist -- traversal is not possible by
 # construction, no path-jail arithmetic needed. Gated behind --enable-ui.
 STATIC_DIR = REPO_ROOT / "api" / "static"
@@ -153,7 +153,7 @@ class RenderfactApi:
             raise ApiError(404, "UI not enabled (start with --enable-ui)")
 
     def _static_asset(self, name: str):
-        """GET /ui/static/{name} (D18): an exact-filename allowlist, so no
+        """GET /ui/static/{name} (D23): an exact-filename allowlist, so no
         directory-traversal check is even needed -- an unlisted name never
         reaches the filesystem at all."""
         if name not in STATIC_ALLOWLIST:
@@ -1003,7 +1003,7 @@ def render_docs_html(api: RenderfactApi) -> str:
             "</table><p>Machine-readable: <a href='/openapi.json'>/openapi.json</a></p>")
 
 
-# ---- workspace screens (Track J, chunk 6.5 / D18) ----
+# ---- workspace screens (Track J, chunk 6.5 / D23) ----
 # Each shell is a small Python string (matching render_docs_html's pattern);
 # the substantial JS/CSS logic lives in api/static/ files, not inline.
 

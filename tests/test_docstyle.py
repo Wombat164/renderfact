@@ -81,6 +81,58 @@ def test_style_end_to_end_font_and_heading_colour(tmp_path, monkeypatch):
     assert hdr_run.font.name == "Arial"
 
 
+# ---------- (a2) per-style font overrides (issue #97) ----------
+
+def test_style_fonts_override_applies_per_named_style(tmp_path, monkeypatch):
+    """A profile's `styles:` block overrides the font for paragraphs carrying
+    that named style; every other paragraph keeps the global 'font'."""
+    doc = Document()
+    doc.add_heading("First Section", level=1)
+    doc.add_paragraph("A quoted line that should get its own font.", style=doc.styles["Quote"])
+    doc.add_paragraph("Regular body paragraph using the global font throughout.")
+    src = tmp_path / "styles-in.docx"
+    doc.save(str(src))
+
+    profile = tmp_path / "styles.yaml"
+    profile.write_text(
+        "font: Arial\n"
+        "styles:\n"
+        '  "Quote":\n'
+        "    font: Georgia\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "styles-out.docx"
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile)])
+
+    out_doc = Document(str(out))
+    quote_para = next(p for p in out_doc.paragraphs if p.style.name == "Quote")
+    assert quote_para.runs[0].font.name == "Georgia"
+    body_para = next(p for p in out_doc.paragraphs
+                     if p.text.startswith("Regular body"))
+    assert body_para.runs[0].font.name == "Arial"
+    h1 = next(p for p in out_doc.paragraphs if p.style.name == "Heading 1")
+    assert h1.runs[0].font.name == "Arial"  # no override for Heading 1: global font
+
+
+def test_style_fonts_override_absent_leaves_all_paragraphs_on_global_font(tmp_path, monkeypatch):
+    """No `styles:` block in the profile: unchanged pre-#97 behaviour, every
+    paragraph (any style) gets the single global font."""
+    doc = Document()
+    doc.add_paragraph("A quoted line with no per-style override configured.",
+                      style=doc.styles["Quote"])
+    src = tmp_path / "no-styles-in.docx"
+    doc.save(str(src))
+
+    profile = tmp_path / "no-styles.yaml"
+    profile.write_text("font: Arial\n", encoding="utf-8")
+    out = tmp_path / "no-styles-out.docx"
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile)])
+
+    out_doc = Document(str(out))
+    quote_para = next(p for p in out_doc.paragraphs if p.style.name == "Quote")
+    assert quote_para.runs[0].font.name == "Arial"
+
+
 # ---------- (b) punctuation normalization + gate ----------
 
 def test_punctuation_normalized_by_default(tmp_path, monkeypatch):
@@ -234,6 +286,228 @@ def test_punctuation_merges_only_the_split_hyphen_run_pair(tmp_path):
     assert p.runs[1].text == ""
     assert p.runs[2].text == " tail"
     assert p.runs[2].italic is True
+
+
+# ---------- (g) main(argv=...) explicit-arg entry point (issue #74) ----------
+
+def test_main_accepts_explicit_argv_list_without_touching_sys_argv(tmp_path, monkeypatch):
+    # render.py's `run_docstyle` calls style_postprocess.main(args) directly,
+    # in-process, rather than mutating sys.argv (see render.py). main() must
+    # honour an explicit argv list and leave sys.argv untouched.
+    src = _build_doc(tmp_path)
+    out = tmp_path / "styled.docx"
+    sentinel = ["style_postprocess.py", "--should-not-be-read"]
+    monkeypatch.setattr(sys, "argv", sentinel)
+
+    rc = sp.main([str(src), str(out)])
+
+    assert rc == 0
+    assert sys.argv == sentinel  # untouched
+    assert out.exists()
+
+
+def test_help_flag_returns_zero_and_does_not_require_a_docx(capsys):
+    rc = sp.main(["--help"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "--table-widths" in out
+    assert "--cover-version" in out
+
+
+# ---------- (h) --table-widths applies scaled, fixed-layout column widths ----------
+
+def test_table_widths_scales_proportionally_to_text_width(tmp_path):
+    src = _build_doc(tmp_path, "widths.docx")
+    out = tmp_path / "widths-out.docx"
+    widths_yaml = tmp_path / "widths.yaml"
+    # 1:2 ratio; absolute magnitude is irrelevant, only the ratio survives scaling.
+    widths_yaml.write_text("tables:\n  - [1000, 2000]\n", encoding="utf-8")
+
+    sp.main([str(src), str(out), "--table-widths", str(widths_yaml)])
+
+    doc = Document(str(out))
+    table = doc.tables[0]
+    text_w = sp._section_text_width_twips(doc)
+    grid = table._tbl.find(sp.qn("w:tblGrid"))
+    col_widths = [int(gc.get(sp.qn("w:w"))) for gc in grid.findall(sp.qn("w:gridCol"))]
+
+    assert len(col_widths) == 2
+    assert sum(col_widths) == text_w  # scaled to fill the section text width exactly
+    # 1:2 ratio preserved (within a rounding twip)
+    assert abs(col_widths[1] - 2 * col_widths[0]) <= 1
+
+
+def test_table_widths_skipped_on_column_count_mismatch(tmp_path):
+    # A spec with the wrong column count is a guard against source table-order
+    # drift: it must be skipped, not mis-fit onto the table. python-docx already
+    # writes a default tblGrid on table creation, so the guard is proven by
+    # checking apply_table_widths()'s own reported set, and that no fixed-layout
+    # width was stamped onto the table -- not by grid presence/absence.
+    src = _build_doc(tmp_path, "widths-mismatch.docx")
+    out = tmp_path / "widths-mismatch-out.docx"
+    widths_yaml = tmp_path / "widths-bad.yaml"
+    widths_yaml.write_text("tables:\n  - [1000, 2000, 3000]\n", encoding="utf-8")  # 3 cols, table has 2
+
+    sp.main([str(src), str(out), "--table-widths", str(widths_yaml)])
+
+    doc = Document(str(out))
+    tbl_pr = doc.tables[0]._tbl.tblPr
+    assert tbl_pr.find(sp.qn("w:tblLayout")) is None  # never switched to fixed layout
+
+
+# ---------- (i) --cover-version / --cover-date on the reference profile ----------
+
+def test_cover_version_and_date_render_the_cover_line(tmp_path):
+    from docx.enum.style import WD_STYLE_TYPE
+
+    doc = Document()
+    doc.styles.add_style("Date", WD_STYLE_TYPE.PARAGRAPH)
+    doc.add_heading("Report Title", level=1)
+    date_p = doc.add_paragraph("placeholder")
+    date_p.style = doc.styles["Date"]
+    doc.add_heading("Part I: Overview", level=1)
+    doc.add_paragraph("Body content.")
+    src = tmp_path / "cover-fields.docx"
+    doc.save(str(src))
+    out = tmp_path / "cover-fields-out.docx"
+
+    sp.main([str(src), str(out), "--profile", "reference",
+              "--cover-version", "1.2", "--cover-date", "2026-07-10"])
+
+    texts = [p.text for p in Document(str(out)).paragraphs]
+    assert any("1.2" in t and "2026-07-10" in t for t in texts)
+
+
+# ---------- (j) custom-style font/size fidelity (issue #98) ----------
+
+def _add_custom_style(doc, name="PullQuote", font_name="Georgia", size_pt=16):
+    """A genuinely custom paragraph style whose OWN w:rPr explicitly sets a
+    distinct font + size, mirroring a style pandoc would resolve from a
+    --reference-doc's styles.xml when a source uses
+    `::: {custom-style="PullQuote"} ... :::`."""
+    from docx.enum.style import WD_STYLE_TYPE
+    from docx.shared import Pt as _Pt
+
+    style = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    style.base_style = doc.styles["Normal"]
+    style.font.name = font_name
+    style.font.size = _Pt(size_pt)
+    return style
+
+
+def test_custom_style_paragraph_keeps_its_own_font_by_default(tmp_path, monkeypatch):
+    # Root-cause reproduction for issue #98: a paragraph carrying a custom style
+    # with its own explicit font/size definition must NOT get a run-level house
+    # font/size override stamped onto it by default -- it should fall through to
+    # pure style inheritance (no direct rFonts/sz on the run at all).
+    doc = Document()
+    _add_custom_style(doc)
+    doc.add_heading("First Section", level=1)
+    quote = doc.add_paragraph("A quote that should keep the PullQuote style's own font.")
+    quote.style = doc.styles["PullQuote"]
+    doc.add_paragraph("A plain body paragraph with no custom style at all.")
+    src = tmp_path / "custom-style-in.docx"
+    doc.save(str(src))
+    out = tmp_path / "custom-style-out.docx"
+
+    _run_style(monkeypatch, [str(src), str(out)])
+
+    styled = Document(str(out))
+    quote_p = next(p for p in styled.paragraphs if p.style.name == "PullQuote")
+    for r in quote_p.runs:
+        assert r.font.name is None          # no direct-formatting override injected
+        assert r.font.size is None
+
+    # Regression: a plain (non-custom-style) body paragraph is untouched by the fix
+    # and still gets the house body font/size stamped on, exactly as before.
+    body_p = next(p for p in styled.paragraphs
+                  if p.text and p.style.name not in ("Heading 1", "PullQuote"))
+    assert body_p.runs[0].font.name == "Arial"
+    assert body_p.runs[0].font.size.pt == sp.PROFILES["compact"]["body"]
+
+
+def test_override_custom_style_fonts_flag_restores_blanket_override(tmp_path, monkeypatch):
+    # The explicit opt-in (--override-custom-style-fonts) restores the pre-#98
+    # behaviour for callers who genuinely want one uniform house font everywhere.
+    doc = Document()
+    _add_custom_style(doc)
+    quote = doc.add_paragraph("A quote paragraph.")
+    quote.style = doc.styles["PullQuote"]
+    src = tmp_path / "override-in.docx"
+    doc.save(str(src))
+    out = tmp_path / "override-out.docx"
+
+    _run_style(monkeypatch, [str(src), str(out), "--override-custom-style-fonts"])
+
+    styled = Document(str(out))
+    quote_p = next(p for p in styled.paragraphs if p.style.name == "PullQuote")
+    assert quote_p.runs[0].font.name == "Arial"
+    assert quote_p.runs[0].font.size.pt == sp.PROFILES["compact"]["body"]
+
+
+def test_override_custom_style_fonts_profile_key(tmp_path, monkeypatch):
+    # Same opt-in, reachable via a template-profile.yaml key instead of the CLI flag.
+    doc = Document()
+    _add_custom_style(doc)
+    quote = doc.add_paragraph("A quote paragraph.")
+    quote.style = doc.styles["PullQuote"]
+    src = tmp_path / "override-profile-in.docx"
+    doc.save(str(src))
+    profile = tmp_path / "override.yaml"
+    profile.write_text("override_custom_style_fonts: true\n", encoding="utf-8")
+    out = tmp_path / "override-profile-out.docx"
+
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile)])
+
+    styled = Document(str(out))
+    quote_p = next(p for p in styled.paragraphs if p.style.name == "PullQuote")
+    assert quote_p.runs[0].font.name == "Arial"
+
+
+def test_style_without_its_own_font_definition_still_gets_house_font(tmp_path, monkeypatch):
+    # A style OUTSIDE the known built-in/default-body set that does NOT itself
+    # define a font (pure inheritance from Normal, no explicit rPr) is not
+    # "custom" for the purposes of this gate: it still gets the house body
+    # font/size, same as before. Guards against over-broadly treating any
+    # unrecognised style name as template-fidelity-worthy.
+    from docx.enum.style import WD_STYLE_TYPE
+
+    doc = Document()
+    bare = doc.styles.add_style("BareCustom", WD_STYLE_TYPE.PARAGRAPH)
+    bare.base_style = doc.styles["Normal"]
+    # No explicit font/size set on `bare`: its own w:rPr stays empty/absent.
+    p = doc.add_paragraph("Text in a bare custom style with no font of its own.")
+    p.style = bare
+    src = tmp_path / "bare-in.docx"
+    doc.save(str(src))
+    out = tmp_path / "bare-out.docx"
+
+    _run_style(monkeypatch, [str(src), str(out)])
+
+    styled = Document(str(out))
+    bare_p = next(p for p in styled.paragraphs if p.style.name == "BareCustom")
+    assert bare_p.runs[0].font.name == "Arial"
+    assert bare_p.runs[0].font.size.pt == sp.PROFILES["compact"]["body"]
+
+
+def test_is_custom_style_paragraph_helper(tmp_path):
+    # Direct unit coverage of the detector itself.
+    from docx.enum.style import WD_STYLE_TYPE
+
+    doc = Document()
+    _add_custom_style(doc)
+    quote = doc.add_paragraph("quote")
+    quote.style = doc.styles["PullQuote"]
+    normal = doc.add_paragraph("plain")
+
+    bare = doc.styles.add_style("BareCustom2", WD_STYLE_TYPE.PARAGRAPH)
+    bare.base_style = doc.styles["Normal"]
+    bare_p = doc.add_paragraph("bare")
+    bare_p.style = bare
+
+    assert sp.is_custom_style_paragraph(quote) is True
+    assert sp.is_custom_style_paragraph(normal) is False
+    assert sp.is_custom_style_paragraph(bare_p) is False
 
 
 def test_caption_matching_uses_raw_pstyle_id(tmp_path):

@@ -726,10 +726,10 @@ Sequencing note for the single maintainer: 6.1 through 6.6 are a coherent releas
 
 ## 9. Open questions
 
-**OQ8 - ratify the static-asset decision. RESOLVED (chunk 6.5): D18.** Package-data files under
+**OQ8 - ratify the static-asset decision. RESOLVED (chunk 6.5): D23.** Package-data files under
 `api/static/` + an allowlisted `GET /ui/static/{name}`, plain `Path` reads (not
 `importlib.resources` -- consistency with every other bundled-asset convention in this repo).
-See DECISIONS.md D18 for the full rationale.
+See DECISIONS.md D23 for the full rationale.
 
 **OQ9 - ARCHITECTURE.md L29 staleness.** L29 lists pdf/deck/poster as roadmap-not-wired while
 Track H/I record `render pdf` and the studio as DONE. Doc-only fix, but it is the

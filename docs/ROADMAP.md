@@ -97,26 +97,45 @@ vale,lychee,verapdf,uids, each stage self-scoping by file type. The uids stage (
 operator requirement: multi-user organisations) detects DUPLICATE renderfact_uid values across a
 source tree: uuid4 generation cannot collide, but a file copy duplicates identity and corrupts
 every provenance-anchored round-trip downstream; dependency-free and deterministic.
-- **B4 - Visual-QA for all families.** NEXT.
-- **B5 - Blocking post-render content-safety gate: probe allowlists + pipeline wiring (#71).**
-  `render qa leaks --probes <yaml> --fail-on-hits` already gives the fail-closed, post-render,
-  custom-regex gate #71 asked for, but two gaps keep consumers hand-rolling their own DOCX scanner:
-  (1) the probe format has NO allowlist: a probe is one regex and any hit counts, so the real case
-  "block every currency figure EXCEPT one deliberately-approved figure" is only expressible by
-  hand-crafting a negative lookahead into the probe regex itself, undocumented and fragile
-  (verified against `lint/render_qa.py`: `load_probes` is a flat name-to-regex map, `cmd_leaks`
-  counts every match). **[imitate]** gitleaks' allowlist semantics (`[[rules.allowlists]]`:
-  per-rule `regexes` matching the finding plus `stopwords` matching the extracted value, global
-  allowlist above rule level) as the probe-yaml extension: each probe may carry an `allow:` list of
-  regexes that suppress an otherwise-matching line; **[imitate]** detect-secrets' inline
-  `# pragma: allowlist secret` idiom only if a source-side annotation ever proves needed (the
-  projection engine's block attributes are the more natural carrier here). (2) the wiring: nothing
-  runs `qa leaks` automatically post-render, and it demands a pre-extracted textfile. **[build]**
-  an opt-in blocking stage in `render docx` / render-doc.sh (probes file supplied = gate runs on the
-  finished artifact, non-zero = render fails, advisory stays the default) and native DOCX text
-  extraction for `leaks` (the extractor already exists in `roundtrip/reingest.py`, reuse it) so a
-  consumer passes the artifact, not a conversion of it. Supersedes #71's original
-  `GATE_SCRIPT`/`POSTRENDER_GATE_SCRIPT` hook ask per the maintainer's own follow-up. NEXT.
+**B3d PlainLanguage/plainlang DONE (issue #76):** the demo skin's Vale catalogue gained a distinct
+concern from AiTells (authorial-tell detection): reader-facing plain-language/KISS quality.
+**[build]** two of the three checks the issue asked for turned out Vale-expressible after all, so
+they ship as a `PlainLanguage` Vale style package (`demo/skin/vale/styles/PlainLanguage/`), wired
+into `BasedOnStyles` alongside `AiTells` the same way `GoldenRules` already is: `SentenceLength`
+(`existence`, `scope: sentence`, a tunable word-count threshold suggesting a split at a coordinating
+conjunction or semicolon) and `NominalisationDensity` (`occurrence`, `scope: paragraph`, English
+suffix set `-tion`/`-ance`/`-ment`, structured so a Dutch sibling can be added later without
+redesign). Both ship `level: warning`: advisory, not blocking, since both are tunable heuristics
+that legitimately false-positive on complex-but-correct prose, unlike the fail-closed AiTells rules.
+The third check (the same multi-word comparator/transition phrase recurring 3+ times across a
+document) is a genuine Vale DSL limitation, not a modeling choice: every Vale rule type matches a
+pattern fixed at authoring time, and this needs the document's own text as the source of the search
+pattern. It ships instead as `docstyle/plain_language.py`, a dependency-free cheap n-gram/exact-match
+scan, wired into `render gate` as a new `plainlang` stage. Default chain is now
+vale,lychee,verapdf,uids,plainlang. plainlang is the one stage that does NOT fail-closed by default
+(`--plainlang-fail-on-hits` opts in): a repeated phrase is very often a legitimately reused
+programme/component name, so blocking-by-default would make it noise rather than signal, matching
+`render qa leaks --fail-on-hits`'s existing report-only precedent rather than this track's usual
+fail-closed default.
+**B3e - The gate-hook contract for render-doc.sh, deliberately opposite defaults (issue #71, D18)
+DONE:** `QC_SCRIPT` (pre-render, against the SOURCE markdown) stays advisory-only by default
+(`QC_BLOCKING=1` / `--qc-blocking` opts a consumer into fail-closed); a new `POSTRENDER_GATE_SCRIPT`
+(post-render, against the FINISHED `<docx>`, after style/numbering/provenance have all touched it)
+defaults to BLOCKING, because its purpose is "does the artifact contain content it must never
+contain", not a lint pass a human might skim past in scrollback (`POSTRENDER_GATE_ADVISORY=1` opts
+back into report-only). `gates/content_scan.py` is the generic reference implementation a consumer
+skin points either hook at: opens the DOCX with python-docx, regex-scans every paragraph and table
+cell (recursively into nested tables), exits 1 on any hit. Ships with NO default pattern (the
+regex is a required parameter via `--pattern`/`--pattern-file` or `RENDERFACT_GATE_PATTERN[_FILE]`
+for zero-arg hook invocation), keeping the public core domain-neutral.
+- **B4 - Visual-QA for all families.** NEXT. **Partial DONE (issue #90):** `render qa tables`
+  (post-render, not the B3 pre-publish chain) gained a complementary `slack`/`wasteful-col` signal
+  alongside the existing squeeze-`pressure`/`squeezed-col` one: the original scan only flagged
+  under-allocated columns and excluded any column below a content-share floor from scoring at all, so
+  an over-allocated column (a short ordinal/index column given generous width) never surfaced.
+  `slack = wshare / max(cshare, floor)`, the inverse ratio, scored for every column with no
+  eligibility cutoff, closes that blind spot without reintroducing false positives on genuinely
+  proportional small columns.
 
 ## Track C - Add
 
@@ -144,6 +163,23 @@ every provenance-anchored round-trip downstream; dependency-free and determinist
   a deterministic shape-classifier rule base plus concept-graph converters. Exposes engine gaps that
   feed B1: PlantUML / C4-PlantUML, the Typst packages (fletcher / cetz / cetz-plot), a charting
   engine, and the poster mode.
+- **C1a - Diagram archetype family.** `[build]` Purpose-built diagram generators (a plain
+  hand-authored renderfact YAML source -> D2, styled by resolving the brand-token system's roles at
+  generation time) for common architecture shapes, as opposed to ad-hoc hand-drawn diagrams. **DONE:**
+  `layered-stack` (issue #68, FR1-FR3) - an ordered technology stack with an explicit, visually
+  distinct interface boundary between adjacent layers, and N parallel realizing chains laid out side
+  by side under one shared interface (N=1 is the degenerate default). `lint/layered_stack.py`; wired
+  into `render diagram` via content-sniff dispatch on `.yaml`/`.yml` (no new subcommand); NFR6
+  element-budget discipline reuses `lint/element_budget.py`'s existing tier table. **ArchiMate
+  Exchange-XML adapter (issue #86, FR4-FR6) DONE:** `lint/archimate_exchange.py` maps an Open Group
+  Exchange File onto the SAME `StackModel` shape (stdlib `xml.etree.ElementTree` only, zero new
+  dependency), reusing `render_d2()`/`check_element_budget()` unchanged; a fixed element-type
+  allowlist, fail-closed (FR5) on anything outside it; `.xml` content-sniff dispatch alongside the
+  existing `.yaml`/`.yml` path (FR6). v1 deliberately does not auto-detect N-parallel chains from
+  ArchiMate relationships (every element renders as a plain Layer/Interface) or infer stack order
+  from relationship topology (order = the Exchange File's own document order) - both documented
+  scope decisions, not gaps found later. **NEXT (stretch, FR7):** fast re-render on a re-exported
+  file, not started.
 - **C2 - Projection / clearance gate for decks and diagrams (today the projection engine gates the
   DOCX path).** **[imitate]** Asciidoctor's `ifdef` / `ifndef` / `ifeval` preprocessor-level
   exclusion as the SECURITY model (excluded content never enters the parsed tree); **[imitate]**
@@ -164,8 +200,25 @@ every provenance-anchored round-trip downstream; dependency-free and determinist
   code-execution mistake as the negative example: LLM-generated content must render through pinned,
   isolated engines on TEXT the LLM produced, never `exec()`-run raw LLM code.
 - **C7 - Template import.** DOCX style axis SHIPPED (`render import-template <corporate.docx>`:
-  shared DrawingML theme extractor, derived template-profile with template provenance, and the
-  probe-render style-diff idempotency gate). Remaining `[build]`: the PPTX and XLSX importers and
+  shared DrawingML theme extractor, derived template-profile with template provenance, the
+  probe-render style-diff idempotency gate, and per-named-style font derivation, issue #97: a
+  template that uses distinct fonts on distinct paragraph styles gets a `styles:` block in the derived
+  profile carrying only the genuine overrides, not just the single global `font` key a template with
+  one uniform font still gets). **Custom-style font fidelity (issue #98, D21) DONE alongside #97:**
+  the house body font/size pass used to stamp itself onto every non-heading paragraph regardless of
+  style, including one carrying a genuinely custom style whose OWN `w:rPr` already defines a font/size
+  in `reference.docx`'s `styles.xml`: the paragraph got the right `w:pStyle` but a direct-formatting
+  run override shadowed the style's own definition. The default now respects a custom style's own
+  font/size (`is_custom_style_paragraph()`); the pre-#98 blanket override is an explicit opt-in
+  (`--override-custom-style-fonts` / `override_custom_style_fonts: true`) for a consumer who genuinely
+  wants one uniform house font regardless of custom styles. The two features compose: a per-style
+  `styles:` override (#97) still applies whenever a style IS styled (built-in categories, or a custom
+  style with the override flag forcing it); a respected custom style's own font (#98) wins outright
+  when it is not. **Guidance-doc scan (issue #100) DONE:** `--guidance-doc <path>` runs a mechanical
+  structural scan (heading/paragraph counts, heading preview) of a template's accompanying style/
+  usage guide and surfaces it as a pointer toward hand-seeding `editorial-doctrine.yaml` (#84's
+  concept); omitting the flag prints a one-line reminder instead of a blocking prompt. Remaining
+  `[build]`: the PPTX and XLSX importers and
   the content-skeleton axis: derive the
   skin config FROM an imported branded template so the FIRST render is idempotent with the template's
   look (a shared OOXML DrawingML theme extractor plus per-format derivation, a derived
@@ -178,6 +231,25 @@ every provenance-anchored round-trip downstream; dependency-free and determinist
   style-diff gate, and a structure-conformance gate modeled on markdownlint's MD043 semantics;
   `[imitate]` BrandDocs (its color-scheme resolution logic), docx4j's PropertyResolver cascade
   pattern, and mammoth's style-map DSL as the config syntax.
+- **C9 - Purpose annotations and dossier role (#77).** `[build]` **DONE:** an annotative-only
+  authoring convention, never a blocking gate (D19). `<!-- PURPOSE: ... -->` HTML comments above a
+  paragraph/heading (verified empirically to be a no-op on both the DOCX and typst-PDF render paths,
+  reusing the same pandoc raw-HTML-drop mechanism D14's provenance header stamp already relies on),
+  a freeform `dossier_role:` frontmatter field (read via `roundtrip/dossier_role.py`, the same
+  frontmatter-read idiom as `renderfact_uid`), and an optional advisory-only `render qa purpose` lint
+  pass (never fails, same posture as `QC_SCRIPT`'s off-when-unset default).
+- **C10 - OOXML raw-attribute escape hatch (#96).** `[build]` **DONE:** `pandoc_markdown.MARKDOWN_FROM`
+  pins `raw_attribute`, so a hand-authored ` ```{=openxml} ` fenced block now reaches the DOCX writer
+  as raw OOXML (verified end-to-end: a real `render docx` run puts the block's marker text into
+  `word/document.xml` verbatim, and the negative control with the extension explicitly disabled
+  confirms it stays an inert code block without it). This is deliberately the SMALL, mechanical half
+  of the issue: it only unblocks the escape hatch, it does not add any native markdown syntax. **NEXT
+  (separate follow-up issue, not this one):** purpose-built markdown syntax for the two gaps that
+  motivated the escape hatch and that onboarding a real institutional form template surfaced -
+  checkbox/dropdown Word content controls (`w:sdt`, currently unrepresentable in the AST at all) and
+  merged/spanned table cells (`gridSpan`, pipe/grid tables have no colspan or rowspan support). Manual
+  `{=openxml}` blocks remain the only path to either until that follow-up lands, and they are
+  advanced/fragile by nature (hand-written OOXML, no toolchain validation), not the ergonomic answer.
 
 ## Track D - Round-trip / draft reconciliation
 
@@ -201,36 +273,32 @@ renderfact-tracked embedded OPC document (docx/xlsx/pptx/vsdx all share docProps
 generically) is routed to its own per-format path; an OOXML file without provenance is flagged
 unknown-origin (adopt candidate); any other type is tried through markitdown (optional extra)
 for a text preview. Embeddings are matched by path segment, covering XLSX/PPTX/VSDX hosts too.
-Remaining in Track D: 4.2 split-plus-embed dual output, 4.6 three-way merge, 4.7 git finalize
-(4.5 LLM contextualize shipped as Track G's G6). First consumer-side use of the whole loop
-(2026-07-10, a raw-pandoc + custom-Python pipeline, no `render docx` involved) confirmed the
-bootstrap paths hold for externally-produced artifacts too: `provenance embed` anchors an
-existing source to a DOCX renderfact never rendered, `provenance adopt` bootstraps a stub source
-for an externally-authored draft (#70's core ask is therefore DONE). The same session filed two
-hardening items on chunk 4.4:
-
-- **4.4b - Structural-syntax-aware text delta (#72).** `md_plaintext()` normalizes bullets,
-  auto-numbers, and NBSP, but passes pandoc STRUCTURAL syntax through as if it were content:
-  fenced-div open/close lines (`::: {custom-style=...}` / `:::`), raw-attribute OOXML blocks
-  (manual page breaks), blockquote markers, ordered-list digits. None of these survive DOCX text
-  extraction, so the delta reports them as reviewer deletions: noise in every manual-review list
-  and a real (if small) risk of masking an adjacent genuine edit. **[adopt]** pandoc itself as the
-  one true textizer for the markdown side (parse the source with the SAME reader the render used
-  and emit the plain writer, so both diff sides pass through one tokenization) rather than growing
-  the hand-rolled strip list case by case; **[imitate]** pandiff (davidar/pandiff, prose diffs over
-  the pandoc AST for any supported format) as the shape-check that AST-level normalize-then-diff
-  is the proven pattern, though its CriticMarkup output stream does not replace the safe/manual
-  routing built here. NEXT.
-- **4.4c - Formatting back-port path (#73).** Reingest's table-widths section detects and reports
-  per-table widths from the hand-edited DOCX but offers no apply path, even though the render
-  pipeline already CONSUMES exactly this data (`style_postprocess --table-widths <yaml>`, surfaced
-  by A8): close the loop with a `--emit-table-widths <yaml>` that writes the fitted widths in the
-  format the next render ingests, the same stored-positions-win doctrine C8 already applies to
-  diagram layout (**[imitate]** Structurizr's layout-file separation, per
-  docs/prior-art-diagram-roundtrip.md). Page-break adds/removes become their OWN reported category
-  (detect `w:br type="page"` / `pageBreakBefore` in the artifact, raw-attribute break blocks in the
-  source) instead of being indistinguishable from 4.4b's structural noise; the apply target is the
-  raw-attribute block the pipeline already understands. NEXT.
+**First consumer-side use of the whole loop (2026-07-10, a raw-pandoc + custom-Python pipeline, no
+`render docx` involved) confirmed the bootstrap paths hold for externally-produced artifacts too:**
+`provenance embed` anchors an existing source to a DOCX renderfact never rendered, `provenance
+adopt` bootstraps a stub source for an externally-authored draft (issue #70's core round-trip ask
+is validated by this; #70 itself stays open pending the GUI reconcile view the issue also asks for).
+**Text-delta structural-noise fix (issue #72):** pandoc-specific structural syntax (fenced-divs,
+raw-attribute OOXML blocks, blockquote markers) never renders as literal DOCX text, so the delta
+used to show their absence as false-positive reviewer deletions. Fixed by stripping them from the
+canonical-markdown side before the diff, at the same normalization tier as the pre-existing
+list-bullet/auto-numbered-heading stripping (ordered-list markers were already handled correctly
+and are unaffected). `render reingest --strip-pattern <regex>` (repeatable) lets a project add its
+own structural-noise conventions without renderfact special-casing them.
+**Table-width apply path + page-break reporting (issue #73) DONE:** the `## 3. Table column widths`
+detection had no equivalent of the text delta's `--apply`, so `render reingest --apply-widths
+<out.yaml>` now emits a table column-width sidecar in the exact shape `docstyle/style_postprocess.py`'s
+`apply_table_widths()` / `--table-widths` already consume (ordinal-matched twips), keyed in a YAML
+comment by header text + row count + column count for stability across re-ingestion runs. It never
+touches the markdown source (pipe tables carry no width information pandoc will honor) and is written
+regardless of the FAST_FORWARD/DIVERGED verdict, since it captures a fact about the returned DOCX, not
+a source edit. Page-break adds/removals (the `\newpage` token or a raw-openxml `<w:br
+w:type="page"/>`) previously surfaced only as generic manual-review noise (or not at all, since a
+page-break-only paragraph carries no visible text); they now get a dedicated `## 3b. Page breaks`
+section with source-line and DOCX-paragraph offsets, excluding Word's own `w:lastRenderedPageBreak`
+layout-cache marker.
+Remaining in Track D: 4.2 split-plus-embed dual output, 4.5 LLM contextualize (rides D8), 4.6
+three-way merge, 4.7 git finalize.
 
 ## Track E - API and reference UI
 
@@ -333,10 +401,29 @@ findings, and red-flag register: [`docs/2026-07-04-fuzzy-gate-architecture-plan.
   maps each reingest tuple (no `kind` field) to reword (descriptive) vs add/delete/replace/heading
   (intent-bearing) via reingest's now-exported sentinel constants; the confidence formula, gate,
   sink, and CLI are decision-capture's. Registered for harness exposure. 25 tests.
-- **G7 - contextualize workflow surfacing + multi-round narrative.** `[build]`. A consumer session
-  (2026-07-10) hand-wrote prose changelog entries for every back-ported reviewer edit, all session,
-  without ever invoking `render contextualize`: the exact job G6 shipped for. Root cause is NOT
-  render-help invisibility (contextualize is a registered mode with a real argparse `--help`,
+- **G7 - Comprehension gate for text documents, the first D16 step with no accept path (#84).**
+  `[build]` **DONE:** `lint/comprehension_review_contract.py` + `render comprehension-review
+  <docx-or-md>`, the text-document peer of the diagram vision-review gate (G1): chunks the document
+  into reader-sized snippets at section (and, when needed, paragraph) boundaries and has an
+  author-independent LLM read them in order via the same D8 contract machinery (harness / copy-paste
+  / the D17 direct-API channel), reporting per-snippet purpose/confusion/fluff/cuttable content plus a
+  whole-document synthesis. Report-only. `confidence()` returns a CONSTANT 0.0: comprehension has no
+  deterministic sufficiency proxy the way vision-review's geometry/contrast numbers or
+  decision-capture's change-kind taxonomy do, so the step always escalates unless an operator
+  explicitly sets `--threshold <= 0` (an honest "not reviewed" stub, never a fabricated verdict). This
+  was checked explicitly against the concrete plain-language signals that landed alongside it (issue
+  #76: sentence-length, nominalisation density, repeated-phrase detection) and found NOT to
+  substitute for a comprehension-confidence proxy either: a style finding is not a comprehension
+  finding. Recorded as D20: a legitimate D16 outcome (the gate's own vision-review worked example
+  already treats "no deterministic signal" as valid), not an exception to it, simply the first step
+  where that is the PERMANENT case rather than one branch of a heuristic. 26 tests.
+- **G8 - contextualize workflow surfacing + multi-round narrative.** `[build]`. Renumbered from G7
+  during PR #67's main-branch merge-conflict resolution (2026-07-11): G7 collided with issue #84's
+  comprehension gate, developed in parallel without either session aware of the other, the same class
+  of collision D18/D19 already hit elsewhere in this repo's decision/roadmap numbering. A consumer
+  session (2026-07-10) hand-wrote prose changelog entries for every back-ported reviewer edit, all
+  session, without ever invoking `render contextualize`: the exact job G6 shipped for. Root cause is
+  NOT render-help invisibility (contextualize is a registered mode with a real argparse `--help`,
   unlike A8's case); it is WORKFLOW invisibility plus one real functional gap. (1) Surfacing:
   `render reingest`'s report and CLI output never point at the next step, and its default
   human-readable report is not even the `--json` input contextualize requires; add a printed
@@ -395,7 +482,7 @@ grids, ledger rules). Filed as issues #31-#35; this track turns renderfact from 
   `::: {.statement data="finance.yaml"}` block source its rows from YAML or CSV and COMPUTE its
   subtotals (section sums), totals/balances (a safe `+ - * /` formula over subtotal ids, or the running
   sum of all items). A computed row may also STATE an amount; if it disagrees with the computed value to
-  the cent, the render FAILS with a reconciliation error -- removing the silent-transcription error
+  the cent, the render FAILS with a reconciliation error - removing the silent-transcription error
   class. `expand_markdown` turns the data-bound block into a plain #33 `::: statement` with computed,
   formatted amounts before pandoc, so the entire render path is reused; all computation lives in tested
   Python. 30 tests. (Amount formatting is data-stated here; H5 makes it a project `locale`.)
@@ -443,12 +530,12 @@ UI into an authoring surface. Filed as issues #42-#46.
   `application/pdf` or a first-page `image/png` preview, with the same options as `render pdf`
   (title/subtitle/org/date/variant/locale/paper/brand). The typst backend gained `fmt='png'` (first
   page via a zero-padded page template), `ppi`, and a `data_root` jail so statement `data=` paths stay
-  under the server root (source mode) or the render temp dir (inline mode) -- an untrusted document
+  under the server root (source mode) or the render temp dir (inline mode) - an untrusted document
   cannot read server files. Origin/Host guard + path jail + size cap apply. OpenAPI + `/docs` extended.
   12 tests (validation/guard always-on + tool-gated real renders incl. the sandbox-escape check).
 - **I2 - Studio UI live preview (#45).** `[build]` **DONE (core):** `api/ui.py` now leads with a render
-  studio -- markdown editor + debounced live PNG preview (`POST /render/pdf?format=png`, embedded
-  same-origin) + variant/locale controls + PDF download -- over the whole Track H pipeline. Still one
+  studio - markdown editor + debounced live PNG preview (`POST /render/pdf?format=png`, embedded
+  same-origin) + variant/locale controls + PDF download - over the whole Track H pipeline. Still one
   self-contained page, vanilla JS, no build. (Remaining #45/#46 polish: block-scaffold buttons, a live
   statement-reconciliation panel over a future `POST /statement/check`, a doctor status badge.)
 - **I2b - Render endpoint `POST /render/docx`.** `[build]` **DONE:** the DOCX peer of `/render/pdf`,
@@ -458,7 +545,7 @@ UI into an authoring surface. Filed as issues #42-#46.
   never mutates a server file (a test asserts the original is byte-identical); `RESOURCE_PATH` keeps
   relative images resolving. Studio gains a Download DOCX button. 9 tests.
 - **I3 - `POST /statement/check` (#43).** `[build]` **DONE:** reconcile a statement spec (a YAML/JSON
-  `data` string, a `spec` object, or a jailed `source` path) over HTTP with no render -- computed rows
+  `data` string, a `spec` object, or a jailed `source` path) over HTTP with no render - computed rows
   out, or a 400 with the reconciliation error. An optional `locale` supplies default formatting. Lets
   CI gate financial correctness without typst.
 - **I4 - Capability-discovery endpoints (#44).** `[build]` **DONE:** `GET /doctor` (tool availability +
@@ -557,6 +644,48 @@ does). Buildable-now unless marked GATED; sequencing note: 6.1-6.6 are a coheren
 - **6.11 - Three-pane editor integration.** GATED behind Track F (release readiness, D13) and behind
   the editor thread's own chunk 5.8. Mounts the D12 editor into the workspace Edit tab; the only
   chunk in this track that touches the editor contract.
+
+---
+
+## Track J - Sendable email output (`.eml`, plain-text signature block)
+
+Filed as issue #95: closing the gap where the actual deliverable is an email rather than a rendered
+document. Core-vs-adapter split (the same pattern issue #68's diagram-archetype work used): the
+general core (`.eml`, plain text, stdlib-only) ships here; the narrower, heavier adapters (a binary
+`.msg`/MAPI writer, mail-client compose-window automation) are named follow-ups, not built. See
+`docs/DECISIONS.md` D22 for the full reasoning.
+
+- **J1 - `.eml` backend with a skin signature block (#95).** `[build]` **DONE:**
+  `mail/eml_backend.py`, wired as `render eml <src> [-o out.eml] [--signature <yaml>] [--recipient R]
+  [--subject S] [--sender F]`. Markdown -> pandoc's plain-text writer (the shared
+  `pandoc_markdown.MARKDOWN_FROM` `--from`, `--reference-links` so a link's URL survives instead of
+  being silently dropped) -> an optional skin `signature.yaml` (freeform `lines:`, the sig-dash `-- `
+  delimiter, PNG `images:` as inline `multipart/mixed` parts) -> a stdlib `email.message.EmailMessage`
+  serialized to a valid RFC822 `.eml`. Frontmatter `recipient:`/`to:` and `subject:`/`title:` map to
+  `To:`/`Subject:`; a missing recipient is advisory (a WARNING, no `To:` header), not fatal. `Date:`
+  and a deterministic, non-host-leaking `Message-ID:` are stamped on every render. Pandoc discovery
+  reuses `pdf/typst_backend.find_pandoc()` directly. 40 tests (unit + real end-to-end pandoc renders,
+  parsed back with the stdlib `email` parser).
+- **J2 - `.msg` (MAPI) writer.** `[build]` NEXT, not started. Deliberately deferred (D22): `.msg` is a
+  binary Compound File Binary / MAPI property-stream format unrelated to the OOXML machinery
+  `docstyle/style_postprocess.py` already has, and real-world producers lean on Windows COM automation
+  or a native MAPI library, neither portable nor CI-testable the way this repo's other backends are.
+  Worth doing only if a consumer's mail client genuinely cannot import `.eml` (rare in practice).
+- **J3 - Mail-client compose-window automation.** `[build]` NEXT, not started. Deliberately deferred
+  (D22): platform-specific (Outlook COM on Windows, AppleScript on macOS, no Linux equivalent),
+  untestable in a cross-platform CI matrix, and couples the toolchain to a running, licensed desktop
+  application, a different kind of dependency than anything else here. `.eml` already solves
+  delivery (one double-click/import away from a compose window in every mail client tested).
+- **J4 - MIME-multipart HTML signature.** `[build]` NEXT, not started. v1 (J1) ships plain text plus
+  inline PNG image parts (a logo genuinely travels embedded in the `.eml`), but no HTML: a styled
+  signature (coloured text, a clickable button, an inline-`cid:`-referenced logo sitting inside
+  markup) needs a `multipart/alternative` + `multipart/related` structure and an HTML-authoring
+  surface for the signature block this repo has no existing pattern for yet.
+- **J5 - `.eml` reconciliation / reingest path.** `[build]` NEXT, not started. The issue's own framing
+  named the DOCX `reingest` round-trip as the precedent an email deliverable currently lacks; J1 closes
+  the FORWARD direction (source -> sendable email) but does not touch round-trip. A real reconciliation
+  path (sent `.eml` back to a source diff, the way `roundtrip/reingest.py` does for an edited DOCX)
+  is real, separable follow-up work, not a natural extension of J1's render-only scope.
 
 ---
 

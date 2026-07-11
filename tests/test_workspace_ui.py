@@ -1,5 +1,5 @@
 """
-Tests for the Track J workspace screens (chunk 6.5 / D18): Projects Dashboard,
+Tests for the Track J workspace screens (chunk 6.5 / D23): Projects Dashboard,
 New Project wizard, Template Library, and the GET /ui/static/{name} asset
 route. Server-side plumbing only (route gating behind --enable-ui, the
 static-asset allowlist/content-type/cache header, and that each HTML shell
@@ -90,7 +90,7 @@ def test_template_library_gated_and_served(tmp_path):
     assert "Import" in html  # the import form
 
 
-# ---------- static asset route (D18) ----------
+# ---------- static asset route (D23) ----------
 
 def test_static_asset_gated_behind_enable_ui(tmp_path):
     code, _, _ = _call(_api(tmp_path, enable_ui=False), "GET", "/ui/static/common.js")
@@ -119,7 +119,7 @@ def test_static_asset_matches_file_on_disk(tmp_path):
 def test_static_asset_404_for_unlisted_name(tmp_path):
     """Not just missing-on-disk -- a name outside STATIC_ALLOWLIST is refused
     before any filesystem read is attempted (no path-jail arithmetic needed,
-    per D18: the allowlist itself makes traversal impossible)."""
+    per D23: the allowlist itself makes traversal impossible)."""
     code, _, _ = _call(_api(tmp_path), "GET", "/ui/static/../../../../etc/passwd")
     assert code == 404
     code, _, _ = _call(_api(tmp_path), "GET", "/ui/static/not-a-real-asset.js")

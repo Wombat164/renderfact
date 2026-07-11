@@ -182,8 +182,16 @@ def md_to_typst(md_path: Path, pandoc: str, resource_path: "Path | None" = None)
     the template ourselves via the theme). The semantic-blocks Lua filter maps
     renderfact's fenced-div blocks (#33) to typst function calls; it is a no-op
     for documents that use none. resource_path (the original source dir) keeps
-    relative image lookups working when md_path is an expanded temp file."""
-    cmd = [pandoc, str(md_path), "-t", "typst"]
+    relative image lookups working when md_path is an expanded temp file.
+
+    --from is the shared pandoc_markdown.MARKDOWN_FROM constant, not a hand-rolled
+    extension string (issue #69): without wikilinks_title_after_pipe, a
+    `[[target|Display Text]]` source link is read as literal text, not a Link
+    node, and its display text silently never resolves in the PDF."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from pandoc_markdown import MARKDOWN_FROM  # repo-root shared module
+
+    cmd = [pandoc, "--from", MARKDOWN_FROM, str(md_path), "-t", "typst"]
     if SEMANTIC_FILTER.is_file():
         cmd += ["--lua-filter", str(SEMANTIC_FILTER)]
     if resource_path is not None:

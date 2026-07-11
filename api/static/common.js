@@ -1,5 +1,5 @@
 // common.js: shared fetch + CSRF helpers for the Track J workspace screens
-// (chunk 6.5 / D18). Vanilla JS, no build step -- same discipline as api/ui.py.
+// (chunk 6.5 / D23). Vanilla JS, no build step -- same discipline as api/ui.py.
 
 let _csrfToken = null;
 

@@ -29,12 +29,25 @@ Stages (each adopted per docs/ROADMAP.md B3, CLI-subprocess only):
            forked source or a template carrying a renderfact_uid claims the
            original's lineage); at organisational scale that corrupts every
            provenance-anchored round-trip. Deterministic, dependency-free.
+  plainlang  repeated-phrase-across-sections scan (issue #76), the one
+           PlainLanguage check that is not a Vale rule (see
+           docstyle/plain_language.py for why: it needs the document's own
+           text as the source of the pattern to search for, which nothing in
+           Vale's DSL can express). A cheap n-gram/exact-match scan, no NLP.
+           UNLIKE every other stage here, a finding does NOT fail the run by
+           default: a repeated multi-word run is very often legitimate (a
+           programme or component name used consistently), not a defect, so
+           report-only matches this repo's own `render qa leaks
+           --fail-on-hits` precedent rather than the fail-closed default.
+           Pass --plainlang-fail-on-hits to make it CI-blocking once tuned.
+           Deterministic, dependency-free.
 All stages self-scope by file type, so one `render gate <dir>` run applies
 each stage to the files it understands.
 
 Usage:
     render gate <files-or-dirs...> [--stages vale,lychee,verapdf] [--vale-config PATH]
                 [--online] [--pdf-flavour ua1|2b|...]
+                [--plainlang-min-words N] [--plainlang-min-count N] [--plainlang-fail-on-hits]
 
 Exit codes: 0 every requested stage passed; 1 findings; 2 a requested stage's
 tool is missing or the invocation itself is unusable.
@@ -205,11 +218,41 @@ def run_uids(targets: list[str], **_ignored) -> StageResult:
                        f"{sum(len(p) for p in owners.values())} uid-carrying source(s), all unique")
 
 
+def run_plain_language(targets: list[str], min_words: int = 5, min_count: int = 3,
+                       fail_on_hits: bool = False) -> StageResult:
+    """Repeated-phrase-across-sections scan (issue #76). See
+    docstyle/plain_language.py's module docstring for why this is a Python
+    check and not a Vale rule, and why it is report-only by default (findings
+    do not fail the run unless --plainlang-fail-on-hits is passed): unlike
+    the other stages here, a hit is often legitimate prose (a repeated
+    programme/component name), not a defect."""
+    from docstyle import plain_language
+
+    files = _resolve_files(targets, (".md",))
+    if not files:
+        return StageResult("plainlang", "NO_FILES", "no .md files among the targets")
+    findings = plain_language.check_paths(files, min_words=min_words, min_count=min_count)
+    if not findings:
+        return StageResult("plainlang", "PASS", f"{len(files)} file(s), no repeated phrase found")
+    lines = []
+    total_hits = 0
+    for path, hits in findings.items():
+        total_hits += len(hits)
+        for hit in hits:
+            lines.append(f"  {path}: '{hit.phrase}' x{hit.count}")
+    detail = f"{total_hits} repeated phrase(s) across {len(findings)} file(s):\n" + "\n".join(lines)
+    if fail_on_hits:
+        return StageResult("plainlang", "FAIL", detail)
+    return StageResult("plainlang", "PASS",
+                       detail + "\n  (report-only: pass --plainlang-fail-on-hits to block on this)")
+
+
 STAGES = {
     "vale": run_vale,
     "lychee": run_lychee,
     "verapdf": run_verapdf,
     "uids": run_uids,
+    "plainlang": run_plain_language,
 }
 
 
@@ -219,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Deterministic fail-closed QA gate chain (B3). No LLM, no network.",
     )
     ap.add_argument("targets", nargs="+", help="files or directories to gate")
-    ap.add_argument("--stages", default="vale,lychee,verapdf,uids",
+    ap.add_argument("--stages", default="vale,lychee,verapdf,uids,plainlang",
                     help=f"comma-separated stages to run (available: {', '.join(sorted(STAGES))})")
     ap.add_argument("--vale-config", type=Path, default=None,
                     help="Vale config override (default: the generic-core "
@@ -230,6 +273,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pdf-flavour", default=None,
                     help="verapdf: force a validation flavour (e.g. ua1, 2b); "
                          "default validates each PDF against the standard it declares")
+    ap.add_argument("--plainlang-min-words", type=int, default=5,
+                    help="plainlang: minimum phrase length in words (default: 5)")
+    ap.add_argument("--plainlang-min-count", type=int, default=3,
+                    help="plainlang: minimum near-verbatim repeat count to flag (default: 3)")
+    ap.add_argument("--plainlang-fail-on-hits", action="store_true",
+                    help="plainlang: fail the run on a repeated-phrase finding (default: "
+                         "report-only, since a hit is often legitimate repeated terminology)")
     args = ap.parse_args(argv)
 
     requested = [s.strip() for s in args.stages.split(",") if s.strip()]
@@ -249,6 +299,10 @@ def main(argv: list[str] | None = None) -> int:
             results.append(run_verapdf(args.targets, flavour=args.pdf_flavour))
         elif stage == "uids":
             results.append(run_uids(args.targets))
+        elif stage == "plainlang":
+            results.append(run_plain_language(args.targets, min_words=args.plainlang_min_words,
+                                              min_count=args.plainlang_min_count,
+                                              fail_on_hits=args.plainlang_fail_on_hits))
 
     worst = 0
     for r in results:

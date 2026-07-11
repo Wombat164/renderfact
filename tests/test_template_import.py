@@ -199,6 +199,329 @@ def test_derive_profile_falls_back_to_theme_when_style_unset(tmp_path):
     assert dp.derived["font"] == KNOWN_MINOR_FONT
 
 
+# ---------- (b2) per-style font overrides (issue #97) ----------
+
+def test_derive_style_font_overrides_only_genuine_differences(tmp_path):
+    """Two paragraph styles carrying genuinely different fonts: the derived
+    profile must capture the DISTINCT one (Quote: Georgia, an existing
+    built-in python-docx style repurposed here rather than a custom one, so
+    the walk is proven to cover built-ins too) as a per-style override, and
+    must NOT emit a redundant entry for a style (Caption) whose explicit font
+    just happens to match the global default (Verdana, from Normal). Word's
+    own default template also ships one intrinsic deviation of its own ('macro'
+    / Macro Text -> Courier), asserted here too so the test stays honest about
+    what the walk actually returns rather than special-casing it away."""
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    doc.styles["Quote"].font.name = "Georgia"
+    doc.styles["Caption"].font.name = KNOWN_MINOR_FONT  # matches the global default
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.derived["font"] == KNOWN_MINOR_FONT
+    assert dp.style_fonts == {"Quote": "Georgia", "macro": "Courier"}
+    assert "Caption" not in dp.style_fonts
+
+
+def test_derive_style_font_overrides_filters_out_when_global_matches(tmp_path):
+    """When the global font itself equals python-docx's one intrinsic built-in
+    deviation (the 'macro' style's Courier), that style is correctly filtered
+    as redundant, proving the "only genuine differences" rule applies
+    symmetrically to built-in noise, not just custom styles."""
+    path = tmp_path / "uniform.docx"
+    doc = Document()
+    doc.styles["Normal"].font.name = "Courier"
+    doc.add_paragraph("body")
+    doc.save(str(path))
+
+    theme = Theme(colors={}, fonts={})
+    doc2 = Document(str(path))
+    dp = ti.derive_profile(doc2, theme)
+    assert dp.derived["font"] == "Courier"
+    assert dp.style_fonts == {}
+
+
+def test_render_profile_yaml_emits_styles_block_when_overrides_found(tmp_path):
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    doc.styles["Quote"].font.name = "Georgia"
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert "styles:" in yaml_text
+    assert '"Quote":' in yaml_text
+    assert "font: Georgia" in yaml_text
+
+
+def test_render_profile_yaml_notes_no_style_overrides_when_none_found(tmp_path):
+    # Force the global font to equal python-docx's one intrinsic built-in
+    # deviation (the 'macro' style ships Courier by default) so every
+    # paragraph style in this template resolves to the SAME font.
+    path = tmp_path / "uniform.docx"
+    doc = Document()
+    doc.styles["Normal"].font.name = "Courier"
+    doc.add_paragraph("body")
+    doc.save(str(path))
+
+    theme = Theme(colors={}, fonts={})
+    doc2 = Document(str(path))
+    dp = ti.derive_profile(doc2, theme)
+    prov = ti.build_import_provenance(path, date_str="2026-07-10")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert "styles:" not in yaml_text
+    assert "No per-style font overrides found" in yaml_text
+
+
+def test_derived_style_fonts_round_trip_through_consumer(tmp_path, monkeypatch):
+    """End-to-end (derivation + consumption): derive a profile from a template
+    with two distinct paragraph-style fonts, then run style_postprocess on a
+    document using both styles, and assert the OUTPUT carries the correct
+    per-style font (not the global one) where a style overrides it, and the
+    global font everywhere else (issue #97)."""
+    import importlib
+
+    from docstyle import style_postprocess as sp
+
+    importlib.reload(sp)  # isolate module globals from any earlier test
+
+    template = _build_branded_template(tmp_path, name="two-font-template.docx")
+    doc = Document(str(template))
+    doc.styles["Quote"].font.name = "Georgia"
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    assert dp.derived["font"] == KNOWN_MINOR_FONT
+    assert dp.style_fonts["Quote"] == "Georgia"
+
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    profile_path = tmp_path / "template-profile.yaml"
+    profile_path.write_text(ti.render_profile_yaml(prov, dp), encoding="utf-8")
+
+    consumer_doc = Document()
+    consumer_doc.add_heading("Body Section", level=1)
+    consumer_doc.add_paragraph(
+        "A quoted line long enough to carry a run.", style=consumer_doc.styles["Quote"])
+    consumer_doc.add_paragraph("A plain body paragraph using the global font.")
+    src = tmp_path / "consumer-in.docx"
+    consumer_doc.save(str(src))
+
+    out = tmp_path / "consumer-out.docx"
+    monkeypatch.setattr(sys, "argv",
+                        ["style_postprocess.py", str(src), str(out),
+                         "--template-profile", str(profile_path)])
+    sp.main()
+
+    out_doc = Document(str(out))
+    quote_para = next(p for p in out_doc.paragraphs if p.style.name == "Quote")
+    assert quote_para.runs[0].font.name == "Georgia"
+    body_para = next(p for p in out_doc.paragraphs
+                     if p.text.startswith("A plain body"))
+    assert body_para.runs[0].font.name == KNOWN_MINOR_FONT
+
+
+# ---------- body_style detection + consumption (issue #101) ----------
+
+def _add_custom_style(doc, name, font_name, based_on="Normal"):
+    from docx.enum.style import WD_STYLE_TYPE
+    style = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    style.base_style = doc.styles[based_on]
+    style.font.name = font_name
+    return style
+
+
+def test_derive_profile_detects_body_style_named_body(tmp_path):
+    """A template defining its own "Body" paragraph style with a font distinct
+    from Normal (the real-world shape: an institutional template author adds a
+    dedicated body style rather than styling Normal directly) is detected as
+    the template's body_style."""
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    _add_custom_style(doc, "Body", "Calibri")
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.body_style == "Body"
+    assert dp.style_fonts.get("Body") == "Calibri"
+
+
+def test_derive_profile_falls_back_to_body_text(tmp_path):
+    """No style literally named "Body", but Word's own built-in "Body Text"
+    style carries a distinct font -- still detected."""
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    doc.styles["Body Text"].font.name = "Calibri"
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.body_style == "Body Text"
+
+
+def test_derive_profile_prefers_body_over_body_text(tmp_path):
+    """If a template somehow defines distinct fonts for BOTH "Body" and "Body
+    Text", "Body" wins -- it's the more specific, deliberately-authored name
+    seen in real institutional templates; "Body Text" is Word's generic
+    built-in gallery entry."""
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    _add_custom_style(doc, "Body", "Calibri")
+    doc.styles["Body Text"].font.name = "Arial"
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.body_style == "Body"
+
+
+def test_derive_profile_no_body_style_when_absent(tmp_path):
+    """No "Body" or "Body Text" style with a distinguishing font: body_style
+    is None, exactly the pre-#101 behaviour (no remap, unchanged output)."""
+    template = _build_branded_template(tmp_path)
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.body_style is None
+
+
+def test_render_profile_yaml_emits_body_style(tmp_path):
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    _add_custom_style(doc, "Body", "Calibri")
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert 'body_style: "Body"' in yaml_text
+
+
+def test_render_profile_yaml_notes_no_body_style_when_absent(tmp_path):
+    template = _build_branded_template(tmp_path)
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert "body_style:" not in yaml_text.replace("# body_style:", "")
+    assert "not derivable" in yaml_text
+
+
+def test_body_style_round_trip_through_consumer(tmp_path, monkeypatch):
+    """End-to-end: a template with its own "Body" style (Calibri, distinct from
+    Normal's global font) derives body_style="Body", and style_postprocess then
+    remaps an ordinary Normal-styled body paragraph to it -- the paragraph's
+    style NAME changes AND its run carries no direct-formatting override
+    (issue #98's existing custom-style-preservation logic takes over once the
+    remap happens), so it resolves Body's own Calibri via pure style
+    inheritance rather than the house/global font (issue #101)."""
+    import importlib
+
+    from docstyle import style_postprocess as sp
+
+    importlib.reload(sp)
+
+    template = _build_branded_template(tmp_path, name="body-style-template.docx")
+    doc = Document(str(template))
+    _add_custom_style(doc, "Body", "Calibri")
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    assert dp.body_style == "Body"
+
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    profile_path = tmp_path / "template-profile.yaml"
+    profile_path.write_text(ti.render_profile_yaml(prov, dp), encoding="utf-8")
+
+    # Base the consumer doc on a COPY of the template (not a bare Document()):
+    # this is what pandoc's own --reference-doc mechanism actually does --
+    # carries the reference doc's styles.xml, including the custom "Body"
+    # style, into the rendered output. A bare Document() would only have
+    # python-docx's own built-ins (fine for "Quote" in the sibling test above,
+    # not fine for a style this test itself just defined on the template).
+    src = tmp_path / "consumer-in.docx"
+    shutil.copy(str(template), str(src))
+    consumer_doc = Document(str(src))
+    consumer_doc.add_heading("Body Section", level=1)
+    consumer_doc.add_paragraph("An ordinary Normal-styled body paragraph.")
+    consumer_doc.save(str(src))
+
+    out = tmp_path / "consumer-out.docx"
+    monkeypatch.setattr(sys, "argv",
+                        ["style_postprocess.py", str(src), str(out),
+                         "--template-profile", str(profile_path)])
+    sp.main()
+
+    out_doc = Document(str(out))
+    body_para = next(p for p in out_doc.paragraphs
+                     if p.text.startswith("An ordinary Normal"))
+    assert body_para.style.name == "Body"
+    assert body_para.runs[0].font.name is None  # no direct override -> pure style inheritance
+
+
+def test_no_body_style_leaves_normal_paragraphs_unchanged(tmp_path, monkeypatch):
+    """No body_style key in the profile (the common case: most templates don't
+    define a distinct body style) -- Normal-styled paragraphs keep getting the
+    house/global font exactly as before this feature existed, proving the
+    change is a no-op by default."""
+    import importlib
+
+    from docstyle import style_postprocess as sp
+
+    importlib.reload(sp)
+
+    template = _build_branded_template(tmp_path, name="no-body-style-template.docx")
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    assert dp.body_style is None
+
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    profile_path = tmp_path / "template-profile.yaml"
+    profile_path.write_text(ti.render_profile_yaml(prov, dp), encoding="utf-8")
+
+    consumer_doc = Document()
+    consumer_doc.add_paragraph("An ordinary Normal-styled body paragraph.")
+    src = tmp_path / "consumer-in.docx"
+    consumer_doc.save(str(src))
+
+    out = tmp_path / "consumer-out.docx"
+    monkeypatch.setattr(sys, "argv",
+                        ["style_postprocess.py", str(src), str(out),
+                         "--template-profile", str(profile_path)])
+    sp.main()
+
+    out_doc = Document(str(out))
+    body_para = next(p for p in out_doc.paragraphs
+                     if p.text.startswith("An ordinary Normal"))
+    assert body_para.style.name == "Normal"
+    assert body_para.runs[0].font.name == KNOWN_MINOR_FONT
+
+
 def test_main_writes_profile_with_copy_reference(tmp_path):
     template = _build_branded_template(tmp_path)
     out_dir = tmp_path / "skin"
@@ -326,3 +649,125 @@ def test_render_py_dispatches_import_template(tmp_path):
     assert f'accent: "{KNOWN_ACCENT1}"' in text
     assert "TEMPLATE_DOCX=" in result.stdout
     assert "TEMPLATE_PROFILE=" in result.stdout
+
+
+# ---------- (g) guidance-doc scan (issue #100) ----------
+
+def _guidance_docx(tmp_path, name="guidance.docx") -> Path:
+    doc = Document()
+    doc.add_heading("Scope", level=1)
+    doc.add_paragraph("This section explains what the template covers.")
+    doc.add_heading("Out of scope", level=1)
+    doc.add_paragraph("This section explains what is explicitly excluded.")
+    doc.add_paragraph("A second paragraph under the same heading.")
+    path = tmp_path / name
+    doc.save(str(path))
+    return path
+
+
+def test_scan_guidance_doc_docx_counts_headings_and_paragraphs(tmp_path):
+    path = _guidance_docx(tmp_path)
+    scan = ti.scan_guidance_doc(path)
+    assert scan.heading_count == 2
+    assert scan.paragraph_count == 3
+    assert scan.headings == ["Scope", "Out of scope"]
+    assert scan.headings_truncated is False
+
+
+def test_scan_guidance_doc_docx_truncates_heading_preview(tmp_path):
+    doc = Document()
+    for i in range(15):
+        doc.add_heading(f"Section {i}", level=1)
+        doc.add_paragraph("body")
+    path = tmp_path / "many-headings.docx"
+    doc.save(str(path))
+
+    scan = ti.scan_guidance_doc(path, heading_preview_cap=12)
+    assert scan.heading_count == 15
+    assert len(scan.headings) == 12
+    assert scan.headings_truncated is True
+
+
+def test_scan_guidance_doc_markdown_counts_headings_and_paragraphs(tmp_path):
+    path = tmp_path / "guidance.md"
+    path.write_text(
+        "# Scope\n\nThis section explains what the template covers.\n\n"
+        "## Out of scope\n\nThis section explains what is excluded.\n\n"
+        "Another standalone paragraph with no heading of its own.\n",
+        encoding="utf-8",
+    )
+    scan = ti.scan_guidance_doc(path)
+    assert scan.heading_count == 2
+    assert scan.headings == ["Scope", "Out of scope"]
+    # 3 body blocks: one under Scope, one under Out of scope, plus the trailing
+    # standalone paragraph -- blank-line-separated blocks, not sentences.
+    assert scan.paragraph_count == 3
+
+
+def test_scan_guidance_doc_txt_uses_same_atx_heading_convention(tmp_path):
+    path = tmp_path / "guidance.txt"
+    path.write_text("# Purpose\n\nWhy this template exists.\n", encoding="utf-8")
+    scan = ti.scan_guidance_doc(path)
+    assert scan.heading_count == 1
+    assert scan.headings == ["Purpose"]
+    assert scan.paragraph_count == 1
+
+
+def test_scan_guidance_doc_raises_on_unsupported_extension(tmp_path):
+    path = tmp_path / "guidance.pdf"
+    path.write_bytes(b"%PDF-1.4 not a real pdf")
+    with pytest.raises(ti.GuidanceScanError, match="unsupported"):
+        ti.scan_guidance_doc(path)
+
+
+def test_format_guidance_scan_report_includes_counts_and_headings():
+    scan = ti.GuidanceScan(
+        path=Path("guidance.docx"), heading_count=2, paragraph_count=3,
+        headings=["Scope", "Out of scope"], headings_truncated=False,
+    )
+    report = ti.format_guidance_scan_report(scan)
+    assert "2 section heading(s), 3 paragraph(s)" in report
+    assert "Scope; Out of scope" in report
+    assert "editorial-doctrine.yaml" in report
+
+
+def test_main_with_guidance_doc_prints_scan_report(tmp_path, capsys):
+    template = _build_branded_template(tmp_path)
+    guidance = _guidance_docx(tmp_path)
+    rc = ti.main([str(template), "--out-dir", str(tmp_path / "skin"),
+                  "--date", "2026-07-03", "--guidance-doc", str(guidance)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Guidance-doc scan:" in out
+    assert "2 section heading(s), 3 paragraph(s)" in out
+    assert "No --guidance-doc given" not in out
+
+
+def test_main_without_guidance_doc_prints_reminder(tmp_path, capsys):
+    template = _build_branded_template(tmp_path)
+    rc = ti.main([str(template), "--out-dir", str(tmp_path / "skin"), "--date", "2026-07-03"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "No --guidance-doc given" in out
+    assert "--guidance-doc <path>" in out
+    assert "Guidance-doc scan:" not in out
+
+
+def test_main_with_missing_guidance_doc_path_errors(tmp_path, capsys):
+    template = _build_branded_template(tmp_path)
+    rc = ti.main([str(template), "--out-dir", str(tmp_path / "skin"), "--date", "2026-07-03",
+                  "--guidance-doc", str(tmp_path / "does-not-exist.docx")])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "ERROR" in err and "does-not-exist.docx" in err
+
+
+def test_main_with_unsupported_guidance_doc_type_errors(tmp_path, capsys):
+    template = _build_branded_template(tmp_path)
+    bad = tmp_path / "guidance.pdf"
+    bad.write_bytes(b"%PDF-1.4 not a real pdf")
+    rc = ti.main([str(template), "--out-dir", str(tmp_path / "skin"), "--date", "2026-07-03",
+                  "--guidance-doc", str(bad)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "unsupported" in err

@@ -15,19 +15,39 @@
 #                         SKIN_DIR default: $SKIN_DIR/reference.docx
 #   FILTERS_DIR         directory of pandoc lua filters, applied in name order
 #                         SKIN_DIR default: $SKIN_DIR/filters
-#   TEMPLATE_PROFILE    yaml consumed by the style post-processor
+#   TEMPLATE_PROFILE    yaml consumed by the style post-processor; a top-level
+#                       `toc: false` key opts out of the table of contents
+#                       (same effect as --no-toc; either one is enough, see
+#                       --no-toc below)
 #                         SKIN_DIR default: $SKIN_DIR/template-profile.yaml
 #   STYLE_POSTPROCESS   house-style DOCX post-processor script (cover page,
 #                       styles); called as: <script> <docx> --profile <p>
 #                       [--template-profile <yaml>] --cover-version --cover-date
 #                       default: <repo>/docstyle/style_postprocess.py (generic
 #                       in-repo implementation); consumers override with their own
-#   QC_SCRIPT           pre-render QC script, called with <source.md> (--qc)
+#   QC_SCRIPT           pre-render QC script, called with <source.md> (--qc);
+#                       ADVISORY by default (findings print, render continues);
+#                       set QC_BLOCKING=1 (or pass --qc-blocking) so a non-zero
+#                       exit stops the render instead
+#   QC_BLOCKING         1 = QC_SCRIPT findings stop the render; default 0
+#                       (advisory-only stays the default: the more common case)
 #   NLQA_DIR            consumer lint bundle (vale config + generator) (--lint)
 #   HEADING_NUMBERING   field-numbering script, called with <docx> (--number-headings)
 #                       default: <repo>/docstyle/heading_numbering.py (generic
 #                       in-repo implementation); consumers override with their own
 #   PAGECHECK_SCRIPT    page-economy analyzer, called with <docx|pdf> (--page-check)
+#   POSTRENDER_GATE_SCRIPT   post-render content-safety gate, called with the
+#                       finished <docx> (--postrender-gate), after render and
+#                       before the completion summary. BLOCKING by default (a
+#                       non-zero exit stops the run): its purpose is "does the
+#                       artifact contain content it must never contain", so
+#                       silent-advisory is the wrong default here even though it
+#                       is right for QC_SCRIPT above (see docs/DECISIONS.md D18
+#                       for the reasoning). Set POSTRENDER_GATE_ADVISORY=1 to opt
+#                       back into advisory-only. gates/content_scan.py is the
+#                       generic (pattern-as-parameter) reference implementation.
+#   POSTRENDER_GATE_ADVISORY  1 = POSTRENDER_GATE_SCRIPT findings are advisory
+#                       only (print, do not stop the render); default 0 (blocking)
 #   PDF_CONVERTER_PS1   Windows Word-COM converter script (--pdf); without it,
 #                       LibreOffice (soffice) is used on any OS when present
 #   PROJECTION_CONFIG   ladders+profiles yaml for --project
@@ -36,12 +56,15 @@
 #                         default: the source file's own directory
 #   OUTPUT_DIR          default: ./renders
 #   PANDOC_EXTRA_EXTENSIONS
-#                       extra pandoc reader extensions appended to the fixed
-#                       markdown+wikilinks_title_after_pipe+pipe_tables+
-#                       yaml_metadata_block base, e.g. "+fenced_divs+raw_attribute"
-#                       for a skin whose cover/source markdown uses custom-style
-#                       fenced divs or raw OOXML page-break blocks. Empty by
-#                       default (no behavior change for existing consumers).
+#                       extra pandoc reader extensions appended to the canonical
+#                       --from value pandoc_markdown.py computes (issue #69's single
+#                       source of truth; already includes pipe_tables, grid_tables,
+#                       fenced_divs, yaml_metadata_block, raw_attribute, and the
+#                       wikilink extension -- a consumer needing one of THOSE no
+#                       longer needs this var at all). e.g. "+footnotes" for a skin
+#                       whose source markdown uses a reader extension none of the
+#                       repo's own call sites need. Empty by default (no behavior
+#                       change for existing consumers).
 #   PROVENANCE          auto (default) embeds D11 provenance from the canonical
 #                       source into every rendered artifact, EXCEPT under a
 #                       projection profile with strip_provenance: true, where the
@@ -57,8 +80,8 @@
 #
 # Usage: render-doc.sh <source.md> [--name <p>] [--profile reference|compact]
 #          [--project <profile>] [--template-profile <yaml>] [DRAFT|REVIEW|FINAL]
-#          [--pdf] [--qc] [--lint] [--number-headings] [--scheme <scheme>]
-#          [--page-check]
+#          [--pdf] [--qc] [--qc-blocking] [--lint] [--number-headings] [--no-toc]
+#          [--scheme <scheme>] [--page-check] [--postrender-gate]
 # Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
 set -euo pipefail
 
@@ -69,8 +92,8 @@ render-doc.sh: annotated-markdown -> styled DOCX (+ optional PDF).
 
 Usage: render-doc.sh <source.md> [--name <p>] [--profile reference|compact]
          [--project <profile>] [--template-profile <yaml>] [DRAFT|REVIEW|FINAL]
-         [--pdf] [--qc] [--lint] [--number-headings] [--scheme <scheme>]
-         [--page-check]
+         [--pdf] [--qc] [--qc-blocking] [--lint] [--number-headings] [--no-toc]
+         [--scheme <scheme>] [--page-check] [--postrender-gate]
 
 Output: <OUTPUT_DIR>/<prefix>_<VERSION>_<DATE>_<SUFFIX>.docx (+ .pdf with --pdf)
 
@@ -78,14 +101,23 @@ Options:
   --name <p>            output basename prefix (default: source stem)
   --profile <p>         style profile: reference (default) | compact
   --project <profile>   apply a projection profile before rendering
-  --template-profile    yaml consumed by the house-style post-processor
+  --template-profile    yaml consumed by the house-style post-processor; a
+                         top-level `toc: false` key has the same effect as
+                         --no-toc below (either one is enough to opt out)
   --scheme <scheme>     numbering/style scheme (default: modern)
   DRAFT|REVIEW|FINAL    document lifecycle suffix (default: DRAFT)
   --pdf                 also convert to PDF (Word-COM on Windows, else soffice)
-  --qc                  run the pre-render QC script (needs QC_SCRIPT)
+  --qc                  run the pre-render QC script (needs QC_SCRIPT); advisory
+                         unless --qc-blocking or QC_BLOCKING=1
+  --qc-blocking          same as --qc, but a QC_SCRIPT finding stops the render
   --lint                run the consumer lint bundle (needs NLQA_DIR)
   --number-headings     apply field-based heading numbering
+  --no-toc               omit the table of contents (default: included); same
+                         effect as `toc: false` in --template-profile
   --page-check          run the page-economy analyzer
+  --postrender-gate     run the post-render content-safety gate on the finished
+                         docx (needs POSTRENDER_GATE_SCRIPT); blocking unless
+                         POSTRENDER_GATE_ADVISORY=1
   -h, --help            show this help and exit
 
 Consumer skin + tool configuration is via environment variables; see the
@@ -135,16 +167,20 @@ FILTERS_DIR="${FILTERS_DIR:-$(skin_default filters)}"
 TEMPLATE_PROFILE="${TEMPLATE_PROFILE:-$(skin_default template-profile.yaml)}"
 STYLE_POSTPROCESS="${STYLE_POSTPROCESS:-$REPO_ROOT/docstyle/style_postprocess.py}"
 QC_SCRIPT="${QC_SCRIPT:-}"
+QC_BLOCKING="${QC_BLOCKING:-0}"
 NLQA_DIR="${NLQA_DIR:-}"
 HEADING_NUMBERING="${HEADING_NUMBERING:-$REPO_ROOT/docstyle/heading_numbering.py}"
 PAGECHECK_SCRIPT="${PAGECHECK_SCRIPT:-}"
+POSTRENDER_GATE_SCRIPT="${POSTRENDER_GATE_SCRIPT:-}"
+POSTRENDER_GATE_ADVISORY="${POSTRENDER_GATE_ADVISORY:-0}"
 PDF_CONVERTER_PS1="${PDF_CONVERTER_PS1:-}"
 PROJECTION_CONFIG="${PROJECTION_CONFIG:-$REPO_ROOT/projection/profiles-example.yaml}"
 PROJECTOR="$REPO_ROOT/projection/projector.py"
 OUTPUT_DIR="${OUTPUT_DIR:-./renders}"
 
 SOURCE=""; NAME=""; PROFILE="reference"; SUFFIX="DRAFT"
-DO_PDF=0; DO_QC=0; DO_LINT=0; DO_NUMBER=0; DO_PAGECHECK=0
+DO_PDF=0; DO_QC=0; DO_LINT=0; DO_NUMBER=0; DO_PAGECHECK=0; DO_POSTRENDER_GATE=0
+NO_TOC=0
 SCHEME="modern"; PROJECT_PROFILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -155,9 +191,12 @@ while [ $# -gt 0 ]; do
     --scheme)           SCHEME="$2"; shift 2 ;;
     --pdf)              DO_PDF=1; shift ;;
     --qc)               DO_QC=1; shift ;;
+    --qc-blocking)      DO_QC=1; QC_BLOCKING=1; shift ;;
     --lint)             DO_LINT=1; shift ;;
     --number-headings)  DO_NUMBER=1; shift ;;
+    --no-toc)           NO_TOC=1; shift ;;
     --page-check)       DO_PAGECHECK=1; shift ;;
+    --postrender-gate)  DO_POSTRENDER_GATE=1; shift ;;
     DRAFT|REVIEW|FINAL) SUFFIX="$1"; shift ;;
     *) if [ -z "$SOURCE" ]; then SOURCE="$1"; else SUFFIX="$1"; fi; shift ;;
   esac
@@ -194,7 +233,11 @@ echo ""
 if [ "$DO_QC" = "1" ]; then
   if [ -n "$QC_SCRIPT" ] && [ -f "$QC_SCRIPT" ]; then
     echo "Pre-render QC ($(basename "$QC_SCRIPT")) on source..."
-    "$PYTHON" "$QC_SCRIPT" "$SOURCE" || echo "  (findings above are advisory, not blocking)"
+    if [ "$QC_BLOCKING" = "1" ]; then
+      "$PYTHON" "$QC_SCRIPT" "$SOURCE"
+    else
+      "$PYTHON" "$QC_SCRIPT" "$SOURCE" || echo "  (findings above are advisory, not blocking; set QC_BLOCKING=1 or --qc-blocking to fail the render on findings)"
+    fi
   else
     echo "Skipping --qc: no QC_SCRIPT configured (consumer skin supplies one)."
   fi
@@ -244,11 +287,35 @@ awk '
   { print }
 ' "$SOURCE" > "$TMP_INPUT"
 
+# Shared source of truth for the pandoc markdown reader extensions (issue #69):
+# pandoc_markdown.py is the ONE place wikilinks_title_after_pipe is listed, so
+# this script and pdf/typst_backend.py cannot drift apart the way they did
+# before the fix (the PDF path had silently dropped the extension entirely).
+PANDOC_FROM_MD="$("$PYTHON" "$REPO_ROOT/pandoc_markdown.py")"
+
+# Table of contents opt-out (issue #99): --no-toc OR a template-profile
+# `toc: false` key turns it off; either is sufficient (same either-sets-it-on
+# interaction as QC_BLOCKING/--qc-blocking above, just inverted: here either
+# toggle turns the ToC OFF instead of turning a gate ON). Default stays on
+# (today's behavior) so nothing already depending on it breaks.
+if [ -n "$TEMPLATE_PROFILE" ] && [ -f "$TEMPLATE_PROFILE" ]; then
+  TP_NO_TOC=$("$PYTHON" -c "
+import sys, yaml
+prof = yaml.safe_load(open(sys.argv[1], encoding='utf-8')) or {}
+print(0 if prof.get('toc', True) else 1)
+" "$TEMPLATE_PROFILE")
+  [ "$TP_NO_TOC" = "1" ] && NO_TOC=1
+fi
+
 PANDOC_ARGS=(
-  --from="markdown+wikilinks_title_after_pipe+pipe_tables+yaml_metadata_block${PANDOC_EXTRA_EXTENSIONS:-}"
+  --from="${PANDOC_FROM_MD}${PANDOC_EXTRA_EXTENSIONS:-}"
   --resource-path="$RESOURCE_PATH"
-  --toc --toc-depth=2
 )
+if [ "$NO_TOC" = "1" ]; then
+  echo "Table of contents: disabled (--no-toc or template-profile toc: false)."
+else
+  PANDOC_ARGS+=(--toc --toc-depth=2)
+fi
 if [ -n "$TEMPLATE_DOCX" ] && [ -f "$TEMPLATE_DOCX" ]; then
   PANDOC_ARGS+=(--reference-doc="$TEMPLATE_DOCX")
   echo "Running pandoc (reference-doc: $(basename "$TEMPLATE_DOCX"))..."
@@ -355,6 +422,24 @@ if [ "$DO_PAGECHECK" = "1" ]; then
     "$PYTHON" "$PAGECHECK_SCRIPT" "$PAGECHK_TARGET" || true
   else
     echo "Skipping --page-check: no PAGECHECK_SCRIPT configured (consumer skin supplies one)."
+  fi
+fi
+
+# ---- post-render content-safety gate: runs on the FINISHED docx, after every
+# step that can still touch it (style, numbering, provenance), before the
+# completion summary. Blocking by default (D18): see the POSTRENDER_GATE_SCRIPT
+# header comment for why this hook's default differs from QC_SCRIPT's.
+if [ "$DO_POSTRENDER_GATE" = "1" ]; then
+  echo ""
+  if [ -n "$POSTRENDER_GATE_SCRIPT" ] && [ -f "$POSTRENDER_GATE_SCRIPT" ]; then
+    echo "Post-render content-safety gate ($(basename "$POSTRENDER_GATE_SCRIPT")) on $(basename "$OUTPUT_FILE")..."
+    if [ "$POSTRENDER_GATE_ADVISORY" = "1" ]; then
+      "$PYTHON" "$POSTRENDER_GATE_SCRIPT" "$OUTPUT_FILE" || echo "  (findings above are advisory, not blocking; POSTRENDER_GATE_ADVISORY=1 is set)"
+    else
+      "$PYTHON" "$POSTRENDER_GATE_SCRIPT" "$OUTPUT_FILE"
+    fi
+  else
+    echo "Skipping --postrender-gate: no POSTRENDER_GATE_SCRIPT configured (consumer skin supplies one)."
   fi
 fi
 

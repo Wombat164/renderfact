@@ -72,6 +72,61 @@ def test_docx_mode_help_shows_render_doc_sh_usage():
     assert "source not found" not in out
 
 
+def test_docstyle_mode_dispatches_and_styles_a_docx(tmp_path):
+    # Issue #74: docstyle/style_postprocess.py's own capabilities (table-widths,
+    # cover-version/date, etc.) were invisible from `render --help` because the
+    # module was not wired into the top-level dispatcher. Proves `render docstyle`
+    # reaches the real engine end to end (real subprocess dispatch, not the direct
+    # unit tests in test_docstyle.py) and actually styles the document.
+    from docx import Document
+    from docx.shared import RGBColor
+
+    doc = Document()
+    doc.add_heading("First Section", level=1)
+    doc.add_paragraph("Body text.")
+    src = tmp_path / "in.docx"
+    doc.save(str(src))
+    out = tmp_path / "out.docx"
+
+    result = run_render("docstyle", str(src), str(out))
+    assert result.returncode == 0, result.stderr
+    assert out.exists()
+
+    styled = Document(str(out))
+    h1 = next(p for p in styled.paragraphs if p.style.name == "Heading 1")
+    assert h1.runs[0].font.name == "Arial"
+    assert h1.runs[0].font.color.rgb == RGBColor(0x1F, 0x38, 0x64)
+
+
+def test_docstyle_mode_help_shows_its_own_flags():
+    result = run_render("docstyle", "--help")
+    assert result.returncode == 0, result.stderr
+    out = result.stdout + result.stderr
+    assert "--table-widths" in out
+    assert "--cover-version" in out
+
+
+def test_docstyle_mode_table_widths_flag_dispatches(tmp_path):
+    # The flag the issue calls out by name: --table-widths, driving
+    # apply_table_widths() (previously only reachable by reading source).
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("intro")
+    table = doc.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "A"
+    table.rows[0].cells[1].text = "B"
+    src = tmp_path / "widths-in.docx"
+    doc.save(str(src))
+    out = tmp_path / "widths-out.docx"
+    widths_yaml = tmp_path / "widths.yaml"
+    widths_yaml.write_text("tables:\n  - [1000, 1000]\n", encoding="utf-8")
+
+    result = run_render("docstyle", str(src), str(out), "--table-widths", str(widths_yaml))
+    assert result.returncode == 0, result.stderr
+    assert "Table widths applied" in result.stdout
+
+
 def test_diagram_mode_dispatches_to_lint_render():
     # No input files -> lint/render.py's own "no input files found" error,
     # proving the dispatch reached it in-process.
