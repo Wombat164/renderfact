@@ -416,11 +416,25 @@ skipped, the same as any unsupported extension.
   per-chain layer box) is checked against `lint/element_budget.py`'s EXISTING tier budgets - the same
   table the generic `.d2`/`.mmd`/`.svg` line-count linter already enforces - and fails closed with an
   actionable "split this into multiple views" message before any D2 is generated.
-- **Deliberately out of scope:** the issue's own FR4-FR7 (an optional ArchiMate Exchange-XML adapter:
-  stdlib-only XML parsing, ArchiMate layer/element-type mapping, fail-closed on an unsupported
-  construct, content-sniff dispatch alongside the plain-YAML source) is tracked as its own follow-up
-  issue, not built here. The core archetype has zero ArchiMate awareness and no optional dependency of
-  any kind.
+- **ArchiMate Exchange-XML adapter (issue #86, FR4-FR6 of the #68 follow-up) DONE.**
+  `lint/archimate_exchange.py` transforms an Open Group ArchiMate Model Exchange File (stdlib
+  `xml.etree.ElementTree` only, zero new dependency - Archi itself never enters renderfact's
+  toolchain) into the SAME `StackModel` shape the plain-YAML path already produces, so
+  `render_d2()`/`check_element_budget()` run completely unchanged. A fixed allowlist maps ArchiMate
+  element types onto the archetype's layer/interface roles (Node/Device/SystemSoftware/... plus
+  ApplicationComponent-family types to `Layer`, TechnologyInterface/ApplicationInterface to
+  `Interface`); any element type outside the allowlist fails closed (FR5), naming the unsupported
+  type and element rather than silently dropping content. `render diagram <model.xml>` recognizes an
+  Exchange File by content-sniff (root `<model>`, an `archimate`-bearing namespace), the same idiom
+  the plain-YAML path already uses (FR6) - a `.xml` file that doesn't sniff as ArchiMate is skipped,
+  not crashed. **Two deliberate v1 scope decisions**, both documented in the module itself rather
+  than guessed around silently: stack order is the Exchange File's own `<elements>` document order
+  (inferring vertical order from ArchiMate relationship topology is a separate, genuinely ambiguous
+  graph problem, not attempted here); N-parallel-chain auto-detection from Serving/Realization
+  relationships is NOT built - every mapped element becomes a plain Layer or Interface, never a
+  ChainsBlock, so a model with genuinely parallel realizing chains renders as an honest flat
+  sequential stack rather than a wrong or fragile guess. FR7 (fast re-render on a re-exported file)
+  remains a separate stretch item, not started.
 
 **Text-delta normalization (issue #72).** `roundtrip/reingest.py`'s `## 4. Text delta` /
 `## 5. Fast-forward plan` compare canonical-markdown lines against DOCX paragraph text, so any

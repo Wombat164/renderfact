@@ -40,6 +40,27 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **ArchiMate Exchange-XML adapter for the `layered-stack` diagram archetype** (issue #86, FR4-FR6
+  of the #68 follow-up): `lint/archimate_exchange.py` transforms an Open Group ArchiMate Model
+  Exchange File into the archetype's existing `StackModel` shape (stdlib `xml.etree.ElementTree`
+  only, zero new dependency; Archi itself never enters renderfact's toolchain), reusing
+  `render_d2()`/`check_element_budget()` completely unchanged. A fixed allowlist maps ArchiMate
+  element types (Node/Device/SystemSoftware/ApplicationComponent-family -> Layer,
+  TechnologyInterface/ApplicationInterface -> Interface) onto the archetype's roles; any element
+  type outside the allowlist fails closed (FR5), naming the unsupported type and element rather than
+  silently dropping content. `render diagram <model.xml>` recognizes an Exchange File by
+  content-sniff (FR6), the same idiom the plain-YAML `.yaml`/`.yml` path already uses. Two
+  deliberate v1 scope decisions, documented in the module rather than silently guessed around: stack
+  order is the Exchange File's own `<elements>` document order (inferring vertical order from
+  ArchiMate relationship topology is a separate, genuinely ambiguous problem); N-parallel-chain
+  auto-detection from Serving/Realization relationships is not built (every element renders as a
+  plain Layer/Interface, never a ChainsBlock). FR7 (fast re-render on a re-exported file) remains a
+  separate stretch item. 20 new tests in `tests/test_archimate_exchange.py`: sniff (valid/unrelated/
+  garbage/missing-file/non-ArchiMate-`<model>`), parsing + type mapping + document order, label
+  fallback, fail-closed on an unsupported type/duplicate id/missing or empty `<elements>`/non-model
+  root/malformed XML, D2 emission + NFR6 budget enforcement, and `lint/render.py`'s new `.xml`
+  dispatch branch (skip-not-crash on non-ArchiMate XML, reject on an unsupported element, an
+  end-to-end SVG render skip-guarded on the D2 CLI).
 - **`import-template --guidance-doc`: mechanical structural scan of a template's accompanying
   style/usage guide** (issue #100): a branded template often ships alongside a SEPARATE document (a
   policy/methodology paper explaining what each section is for, what's out of scope, how it fits the
