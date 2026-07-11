@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -608,6 +609,108 @@ def run_idempotency_check(probe_md: Path, template: Path, profile_path: Path,
 
 
 # --------------------------------------------------------------------------
+# Guidance-doc scan (issue #100)
+# --------------------------------------------------------------------------
+#
+# A branded template often ships alongside a SEPARATE document -- a policy or
+# methodology paper explaining what each section is for, what's out of scope,
+# how the document fits the surrounding process. import-template previously had
+# no awareness that this second artifact usually exists; mining it for
+# authoring doctrine was a fully manual, easy-to-forget step done after the
+# fact. This is deliberately a MECHANICAL structural scan (heading/paragraph
+# counts + a heading-text preview), not extraction: judging what the doctrine
+# actually says and seeding editorial-doctrine.yaml (issue #84's concept, not
+# yet built) from it is a judgment-heavy summarization task left to the
+# operator, not automated here.
+
+_HEADING_STYLE_PREFIXES = ("Heading", "Title", "Subtitle")
+_MD_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$")
+
+
+class GuidanceScanError(Exception):
+    """Raised when --guidance-doc points at a file type this scan can't read."""
+
+
+@dataclass
+class GuidanceScan:
+    path: Path
+    heading_count: int
+    paragraph_count: int
+    headings: list[str]          # preview, capped at heading_preview_cap
+    headings_truncated: bool
+
+
+def scan_guidance_doc(path: Path, heading_preview_cap: int = 12) -> GuidanceScan:
+    """Mechanical structural scan of an accompanying guidance/usage document.
+
+    .docx: a paragraph is a heading if its style name starts with
+    Heading/Title/Subtitle (same convention KNOWN_NON_CUSTOM_STYLE_NAMES-
+    adjacent code elsewhere in this repo already uses), else it counts as a
+    body paragraph if non-empty. .md/.markdown/.txt: an ATX heading line
+    (# through ######) starting a blank-line-separated block counts as a
+    heading; any other non-empty block counts as a paragraph.
+    """
+    suffix = path.suffix.lower()
+    headings: list[str] = []
+    paragraph_count = 0
+
+    if suffix == ".docx":
+        from docx import Document
+        doc = Document(str(path))
+        for p in doc.paragraphs:
+            text = p.text.strip()
+            if not text:
+                continue
+            style_name = (p.style.name if p.style else "") or ""
+            if style_name.startswith(_HEADING_STYLE_PREFIXES):
+                headings.append(text)
+            else:
+                paragraph_count += 1
+    elif suffix in (".md", ".markdown", ".txt"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for block in re.split(r"\n\s*\n", text.strip()):
+            block = block.strip()
+            if not block:
+                continue
+            m = _MD_HEADING_RE.match(block.splitlines()[0])
+            if m:
+                headings.append(m.group(1).strip())
+            else:
+                paragraph_count += 1
+    else:
+        raise GuidanceScanError(
+            f"unsupported --guidance-doc type: {suffix or '(no extension)'} "
+            "(expected .docx, .md, .markdown, or .txt)"
+        )
+
+    return GuidanceScan(
+        path=path,
+        heading_count=len(headings),
+        paragraph_count=paragraph_count,
+        headings=headings[:heading_preview_cap],
+        headings_truncated=len(headings) > heading_preview_cap,
+    )
+
+
+def format_guidance_scan_report(scan: GuidanceScan) -> str:
+    lines = [
+        f"Guidance-doc scan: {scan.path}",
+        f"  {scan.heading_count} section heading(s), {scan.paragraph_count} paragraph(s) "
+        "that look like authoring guidance",
+    ]
+    if scan.headings:
+        preview = "; ".join(scan.headings)
+        if scan.headings_truncated:
+            preview += "; ..."
+        lines.append(f"  Headings: {preview}")
+    lines.append(
+        "  Mechanical structural scan only, nothing extracted or summarized -- consider "
+        "seeding editorial-doctrine.yaml from this by hand (issue #84 covers that schema)."
+    )
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -626,6 +729,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--date", default=None,
                     help="import date stamped into the provenance header (YYYY-MM-DD); "
                          "default: today")
+    ap.add_argument("--guidance-doc", type=Path, default=None, metavar="DOC",
+                    help="an accompanying style/usage guide for this template (.docx/.md/.txt), "
+                         "if one exists -- gets a mechanical structural scan (heading/paragraph "
+                         "count + heading preview) surfaced back to you as a pointer toward "
+                         "seeding editorial-doctrine.yaml (issue #84); not auto-extracted")
     ap.add_argument("--check", type=Path, default=None, metavar="PROBE.md",
                     help="idempotency gate: render PROBE.md through render-doc.sh (--profile "
                          "reference, the only profile that actually uses the derived 'body' "
@@ -679,6 +787,28 @@ def main(argv: list[str] | None = None) -> int:
     print("Consumer wrapper env:")
     print(f"TEMPLATE_DOCX={template_docx_env}")
     print(f"TEMPLATE_PROFILE={profile_path.resolve()}")
+
+    print()
+    if args.guidance_doc is not None:
+        if not args.guidance_doc.exists():
+            print(f"ERROR: --guidance-doc not found: {args.guidance_doc}", file=sys.stderr)
+            return 2
+        try:
+            scan = scan_guidance_doc(args.guidance_doc)
+        except GuidanceScanError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        print(format_guidance_scan_report(scan))
+    else:
+        # A printed reminder, not a blocking stdin prompt (this CLI has no other
+        # interactive input anywhere, and a blocking prompt would hang CI/scripted
+        # runs) -- but still an active nudge at the one moment an operator has both
+        # artifacts in hand and is thinking about this template, per issue #100.
+        print("No --guidance-doc given. If this template ships with a separate style/usage "
+              "guide (a policy paper explaining what each section is for), re-run with "
+              "--guidance-doc <path> for a structural pointer toward seeding "
+              "editorial-doctrine.yaml (issue #100/#84) -- easy to forget once the template "
+              "itself has been imported.")
 
     if args.check is not None:
         if not args.check.exists():

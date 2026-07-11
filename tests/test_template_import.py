@@ -649,3 +649,125 @@ def test_render_py_dispatches_import_template(tmp_path):
     assert f'accent: "{KNOWN_ACCENT1}"' in text
     assert "TEMPLATE_DOCX=" in result.stdout
     assert "TEMPLATE_PROFILE=" in result.stdout
+
+
+# ---------- (g) guidance-doc scan (issue #100) ----------
+
+def _guidance_docx(tmp_path, name="guidance.docx") -> Path:
+    doc = Document()
+    doc.add_heading("Scope", level=1)
+    doc.add_paragraph("This section explains what the template covers.")
+    doc.add_heading("Out of scope", level=1)
+    doc.add_paragraph("This section explains what is explicitly excluded.")
+    doc.add_paragraph("A second paragraph under the same heading.")
+    path = tmp_path / name
+    doc.save(str(path))
+    return path
+
+
+def test_scan_guidance_doc_docx_counts_headings_and_paragraphs(tmp_path):
+    path = _guidance_docx(tmp_path)
+    scan = ti.scan_guidance_doc(path)
+    assert scan.heading_count == 2
+    assert scan.paragraph_count == 3
+    assert scan.headings == ["Scope", "Out of scope"]
+    assert scan.headings_truncated is False
+
+
+def test_scan_guidance_doc_docx_truncates_heading_preview(tmp_path):
+    doc = Document()
+    for i in range(15):
+        doc.add_heading(f"Section {i}", level=1)
+        doc.add_paragraph("body")
+    path = tmp_path / "many-headings.docx"
+    doc.save(str(path))
+
+    scan = ti.scan_guidance_doc(path, heading_preview_cap=12)
+    assert scan.heading_count == 15
+    assert len(scan.headings) == 12
+    assert scan.headings_truncated is True
+
+
+def test_scan_guidance_doc_markdown_counts_headings_and_paragraphs(tmp_path):
+    path = tmp_path / "guidance.md"
+    path.write_text(
+        "# Scope\n\nThis section explains what the template covers.\n\n"
+        "## Out of scope\n\nThis section explains what is excluded.\n\n"
+        "Another standalone paragraph with no heading of its own.\n",
+        encoding="utf-8",
+    )
+    scan = ti.scan_guidance_doc(path)
+    assert scan.heading_count == 2
+    assert scan.headings == ["Scope", "Out of scope"]
+    # 3 body blocks: one under Scope, one under Out of scope, plus the trailing
+    # standalone paragraph -- blank-line-separated blocks, not sentences.
+    assert scan.paragraph_count == 3
+
+
+def test_scan_guidance_doc_txt_uses_same_atx_heading_convention(tmp_path):
+    path = tmp_path / "guidance.txt"
+    path.write_text("# Purpose\n\nWhy this template exists.\n", encoding="utf-8")
+    scan = ti.scan_guidance_doc(path)
+    assert scan.heading_count == 1
+    assert scan.headings == ["Purpose"]
+    assert scan.paragraph_count == 1
+
+
+def test_scan_guidance_doc_raises_on_unsupported_extension(tmp_path):
+    path = tmp_path / "guidance.pdf"
+    path.write_bytes(b"%PDF-1.4 not a real pdf")
+    with pytest.raises(ti.GuidanceScanError, match="unsupported"):
+        ti.scan_guidance_doc(path)
+
+
+def test_format_guidance_scan_report_includes_counts_and_headings():
+    scan = ti.GuidanceScan(
+        path=Path("guidance.docx"), heading_count=2, paragraph_count=3,
+        headings=["Scope", "Out of scope"], headings_truncated=False,
+    )
+    report = ti.format_guidance_scan_report(scan)
+    assert "2 section heading(s), 3 paragraph(s)" in report
+    assert "Scope; Out of scope" in report
+    assert "editorial-doctrine.yaml" in report
+
+
+def test_main_with_guidance_doc_prints_scan_report(tmp_path, capsys):
+    template = _build_branded_template(tmp_path)
+    guidance = _guidance_docx(tmp_path)
+    rc = ti.main([str(template), "--out-dir", str(tmp_path / "skin"),
+                  "--date", "2026-07-03", "--guidance-doc", str(guidance)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Guidance-doc scan:" in out
+    assert "2 section heading(s), 3 paragraph(s)" in out
+    assert "No --guidance-doc given" not in out
+
+
+def test_main_without_guidance_doc_prints_reminder(tmp_path, capsys):
+    template = _build_branded_template(tmp_path)
+    rc = ti.main([str(template), "--out-dir", str(tmp_path / "skin"), "--date", "2026-07-03"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "No --guidance-doc given" in out
+    assert "--guidance-doc <path>" in out
+    assert "Guidance-doc scan:" not in out
+
+
+def test_main_with_missing_guidance_doc_path_errors(tmp_path, capsys):
+    template = _build_branded_template(tmp_path)
+    rc = ti.main([str(template), "--out-dir", str(tmp_path / "skin"), "--date", "2026-07-03",
+                  "--guidance-doc", str(tmp_path / "does-not-exist.docx")])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "ERROR" in err and "does-not-exist.docx" in err
+
+
+def test_main_with_unsupported_guidance_doc_type_errors(tmp_path, capsys):
+    template = _build_branded_template(tmp_path)
+    bad = tmp_path / "guidance.pdf"
+    bad.write_bytes(b"%PDF-1.4 not a real pdf")
+    rc = ti.main([str(template), "--out-dir", str(tmp_path / "skin"), "--date", "2026-07-03",
+                  "--guidance-doc", str(bad)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "unsupported" in err
