@@ -1,0 +1,96 @@
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: right
+
+source: {
+  label: "Full-candor source\n(markdown / YAML)"
+  shape: rectangle
+  style: {
+    fill: "#284b63"
+    font-color: "#faf8f8"
+    border-radius: 4
+  }
+}
+
+projection: {
+  label: "Projection\n(audience / clearance / disclosure profile)"
+  shape: rectangle
+  style: {
+    fill: "#7b97aa"
+    font-color: "#161618"
+    border-radius: 4
+  }
+}
+
+engines: {
+  label: "Pinned render engines"
+  shape: rectangle
+  style: {
+    fill: "#84a59d"
+    font-color: "#161618"
+    border-radius: 4
+    stroke-dash: 3
+  }
+  pandoc: "pandoc"
+  typst: "typst"
+  d2engine: "d2 / mermaid"
+}
+
+outputs: {
+  label: "Governed outputs"
+  shape: rectangle
+  style: {
+    stroke-dash: 3
+  }
+  docx: "DOCX"
+  pdf: "PDF"
+  diagram: "diagram"
+  eml: ".eml"
+}
+
+gates: {
+  label: "QA gate chain\n(vale, lychee, verapdf, uids, plainlang)"
+  shape: rectangle
+  style: {
+    fill: "#e5e5e5"
+    font-color: "#2b2b2b"
+    border-radius: 4
+  }
+}
+
+provenance: {
+  label: "Hidden provenance\n(stripped on external projections)"
+  shape: rectangle
+  style: {
+    fill: "#e5e5e5"
+    font-color: "#2b2b2b"
+    border-radius: 4
+  }
+}
+
+source -> projection: "one source,\nmany profiles"
+projection -> engines
+engines.pandoc -> outputs.docx
+engines.pandoc -> outputs.eml
+engines.typst -> outputs.pdf
+engines.d2engine -> outputs.diagram
+
+outputs -> gates: "fail-closed"
+source -> provenance: {style.stroke-dash: 2}
+provenance -> outputs: "embedded\n(internal) or\nstripped (external)" {style.stroke-dash: 2}
+
+outputs.docx -> reingest: "hand-edit,\nre-ingest"
+reingest: {
+  label: "Mechanical re-ingestion\n+ decision capture"
+  shape: rectangle
+  style: {
+    fill: "#faf8f8"
+    stroke: "#284b63"
+    border-radius: 4
+  }
+}
+reingest -> source: "round-trips\nthe decision" {style.stroke-dash: 2}
