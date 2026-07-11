@@ -330,6 +330,198 @@ def test_derived_style_fonts_round_trip_through_consumer(tmp_path, monkeypatch):
     assert body_para.runs[0].font.name == KNOWN_MINOR_FONT
 
 
+# ---------- body_style detection + consumption (issue #101) ----------
+
+def _add_custom_style(doc, name, font_name, based_on="Normal"):
+    from docx.enum.style import WD_STYLE_TYPE
+    style = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    style.base_style = doc.styles[based_on]
+    style.font.name = font_name
+    return style
+
+
+def test_derive_profile_detects_body_style_named_body(tmp_path):
+    """A template defining its own "Body" paragraph style with a font distinct
+    from Normal (the real-world shape: an institutional template author adds a
+    dedicated body style rather than styling Normal directly) is detected as
+    the template's body_style."""
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    _add_custom_style(doc, "Body", "Calibri")
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.body_style == "Body"
+    assert dp.style_fonts.get("Body") == "Calibri"
+
+
+def test_derive_profile_falls_back_to_body_text(tmp_path):
+    """No style literally named "Body", but Word's own built-in "Body Text"
+    style carries a distinct font -- still detected."""
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    doc.styles["Body Text"].font.name = "Calibri"
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.body_style == "Body Text"
+
+
+def test_derive_profile_prefers_body_over_body_text(tmp_path):
+    """If a template somehow defines distinct fonts for BOTH "Body" and "Body
+    Text", "Body" wins -- it's the more specific, deliberately-authored name
+    seen in real institutional templates; "Body Text" is Word's generic
+    built-in gallery entry."""
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    _add_custom_style(doc, "Body", "Calibri")
+    doc.styles["Body Text"].font.name = "Arial"
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.body_style == "Body"
+
+
+def test_derive_profile_no_body_style_when_absent(tmp_path):
+    """No "Body" or "Body Text" style with a distinguishing font: body_style
+    is None, exactly the pre-#101 behaviour (no remap, unchanged output)."""
+    template = _build_branded_template(tmp_path)
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+
+    assert dp.body_style is None
+
+
+def test_render_profile_yaml_emits_body_style(tmp_path):
+    template = _build_branded_template(tmp_path)
+    doc = Document(str(template))
+    _add_custom_style(doc, "Body", "Calibri")
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert 'body_style: "Body"' in yaml_text
+
+
+def test_render_profile_yaml_notes_no_body_style_when_absent(tmp_path):
+    template = _build_branded_template(tmp_path)
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert "body_style:" not in yaml_text.replace("# body_style:", "")
+    assert "not derivable" in yaml_text
+
+
+def test_body_style_round_trip_through_consumer(tmp_path, monkeypatch):
+    """End-to-end: a template with its own "Body" style (Calibri, distinct from
+    Normal's global font) derives body_style="Body", and style_postprocess then
+    remaps an ordinary Normal-styled body paragraph to it -- the paragraph's
+    style NAME changes AND its run carries no direct-formatting override
+    (issue #98's existing custom-style-preservation logic takes over once the
+    remap happens), so it resolves Body's own Calibri via pure style
+    inheritance rather than the house/global font (issue #101)."""
+    import importlib
+
+    from docstyle import style_postprocess as sp
+
+    importlib.reload(sp)
+
+    template = _build_branded_template(tmp_path, name="body-style-template.docx")
+    doc = Document(str(template))
+    _add_custom_style(doc, "Body", "Calibri")
+    doc.save(str(template))
+
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    assert dp.body_style == "Body"
+
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    profile_path = tmp_path / "template-profile.yaml"
+    profile_path.write_text(ti.render_profile_yaml(prov, dp), encoding="utf-8")
+
+    # Base the consumer doc on a COPY of the template (not a bare Document()):
+    # this is what pandoc's own --reference-doc mechanism actually does --
+    # carries the reference doc's styles.xml, including the custom "Body"
+    # style, into the rendered output. A bare Document() would only have
+    # python-docx's own built-ins (fine for "Quote" in the sibling test above,
+    # not fine for a style this test itself just defined on the template).
+    src = tmp_path / "consumer-in.docx"
+    shutil.copy(str(template), str(src))
+    consumer_doc = Document(str(src))
+    consumer_doc.add_heading("Body Section", level=1)
+    consumer_doc.add_paragraph("An ordinary Normal-styled body paragraph.")
+    consumer_doc.save(str(src))
+
+    out = tmp_path / "consumer-out.docx"
+    monkeypatch.setattr(sys, "argv",
+                        ["style_postprocess.py", str(src), str(out),
+                         "--template-profile", str(profile_path)])
+    sp.main()
+
+    out_doc = Document(str(out))
+    body_para = next(p for p in out_doc.paragraphs
+                     if p.text.startswith("An ordinary Normal"))
+    assert body_para.style.name == "Body"
+    assert body_para.runs[0].font.name is None  # no direct override -> pure style inheritance
+
+
+def test_no_body_style_leaves_normal_paragraphs_unchanged(tmp_path, monkeypatch):
+    """No body_style key in the profile (the common case: most templates don't
+    define a distinct body style) -- Normal-styled paragraphs keep getting the
+    house/global font exactly as before this feature existed, proving the
+    change is a no-op by default."""
+    import importlib
+
+    from docstyle import style_postprocess as sp
+
+    importlib.reload(sp)
+
+    template = _build_branded_template(tmp_path, name="no-body-style-template.docx")
+    theme = read_theme(template)
+    doc2 = Document(str(template))
+    dp = ti.derive_profile(doc2, theme)
+    assert dp.body_style is None
+
+    prov = ti.build_import_provenance(template, date_str="2026-07-10")
+    profile_path = tmp_path / "template-profile.yaml"
+    profile_path.write_text(ti.render_profile_yaml(prov, dp), encoding="utf-8")
+
+    consumer_doc = Document()
+    consumer_doc.add_paragraph("An ordinary Normal-styled body paragraph.")
+    src = tmp_path / "consumer-in.docx"
+    consumer_doc.save(str(src))
+
+    out = tmp_path / "consumer-out.docx"
+    monkeypatch.setattr(sys, "argv",
+                        ["style_postprocess.py", str(src), str(out),
+                         "--template-profile", str(profile_path)])
+    sp.main()
+
+    out_doc = Document(str(out))
+    body_para = next(p for p in out_doc.paragraphs
+                     if p.text.startswith("An ordinary Normal"))
+    assert body_para.style.name == "Normal"
+    assert body_para.runs[0].font.name == KNOWN_MINOR_FONT
+
+
 def test_main_writes_profile_with_copy_reference(tmp_path):
     template = _build_branded_template(tmp_path)
     out_dir = tmp_path / "skin"

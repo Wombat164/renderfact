@@ -230,6 +230,7 @@ class DerivedProfile:
     derived: dict[str, Any] = field(default_factory=dict)
     not_derived: dict[str, str] = field(default_factory=dict)
     style_fonts: dict[str, str] = field(default_factory=dict)
+    body_style: str | None = None
 
 
 _NOT_DERIVABLE_ALWAYS = {
@@ -264,6 +265,23 @@ def derive_profile(doc, theme: Theme) -> DerivedProfile:
                                "theme has no minor-latin typeface")
 
     style_fonts = derive_style_font_overrides(doc, theme, derived.get("font"))
+
+    # Default body-paragraph style detection (issue #101). pandoc's docx writer
+    # styles an ordinary body paragraph "Normal" regardless of whether the
+    # template defines its own dedicated body style (commonly named "Body" or
+    # Word's built-in "Body Text") with its own font -- so that style sits
+    # unused and the paragraph falls back to Normal's (often undefined) font.
+    # Prefer "Body" (seen in real institutional templates) over "Body Text"
+    # (Word's own built-in name) if a template somehow defines both distinctly.
+    # Only counts as a real body style if it's already confirmed in style_fonts
+    # (i.e. derive_style_font_overrides found it has a genuine font override,
+    # distinct from Normal) -- a style with the right name but no distinguishing
+    # font isn't worth remapping paragraphs into, nothing would change.
+    body_style = None
+    for candidate in ("Body", "Body Text"):
+        if candidate in style_fonts:
+            body_style = candidate
+            break
 
     accent = h1.get("color") or theme.colors.get("accent1")
     if accent:
@@ -300,7 +318,8 @@ def derive_profile(doc, theme: Theme) -> DerivedProfile:
             f"({sides_str} cm) and the profile only supports one margin_cm value"
         )
 
-    return DerivedProfile(derived=derived, not_derived=not_derived, style_fonts=style_fonts)
+    return DerivedProfile(derived=derived, not_derived=not_derived, style_fonts=style_fonts,
+                          body_style=body_style)
 
 
 def extract_rendered_style_properties(docx_path: Path) -> dict[str, Any]:
@@ -420,6 +439,25 @@ def render_profile_yaml(provenance: dict[str, str], dp: DerivedProfile) -> str:
         lines += [
             "# No per-style font overrides found: every paragraph style in this template",
             "# resolves to the same font as 'font' above.",
+        ]
+    if dp.body_style:
+        lines += [
+            "",
+            "# Default body-paragraph style (issue #101): pandoc styles an ordinary body",
+            '# paragraph "Normal" regardless of whether the template defines its own',
+            f'# dedicated body style -- this template does ("{dp.body_style}", see styles:',
+            "# above). style_postprocess.py remaps Normal-styled body paragraphs to this",
+            "# style before font-styling runs, so its own font/size is respected via the",
+            "# existing per-style-font-override + custom-style-preservation logic",
+            "# (issues #97/#98) instead of falling back to Normal's (often undefined) font.",
+            f'body_style: "{dp.body_style}"',
+        ]
+    else:
+        lines += [
+            "",
+            "# body_style: not derivable -- no paragraph style named \"Body\" or \"Body Text\"",
+            "# with its own distinct font was found in this template; ordinary body",
+            "# paragraphs render via Normal as before.",
         ]
     lines += [
         "",
