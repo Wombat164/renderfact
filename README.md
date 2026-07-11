@@ -33,12 +33,14 @@
 
 Write a document once, with everything in it. renderfact projects it per audience (clearance and
 disclosure gating at the preprocessor level, so excluded content never reaches any output), renders
-it through pinned engines (styled DOCX, mermaid/d2 diagrams, editable draw.io), stamps every
-artifact with provenance, and round-trips reviewer edits back toward the source. The name is a
-double meaning: render + artefact (what it produces), render factory (what it is).
+it through pinned engines (styled DOCX, archival PDF via typst, sendable `.eml`, mermaid/d2/
+ArchiMate diagrams, editable draw.io/Visio), stamps every artifact with provenance, and round-trips
+reviewer edits back toward the source. The name is a double meaning: render + artefact (what it
+produces), render factory (what it is).
 
-> Status: early (v0.1.0), MIT. Real pipelines consolidated into one OSS toolchain; the
-> capability matrix below says exactly what runs today vs. what is roadmap.
+> Status: active development, MIT (see the PyPI badge above for the current version). Real
+> pipelines consolidated into one OSS toolchain; the capability matrix below says exactly what
+> runs today vs. what is roadmap.
 
 ## Quickstart
 
@@ -98,10 +100,13 @@ bound, in which case provenance is stripped.
 |---|---|---|
 | **Author + project** | Audience/clearance/disclosure projection | `render project` |
 | | Styled DOCX with generic house style + field numbering | `render docx` |
-| | Diagrams (mermaid, d2) with pre-render lint + visual-QA metrics | `render diagram` |
+| | Layout-native branded PDF via typst (archival/tagged; statement tables), no LibreOffice | `render pdf` |
+| | Plain-text, sendable RFC822 `.eml` with a skin signature block | `render eml` |
+| | Diagrams (mermaid, d2, the `layered-stack` archetype from plain YAML or an ArchiMate Exchange File) with pre-render lint + visual-QA metrics | `render diagram` |
 | | Brand tokens to per-engine themes | `render tokens` |
-| | Template import: derive a skin from any branded DOCX | `render import-template` |
+| | Template import: derive a skin from any branded DOCX, incl. per-style fonts + a structural scan of an accompanying guidance doc | `render import-template` |
 | | Genre template pack (executive summary, briefs, pitches, purchase request) with rendered exemplars | [`templates/`](templates/) |
+| | Project registry (manifest, render-ledger, git facts) + a built-in template library | `render projects` / `render templates` |
 | **Round-trip** | Hidden provenance across DOCX/XLSX/PPTX | `render provenance` |
 | | Mechanical DOCX re-ingestion: verdicts, reviewer-edit report, fast-forward apply, embedded-doc triage | `render reingest` |
 | | Document-edit decision capture (contextualize a reingest diff; deterministic first, LLM past a gate) | `render contextualize` |
@@ -115,7 +120,7 @@ bound, in which case provenance is stripped.
 | | Host-vs-lock drift report (never fails: that is the container's job) | `render doctor` |
 | **Operate** | Dual-mode LLM steps: your harness or plain copy-paste, one schema | `render init-ai` / `copy-paste` |
 | | Localhost HTTP API + thin reference UI | `render serve` |
-| **Roadmap** | Slide decks, A2 posters, archival PDF output (v0.2.x); structured source editor (designed) | |
+| **Roadmap** | Slide decks, A2 posters; structured source editor (designed) | |
 
 ## Why this exists
 
