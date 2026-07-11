@@ -55,6 +55,16 @@
 #   RESOURCE_PATH       pandoc --resource-path root for relative images
 #                         default: the source file's own directory
 #   OUTPUT_DIR          default: ./renders
+#   PANDOC_EXTRA_EXTENSIONS
+#                       extra pandoc reader extensions appended to the canonical
+#                       --from value pandoc_markdown.py computes (issue #69's single
+#                       source of truth; already includes pipe_tables, grid_tables,
+#                       fenced_divs, yaml_metadata_block, raw_attribute, and the
+#                       wikilink extension -- a consumer needing one of THOSE no
+#                       longer needs this var at all). e.g. "+footnotes" for a skin
+#                       whose source markdown uses a reader extension none of the
+#                       repo's own call sites need. Empty by default (no behavior
+#                       change for existing consumers).
 #   PROVENANCE          auto (default) embeds D11 provenance from the canonical
 #                       source into every rendered artifact, EXCEPT under a
 #                       projection profile with strip_provenance: true, where the
@@ -298,7 +308,7 @@ print(0 if prof.get('toc', True) else 1)
 fi
 
 PANDOC_ARGS=(
-  --from="$PANDOC_FROM_MD"
+  --from="${PANDOC_FROM_MD}${PANDOC_EXTRA_EXTENSIONS:-}"
   --resource-path="$RESOURCE_PATH"
 )
 if [ "$NO_TOC" = "1" ]; then

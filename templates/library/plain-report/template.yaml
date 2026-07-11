@@ -1,0 +1,8 @@
+# plain-report: built-in domain-neutral template library entry (Track J, 6.3).
+# Ships with the core; carries no brand -- import a real corporate DOCX via
+# POST /templates/import (or `render import-template`) for a styled report.
+name: plain-report
+doc_type: report
+description: Domain-neutral plain report -- no brand, house-default styling only.
+derived_from: null
+diagram_scaffolds: [mermaid]
