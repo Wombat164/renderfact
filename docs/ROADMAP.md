@@ -137,6 +137,66 @@ for zero-arg hook invocation), keeping the public core domain-neutral.
   eligibility cutoff, closes that blind spot without reintroducing false positives on genuinely
   proportional small columns.
 
+- **B5 - DOCX cover/marking fidelity hardening (real-consumer session, 2026-07-12).** `[build]` Four
+  bugs a single real corporate-template onboarding surfaced, all in `docstyle/style_postprocess.py`,
+  all silent (no error, no visible signal at the point the defect actually ships). Priority order
+  reflects severity, not issue number - #123-core and #122 are both top-tier (a wrong compliance
+  marking and a deleted section heading are not "cosmetic," rank them together, not #122-then-#123):
+  - **B5.1 - `build_reference_cover()` deletes the wrong Heading 1 (#122).** Severity: silent data
+    loss. The duplicate-title removal (`is_ref`-gated cover cleanup) deletes "the first `Heading 1`
+    that is not Part-prefixed" *positionally*, with no text comparison against the actual title, so
+    a flat (non-multi-part) document's first real section heading is destroyed instead of a genuine
+    duplicate. Fix: compare against `doc.core_properties.title` before deleting; add a
+    `cover.no_parts: true` template-profile opt-out for documents with no Part structure at all
+    (today's only workaround is `--profile compact`, which sidesteps the whole cover-cleanup step
+    but does not fix the underlying positional-deletion bug it's built on top of, and loses the
+    reference profile's typography in the process).
+  - **B5.2 - Unconfigured template-inherited classification marking ships silently (#123).** Severity:
+    compliance/correctness, not cosmetic - a wrong or leftover marking (e.g. a corporate template's
+    own placeholder text) reaches every page of a real render with zero signal. PR #124 (merged-ready)
+    added a render-time warning for the "configured under the wrong profile-gated key" case only; it
+    does not inspect header/footer text at all, so the PRIMARY scenario in this issue - nothing
+    configured under EITHER `classification.header_footer_replacements` or `brief_replacements`, and
+    the source template's marking passes through untouched - fires no warning either way. Remaining
+    work: (a) a default/example `POSTRENDER_GATE_SCRIPT`-style check (D18's existing gated-hook
+    infrastructure, just needs a shipped default) for "header/footer text matches a common marking
+    pattern with no corresponding `classification.*` entry"; (b) `render import-template` flags
+    detected marking-like header/footer text as a "not derivable, review before use" comment in the
+    generated `template-profile.yaml`, the same honesty pattern it already uses for
+    `body_muted`/`table_body`/`zebra`.
+  - **B5.3 - Classification replacement fails across a run boundary on the reference-profile path
+    (#87, re-scoped from the original issue text).** The original issue claimed BOTH
+    `fix_header_footer_text` (compact-profile path) and `apply_brief_classification_marking`
+    (reference-profile path) match per-run and both silently no-op across a run split. Verified
+    against source: `fix_header_footer_text` already concatenates to paragraph-level text
+    (`full_text = p.text`) before matching, so the compact path is NOT broken - only
+    `apply_brief_classification_marking`'s per-run `if find in run.text` is. Two sub-parts of
+    unequal cost: (a) cheap - port the same paragraph-level-then-per-run-write pattern already
+    proven in the compact path; (b) non-trivial - "bare marking, no suffix" (a marking string with
+    nothing appended, e.g. no trailing `(POLICY-REF)`) currently has nothing to append/insert INTO,
+    which needs run synthesis that still preserves the PAGE field this function is careful about
+    today. Do (a) first; (b) can slip a release without blocking (a).
+  - **B5.4 - Title/heading point size hardcoded per style-profile, not derived or overridable
+    (#121, narrowed).** The original issue also claimed heading COLOR was hardcoded; verified
+    WRONG and retracted (`NAVY = _rgb(THEME['accent'])` already reads the template-derived accent
+    color correctly). Size is the real, confirmed gap: `PROFILES['compact'|'reference']['title'
+    |'sub'|'h1'..'h4']` are fixed constants (14pt/22pt title, similarly fixed h1-h4) with no
+    `template-profile.yaml` key to override them, so `render import-template` (which already
+    measures font FAMILY per style) cannot capture a source template's actual title/heading point
+    sizes. Fix: extend the same styles.xml-walk `import-template` already does for font family to
+    also measure `w:sz`, emit `title_size_pt`/heading-size keys with an honest "not derivable"
+    fallback comment matching the existing pattern, and have `style_postprocess` read them instead
+    of the hardcoded profile constants.
+- **B6 - `render docx --pdf` help overpromises automatic Word-COM on Windows (#120).** `[build]`
+  The one-line `--help` text ("also convert to PDF (Word-COM on Windows, else soffice)") reads as
+  automatic; the actual gate requires a consumer-supplied `PDF_CONVERTER_PS1` pointing at a script
+  that does the Word COM automation, and no such script ships in the repo - on a stock Windows host
+  with Word installed but no LibreOffice and no custom converter configured, `--pdf` silently no-ops
+  with only a WARN. Minimum fix: correct the help text to name `PDF_CONVERTER_PS1` explicitly.
+  Better: ship a small default `container/word-to-pdf.ps1` Word-COM converter that `render-doc.sh`
+  falls back to automatically when Word is detected and no custom `PDF_CONVERTER_PS1` is set,
+  keeping the env var as an override for consumers who want different conversion settings.
+
 ## Track C - Add
 
 - **C8 - Editable-diagram round-trip.** Operator ecosystem split (2026-07-04): .drawio is the
@@ -244,12 +304,31 @@ for zero-arg hook invocation), keeping the public core domain-neutral.
   `word/document.xml` verbatim, and the negative control with the extension explicitly disabled
   confirms it stays an inert code block without it). This is deliberately the SMALL, mechanical half
   of the issue: it only unblocks the escape hatch, it does not add any native markdown syntax. **NEXT
-  (separate follow-up issue, not this one):** purpose-built markdown syntax for the two gaps that
-  motivated the escape hatch and that onboarding a real institutional form template surfaced -
-  checkbox/dropdown Word content controls (`w:sdt`, currently unrepresentable in the AST at all) and
-  merged/spanned table cells (`gridSpan`, pipe/grid tables have no colspan or rowspan support). Manual
+  (filed as #105, the follow-up this note already named):** purpose-built markdown syntax for the two
+  gaps that motivated the escape hatch and that onboarding a real institutional form template
+  surfaced - checkbox/dropdown Word content controls (`w:sdt`, currently unrepresentable in the AST
+  at all) and merged/spanned table cells (`gridSpan`, pipe/grid tables have no colspan or rowspan
+  support). Manual
   `{=openxml}` blocks remain the only path to either until that follow-up lands, and they are
   advanced/fragile by nature (hand-written OOXML, no toolchain validation), not the ergonomic answer.
+
+- **C11 - `render xlsx` styling mode (#63).** `[build]` No XLSX render mode exists today (`MODES` in
+  `render.py` has no `xlsx` entry) - the only current XLSX support is D11 provenance embed/retarget on
+  an already-produced file, not generation or theming. `openpyxl` is already a repo dependency (F4),
+  so this is a genuinely new render mode/writer, not a new external dependency: a canonical
+  YAML/JSON row-major source (values and formulas kept distinct, matching D12b), a new `xlsx` token
+  generator alongside `tokens/gen/{mermaid,marp,pandoc,typst}` for consistent theming, and a
+  categorical color-scale helper with a documented minimum-contrast rule decided at design time, not
+  discovered later as an accessibility bug. Largest single item in this batch; slated v0.6.0.
+- **C12 - Finish the CV / cover-letter genre (#62 residual).** `[build]` Core work already merged
+  (5 commits: `pdf/theme/cv-personal.typ`, `templates/cv.md`, `templates/cover-letter.md`,
+  `docs/2026-07-05-cv-cover-letter-design-spec.md`); this issue survives only for two residual asks,
+  both still open: (a) wire the CV/cover-letter render into `demo/render-demo.sh` and the CI matrix
+  (today neither references it at all - the theme can silently regress with no test coverage,
+  confirmed absent from both); (b) file the two follow-up issues the design spec already named
+  (a Typst symbol-name lint, and an `identity-block`/`:::identity` authoring helper) rather than
+  leaving them as prose inside #62. Cheap - anti-rot housekeeping on top of already-shipped work,
+  not new design.
 
 ## Track D - Round-trip / draft reconciliation
 
@@ -351,6 +430,18 @@ public audience.
   builds a small "corporate" branded DOCX programmatically and derives a template profile from it
   via `render import-template`, closing with the probe-render idempotency gate. Each chapter skips
   with an honest message when its engine is missing, like the existing steps. NEXT.
+- **F10 - Upstream fact-assembly how-to (#119).** `[build]` The projection engine's own demo
+  (`demo/source/signalling-it-refresh.md`) shows only the DOWNSTREAM half: one already-written
+  full-candor source projected into N governed renders. No example anywhere shows the UPSTREAM
+  half - assembling that source from many small, independently-provenanced facts (a fact-store), each
+  carrying its own citation and eventual clearance tag. Doc-only: a `docs/how-to/` entry, or a small
+  `facts/*.yaml -> source.md` pre-step added to the existing demo, making explicit that clearance/
+  disclosure is metadata CARRIED FORWARD onto the assembled source's fenced-div blocks, never an
+  early filter applied during assembly (early filtering only ever produces the one variant you
+  filtered for; tagging-then-projecting is what earns "one source, N governed projections"). Cheap,
+  folds naturally into the F9 demo-chapter work above. Optional: a tiny regression fixture asserting
+  inline per-fact citation markers (`*[FACT-001]*`) survive `render docx` unmangled - already
+  confirmed true in practice, worth locking in as a test rather than tribal knowledge.
 
 ---
 
@@ -653,7 +744,12 @@ does). Buildable-now unless marked GATED; sequencing note: 6.1-6.6 are a coheren
 
 ---
 
-## Track J - Sendable email output (`.eml`, plain-text signature block)
+## Track K - Sendable email output (`.eml`, plain-text signature block)
+
+Renamed from a duplicate "Track J" heading (2026-07-12 roadmap cleanup, found while adding the
+tracks below): this document had two Track J sections with no relation to each other. Item IDs
+(J1-J5) are left as-is rather than renumbered to K1-K5, since they are already cross-referenced
+elsewhere (`docs/DECISIONS.md` D22) and in closed issue/PR threads; only the track LETTER changes.
 
 Filed as issue #95: closing the gap where the actual deliverable is an email rather than a rendered
 document. Core-vs-adapter split (the same pattern issue #68's diagram-archetype work used): the
@@ -692,6 +788,32 @@ general core (`.eml`, plain text, stdlib-only) ships here; the narrower, heavier
   the FORWARD direction (source -> sendable email) but does not touch round-trip. A real reconciliation
   path (sent `.eml` back to a source diff, the way `roundtrip/reingest.py` does for an edited DOCX)
   is real, separable follow-up work, not a natural extension of J1's render-only scope.
+
+---
+
+## Track L - Image asset handling (canonical library + fuzzy-gated fit)
+
+A new, greenfield track (no existing mechanism today - `render diagram` handles only generated
+images, nothing addresses a consumer's own photos/logos/scans). Two issues, a real sequencing
+dependency between them: L1 must land before L2 (there is nothing to fit until an asset can be
+referenced at all).
+
+- **L1 - Canonical image asset library + injection with a metadata contract (#88).** `[build]`
+  UID/slug-addressable assets, one reference mechanism reused across three contexts that today have
+  none (inline in a full-candor source, a named template slot, a brand-token reference), plus
+  per-asset metadata (copyright/license, alt-text, an AI-training-opt-out flag, a personal-data flag,
+  a sensitivity/clearance tag). The clearance field should ride the EXISTING projection engine
+  (`clearance=` block attributes, same ladder mechanism Track G's fuzzy-gate doctrine and the
+  disclosure-tier work elsewhere in this repo already use) rather than inventing a second,
+  parallel access-control vocabulary for images specifically.
+- **L2 - Fuzzy-gate-driven image fit transformation (#89).** `[build]`, gated on L1. Deterministic
+  best-fit first (contain / cover / stretch, computed from the asset's real dimensions against its
+  target slot) with escalation only past a D16 confidence threshold via the existing D8 dual-mode
+  channel - the same deterministic-first-then-gate shape Track G already mandates consistently
+  elsewhere, applied here to image placement instead of a text/LLM decision. Reuses H2's `variants`
+  mechanism for per-audience/per-profile treatment of the same image (e.g. a cropped/redacted variant
+  under a lower-clearance projection). Applies uniformly to both consumer-injected images (via L1)
+  and this repo's own rendered diagrams.
 
 ---
 
