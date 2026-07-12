@@ -314,6 +314,8 @@ PANDOC_ARGS=(
 if [ "$NO_TOC" = "1" ]; then
   echo "Table of contents: disabled (--no-toc or template-profile toc: false)."
 else
+  echo "Table of contents: enabled (default). Pass --no-toc, or set toc: false in"
+  echo "  --template-profile, to disable."
   PANDOC_ARGS+=(--toc --toc-depth=2)
 fi
 if [ -n "$TEMPLATE_DOCX" ] && [ -f "$TEMPLATE_DOCX" ]; then

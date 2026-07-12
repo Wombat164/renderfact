@@ -84,6 +84,9 @@ def test_default_render_still_gets_a_toc(tmp_path):
     docx_files = _docx_files(tmp_path, "out-toc-default")
     assert len(docx_files) == 1
     assert _has_toc_field(docx_files[0]), "default render must still carry a ToC"
+    assert "Table of contents: enabled (default)" in out, (
+        "the enabled case must announce itself too, not just the disabled one -- "
+        "a consumer who never reads --help has no other signal a ToC is even happening")
 
 
 # ---- opt-out path 1: --no-toc CLI flag ----

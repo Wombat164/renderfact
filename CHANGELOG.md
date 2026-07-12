@@ -8,6 +8,23 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ## [Unreleased]
 
+### Added
+
+- **Three silent-footgun warnings, found via a real consumer session hitting all three**: (1)
+  `render project` now prints a `NOTE` to stderr when the source has YAML frontmatter (title, etc)
+  and `--keep-frontmatter` was not passed, since the stripped metadata otherwise surfaces
+  downstream as an inexplicably missing title in `render docx` output with nothing pointing back
+  at the cause. (2) `render docx` now announces "Table of contents: enabled (default)" the same way
+  it already announced when disabled, instead of only ever printing a status line for the
+  non-default case. (3) `style_postprocess.py` now warns when a `classification.*` marking
+  replacement is configured but never matches anything in the rendered document's header/footer --
+  covering both the "find-string is wrong" case and the "configured under the wrong key for this
+  --profile" case (`header_footer_replacements` applies under `--profile compact`,
+  `brief_replacements` under `--profile reference`; a rule under the inactive key was previously a
+  silent no-op with zero signal). Doc comments in `style_postprocess.py`'s `CLASSIFICATION` dict and
+  `template-profile-example.yaml` also made louder about this profile-gating, which is deliberate
+  (internal vs external-facing marking can legitimately differ) but easy to get backwards.
+
 ## [0.5.0] - 2026-07-11
 
 ### Fixed

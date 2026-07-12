@@ -109,9 +109,26 @@ PROFILES = {
 
 # Optional marking behaviour, all profile-driven with neutral/empty defaults.
 # Each *_replacements entry is a mapping {find: [str, ...], replace: str}.
+#
+# IMPORTANT, easy to get backwards: these two keys are NOT interchangeable and
+# NOT both-applied. Exactly one is read, chosen by --profile:
+#   --profile compact   -> header_footer_replacements (fix_header_footer_text)
+#   --profile reference -> brief_replacements (apply_brief_classification_marking)
+# This split is deliberate, not accidental duplication: compact is the internal
+# working-copy path and reference is the external/brief-facing path, so the two
+# keys support genuinely DIFFERENT marking per profile (e.g. an internal render
+# keeps "INTERNAL USE ONLY" while an external one downgrades to "GENERAL
+# DISTRIBUTION", see template-profile-example.yaml). If instead you want the
+# SAME marking regardless of which profile a consumer renders with, populate
+# BOTH keys with the same rule; if you only populate one, a render under the
+# OTHER profile leaves the marking untouched with no error. main() warns at
+# render time when a configured find-string never matched anything (see the
+# classification-warning block after apply_brief_classification_marking is
+# called below) -- that warning also tells you which of these two keys is
+# active for the profile actually in use.
 CLASSIFICATION = {
-    'header_footer_replacements': [],   # applied in fix_header_footer_text
-    'brief_replacements': [],           # applied by apply_brief_classification_marking
+    'header_footer_replacements': [],   # applied in fix_header_footer_text (--profile compact)
+    'brief_replacements': [],           # applied by apply_brief_classification_marking (--profile reference)
     'strip_cover_banner_prefixes': ['Classification:', 'Distribution:'],
     'strip_cover_banner_contains': [],
 }
@@ -647,7 +664,7 @@ def _global_punctuation_fix(text):
     return t
 
 
-def fix_header_footer_text(section, brief=False):
+def fix_header_footer_text(section, brief=False, matched=None):
     """Center all header/footer paragraphs and normalize their text.
     Works at paragraph level to handle run-splitting correctly.
 
@@ -659,6 +676,12 @@ def fix_header_footer_text(section, brief=False):
       already present, the find-string is replaced. Empty list (the default):
       no marking edits. Skipped when brief=True: the brief path applies
       classification.brief_replacements instead (apply_brief_classification_marking).
+
+    `matched`, if given, is a set that every find-string which actually replaced
+    something gets added to, across however many sections this runs against; the
+    caller uses it to warn about configured-but-never-matched rules (a silent
+    footgun otherwise: a `find` string that never appears in this document's
+    header/footer produces no error and no visible effect).
     """
     for rel_type in ['header', 'footer']:
         for attr_name in [f'{rel_type}', f'first_page_{rel_type}', f'even_page_{rel_type}']:
@@ -677,6 +700,8 @@ def fix_header_footer_text(section, brief=False):
                                 for find in (rule.get('find') or []):
                                     if find and find in new_text and repl not in new_text:
                                         new_text = new_text.replace(find, repl)
+                                        if matched is not None:
+                                            matched.add(find)
                         if new_text != full_text and p.runs:
                             first_run = p.runs[0]
                             first_run.text = new_text
@@ -686,7 +711,7 @@ def fix_header_footer_text(section, brief=False):
                 pass
 
 
-def apply_brief_classification_marking(doc):
+def apply_brief_classification_marking(doc, matched=None):
     """Apply the brief/external marking replacements in headers/footers, per-run
     so the PAGE field is preserved. Driven by classification.brief_replacements
     (a list of {find: [str, ...], replace: str}); empty list = no-op.
@@ -695,7 +720,12 @@ def apply_brief_classification_marking(doc):
     run and the following Page-field run is blanked when it consists solely of
     optional whitespace around a parenthesized fragment of one of the configured
     find-strings (fragments are collected from ALL find-strings across all rules).
-    This generalizes the original single-literal between-run cleanup."""
+    This generalizes the original single-literal between-run cleanup.
+
+    `matched`, if given, is a set that every find-string which actually replaced
+    something gets added to (see fix_header_footer_text's own `matched` docstring
+    for why: a configured find-string that silently never matches is otherwise
+    indistinguishable from a correctly-applied no-op)."""
     import re as _re
     rules = [r for r in CLASSIFICATION['brief_replacements'] if r and r.get('replace')]
     if not rules:
@@ -715,6 +745,8 @@ def apply_brief_classification_marking(doc):
                         if find and find in run.text:
                             run.text = run.text.replace(find, rule['replace'])
                             replaced = True
+                            if matched is not None:
+                                matched.add(find)
                             break
                     if replaced:
                         break
@@ -943,10 +975,52 @@ def main(argv=None):
 
     # --- Fix and center headers and footers ---
     _brief = (profile_name == 'reference')
+    _cls_matched = set()
     for section in doc.sections:
-        fix_header_footer_text(section, brief=_brief)
+        fix_header_footer_text(section, brief=_brief, matched=_cls_matched)
     if _brief:
-        apply_brief_classification_marking(doc)
+        apply_brief_classification_marking(doc, matched=_cls_matched)
+
+    # Warn on configured-but-never-matched classification rules (issue: a `find`
+    # string that never appears produces no error and no visible change, which
+    # is how a real corporate template's leftover/wrong marking silently ships
+    # unchanged even after a consumer thinks they've fixed it in template-profile.yaml).
+    _active_key = 'brief_replacements' if _brief else 'header_footer_replacements'
+    _other_key = 'header_footer_replacements' if _brief else 'brief_replacements'
+
+    def _finds(key):
+        return {
+            find
+            for rule in (CLASSIFICATION.get(key) or [])
+            for find in ((rule or {}).get('find') or [])
+            if find
+        }
+
+    _active_finds = _finds(_active_key)
+    _other_finds = _finds(_other_key)
+    # Case A: rules ARE configured under the active key, but none of them matched
+    # anything in this document (find-string wrong, or already-applied).
+    _unmatched = _active_finds - _cls_matched
+    # Case B: the active key has NOTHING configured, but the OTHER key does --
+    # the exact "used the wrong key for this --profile" mistake, which Case A
+    # alone can't see (nothing "configured but unmatched" if nothing is
+    # configured at all under the key that's actually being read).
+    _wrong_key_suspected = not _active_finds and bool(_other_finds)
+    if _unmatched:
+        print(f"WARN: classification.{_active_key} configured find-string(s) "
+              f"{sorted(_unmatched)} never matched any header/footer text in this "
+              f"document (profile: {profile_name}); the marking may be wrong, or "
+              f"may need to be configured under classification.{_other_key} "
+              f"instead (header_footer_replacements applies on the compact-profile "
+              f"path, brief_replacements on the reference-profile path).")
+    elif _wrong_key_suspected:
+        print(f"WARN: classification.{_active_key} is empty for this render "
+              f"(profile: {profile_name}), but classification.{_other_key} has "
+              f"rule(s) configured ({sorted(_other_finds)}) -- that key is NOT "
+              f"read under this profile, so this render's header/footer marking "
+              f"is passing through unchanged from the template. If you want the "
+              f"same marking under both profiles, copy the rule into "
+              f"classification.{_active_key} too.")
 
     # --- Global punctuation fix (house rule, profile-gated) ---
     # Sweeps body paragraphs + table cells + nested table cells. Replaces em-dash /
