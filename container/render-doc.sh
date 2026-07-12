@@ -106,7 +106,10 @@ Options:
                          --no-toc below (either one is enough to opt out)
   --scheme <scheme>     numbering/style scheme (default: modern)
   DRAFT|REVIEW|FINAL    document lifecycle suffix (default: DRAFT)
-  --pdf                 also convert to PDF (Word-COM on Windows, else soffice)
+  --pdf                 also convert to PDF (needs PDF_CONVERTER_PS1 pointing at
+                         a Word-COM script on Windows, else soffice on PATH; see
+                         PDF_CONVERTER_PS1 in the env-var header above -- neither
+                         is bundled, both must be configured/installed by you)
   --qc                  run the pre-render QC script (needs QC_SCRIPT); advisory
                          unless --qc-blocking or QC_BLOCKING=1
   --qc-blocking          same as --qc, but a QC_SCRIPT finding stops the render
@@ -434,6 +437,12 @@ fi
 if [ "$DO_POSTRENDER_GATE" = "1" ]; then
   echo ""
   if [ -n "$POSTRENDER_GATE_SCRIPT" ] && [ -f "$POSTRENDER_GATE_SCRIPT" ]; then
+    # Exported (not just a local shell var) so a gate script subprocess can read
+    # which template-profile.yaml this render actually used -- docstyle/
+    # marking_lint.py (#123) is the first consumer, checking whether a detected
+    # header/footer marking has a covering classification.* rule; any consumer
+    # gate script benefits from the same visibility.
+    export TEMPLATE_PROFILE
     echo "Post-render content-safety gate ($(basename "$POSTRENDER_GATE_SCRIPT")) on $(basename "$OUTPUT_FILE")..."
     if [ "$POSTRENDER_GATE_ADVISORY" = "1" ]; then
       "$PYTHON" "$POSTRENDER_GATE_SCRIPT" "$OUTPUT_FILE" || echo "  (findings above are advisory, not blocking; POSTRENDER_GATE_ADVISORY=1 is set)"

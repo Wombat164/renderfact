@@ -55,6 +55,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 from ooxml_theme import Theme, ThemeError, read_theme  # noqa: E402
+from marking_patterns import find_marking_matches  # noqa: E402
 
 # THEME keys docstyle/style_postprocess.py actually consumes, in the order the
 # derived profile lists them.
@@ -232,6 +233,7 @@ class DerivedProfile:
     not_derived: dict[str, str] = field(default_factory=dict)
     style_fonts: dict[str, str] = field(default_factory=dict)
     body_style: str | None = None
+    marking_findings: list[str] = field(default_factory=list)
 
 
 _NOT_DERIVABLE_ALWAYS = {
@@ -319,8 +321,36 @@ def derive_profile(doc, theme: Theme) -> DerivedProfile:
             f"({sides_str} cm) and the profile only supports one margin_cm value"
         )
 
+    marking_findings = _detect_header_footer_markings(doc)
+
     return DerivedProfile(derived=derived, not_derived=not_derived, style_fonts=style_fonts,
-                          body_style=body_style)
+                          body_style=body_style, marking_findings=marking_findings)
+
+
+def _detect_header_footer_markings(doc) -> list[str]:
+    """Walk every section's header/footer (including first-page/even-page variants)
+    and flag any text that looks marking-like (#123): a template's header/footer
+    text is carried into every future render of this skin verbatim (pandoc's
+    --reference-doc mechanism reuses the reference document's own header/footer
+    parts structurally), so a leftover or wrong marking in the SOURCE template
+    ships unexamined unless something points it out. This is intentionally a
+    weaker, narrower check than the full render-time marking_lint.py (it has no
+    visibility into whether a classification.* rule already covers the finding,
+    since no template-profile.yaml exists yet at import time) -- it exists to put
+    the finding in front of a human at the cheapest possible point, before any
+    render has happened at all."""
+    found: list[str] = []
+    for section in doc.sections:
+        for attr in ("header", "first_page_header", "even_page_header",
+                     "footer", "first_page_footer", "even_page_footer"):
+            part = getattr(section, attr, None)
+            if part is None:
+                continue
+            text = "\n".join(p.text for p in part.paragraphs)
+            for match in find_marking_matches(text):
+                if match not in found:
+                    found.append(match)
+    return found
 
 
 def extract_rendered_style_properties(docx_path: Path) -> dict[str, Any]:
@@ -460,26 +490,59 @@ def render_profile_yaml(provenance: dict[str, str], dp: DerivedProfile) -> str:
             "# with its own distinct font was found in this template; ordinary body",
             "# paragraphs render via Normal as before.",
         ]
-    lines += [
-        "",
-        "# Optional marking / cover behaviour: authoring hints, NOT derived from the",
-        "# template (a DOCX template carries no marking-replacement or cover-label",
-        "# data of this shape), copy the shape from template-profile-example.yaml",
-        "# and fill in if this skin needs it:",
-        "#",
-        "# classification:",
-        "#   header_footer_replacements:",
-        '#     - find: ["INTERNAL USE ONLY"]',
-        '#       replace: "INTERNAL USE ONLY (POLICY-REF)"',
-        "#   brief_replacements: []",
-        '#   strip_cover_banner_prefixes: ["Classification:", "Distribution:"]',
-        "#   strip_cover_banner_contains: []",
-        "#",
-        "# cover:",
-        '#   part_heading_prefix: "Part"',
-        '#   version_label: "Version {version} - {date}"',
-        "",
-    ]
+    if dp.marking_findings:
+        findings_str = ", ".join(f'"{f}"' for f in dp.marking_findings)
+        lines += [
+            "",
+            "# classification: NOT DERIVED, but flagged (#123) -- this template's own",
+            "# header/footer text contains what looks like a marking:",
+            f"#   {findings_str}",
+            "# That text is carried into EVERY future render of this skin verbatim (pandoc's",
+            "# --reference-doc mechanism reuses the reference document's own header/footer",
+            "# parts structurally), unexamined, unless a rule below rewrites it. Review",
+            "# whether it needs a header_footer_replacements and/or brief_replacements rule",
+            "# before shipping any render under this skin -- an unconfigured marking is a",
+            "# document-correctness/compliance issue, not a cosmetic one. Remember",
+            "# header_footer_replacements applies under --profile compact,",
+            "# brief_replacements under --profile reference (see template-profile-example.yaml)",
+            "# -- populate both if you want the same marking regardless of profile.",
+            "#",
+            "# classification:",
+            "#   header_footer_replacements:",
+            f'#     - find: [{findings_str}]',
+            '#       replace: "TODO"',
+            "#   brief_replacements:",
+            f'#     - find: [{findings_str}]',
+            '#       replace: "TODO"',
+            '#   strip_cover_banner_prefixes: ["Classification:", "Distribution:"]',
+            "#   strip_cover_banner_contains: []",
+            "#",
+            "# cover:",
+            '#   part_heading_prefix: "Part"',
+            '#   version_label: "Version {version} - {date}"',
+            "",
+        ]
+    else:
+        lines += [
+            "",
+            "# Optional marking / cover behaviour: authoring hints, NOT derived from the",
+            "# template (a DOCX template carries no marking-replacement or cover-label",
+            "# data of this shape), copy the shape from template-profile-example.yaml",
+            "# and fill in if this skin needs it:",
+            "#",
+            "# classification:",
+            "#   header_footer_replacements:",
+            '#     - find: ["INTERNAL USE ONLY"]',
+            '#       replace: "INTERNAL USE ONLY (POLICY-REF)"',
+            "#   brief_replacements: []",
+            '#   strip_cover_banner_prefixes: ["Classification:", "Distribution:"]',
+            "#   strip_cover_banner_contains: []",
+            "#",
+            "# cover:",
+            '#   part_heading_prefix: "Part"',
+            '#   version_label: "Version {version} - {date}"',
+            "",
+        ]
     return "\n".join(lines) + "\n"
 
 
