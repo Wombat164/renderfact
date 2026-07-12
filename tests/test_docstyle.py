@@ -161,7 +161,7 @@ def test_punctuation_gate_disables_normalization(tmp_path, monkeypatch):
 
 # ---------- (c) header/footer replacements from a profile yaml ----------
 
-def test_header_footer_replacements_from_profile(tmp_path, monkeypatch):
+def test_header_footer_replacements_from_profile(tmp_path, monkeypatch, capsys):
     doc = Document()
     doc.add_paragraph("body text")
     hdr = doc.sections[0].header
@@ -183,6 +183,63 @@ def test_header_footer_replacements_from_profile(tmp_path, monkeypatch):
 
     hdr_text = "\n".join(p.text for p in Document(str(out)).sections[0].header.paragraphs)
     assert "HANDLE WITH CARE (POLICY-REF)" in hdr_text
+    assert "WARN" not in capsys.readouterr().out  # matched: no unmatched-rule warning
+
+
+def test_classification_replacement_warns_when_find_string_never_matches(tmp_path, monkeypatch, capsys):
+    doc = Document()
+    doc.add_paragraph("body text")
+    hdr = doc.sections[0].header
+    hdr.is_linked_to_previous = False
+    hdr.paragraphs[0].text = "UNCLASS"
+    src = tmp_path / "hdr.docx"
+    doc.save(str(src))
+
+    profile = tmp_path / "marking.yaml"
+    profile.write_text(
+        "classification:\n"
+        "  header_footer_replacements:\n"
+        '    - find: ["A STRING NOT IN THE DOCUMENT"]\n'
+        '      replace: "SNC"\n',
+        encoding="utf-8",
+    )
+    out = tmp_path / "hdr-out.docx"
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile)])
+
+    warn = capsys.readouterr().out
+    assert "WARN" in warn
+    assert "never matched" in warn
+    assert "header_footer_replacements" in warn
+
+
+def test_classification_replacement_warns_when_configured_under_wrong_profile_key(
+        tmp_path, monkeypatch, capsys):
+    doc = Document()
+    doc.add_paragraph("body text")
+    hdr = doc.sections[0].header
+    hdr.is_linked_to_previous = False
+    hdr.paragraphs[0].text = "UNCLASS"
+    src = tmp_path / "hdr.docx"
+    doc.save(str(src))
+
+    profile = tmp_path / "marking.yaml"
+    profile.write_text(
+        "classification:\n"
+        "  brief_replacements:\n"  # active key for --profile reference is brief_replacements;
+        '    - find: ["UNCLASS"]\n'  # this test renders --profile compact, so this key is inactive
+        '      replace: "SNC"\n',
+        encoding="utf-8",
+    )
+    out = tmp_path / "hdr-out.docx"
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile),
+                             "--profile", "compact"])
+
+    warn = capsys.readouterr().out
+    assert "WARN" in warn
+    assert "is empty for this render" in warn
+    assert "header_footer_replacements" in warn and "brief_replacements" in warn
+    hdr_text = Document(str(out)).sections[0].header.paragraphs[0].text
+    assert hdr_text == "UNCLASS"  # confirms the marking genuinely passed through unchanged
 
 
 def test_brief_replacement_survives_a_run_boundary_split(tmp_path, monkeypatch):
