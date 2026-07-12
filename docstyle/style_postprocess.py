@@ -120,6 +120,10 @@ CLASSIFICATION = {
 COVER = {
     'part_heading_prefix': 'Part',      # H1 prefix that marks the document body start
     'version_label': 'Version {version} - {date}',   # cover line template
+    'no_parts': False,   # this document has no Part structure at all: skip the
+                          # duplicate-title-H1 removal step entirely rather than
+                          # risk it (see build_reference_cover's own docstring
+                          # for why a flat document needs this opt-out, #122)
 }
 
 # House punctuation normalization (unicode dashes/quotes/NBSP to ASCII) on the
@@ -308,12 +312,33 @@ def _cover_version_label(version, date_str):
     return ' - '.join(parts)
 
 
+def _cover_title_text(doc):
+    """The real [Title]-styled paragraph's text, or None if there isn't one."""
+    for p in doc.paragraphs:
+        if p.style and p.style.name == 'Title':
+            return p.text.strip()
+    return None
+
+
+def _normalize_heading_text(s):
+    return ' '.join(s.split()).strip().lower()
+
+
 def build_reference_cover(doc, version=None, date_str=None):
     """Turn page 1 into a clean cover: drop the duplicate title H1, set a single
     version/date line, move the (sdt-wrapped) table of contents onto its own page
     just before the first part heading, and keep the running header/footer on the
     cover. The banner-cleanup literals and the part-heading prefix come from the
-    profile (classification.strip_cover_banner_* and cover.part_heading_prefix)."""
+    profile (classification.strip_cover_banner_* and cover.part_heading_prefix).
+
+    Step 1 (duplicate-title removal) matches the candidate Heading 1's TEXT
+    against the real [Title] paragraph rather than deleting positionally (#122):
+    the original "first Heading 1 that isn't Part-prefixed" heuristic silently
+    destroyed a genuine section heading on any flat (non-multi-part) document
+    that doesn't happen to repeat its title as a body H1 -- there is nothing
+    "duplicate" about a document's actual first section. `cover.no_parts: true`
+    skips step 1 entirely for documents with no Part structure at all, the
+    cleanest opt-out when there is no duplicate to remove by construction."""
     body = doc.element.body
     part_prefix = COVER['part_heading_prefix']
     prefixes = CLASSIFICATION['strip_cover_banner_prefixes'] or []
@@ -329,12 +354,34 @@ def build_reference_cover(doc, version=None, date_str=None):
         if any(t.startswith(pre) for pre in prefixes) or any(c in t for c in contains):
             p._element.getparent().remove(p._element)
 
-    # 1. Remove the duplicate title H1 (first Heading 1 that is not a part divider).
-    for p in list(doc.paragraphs):
-        nm = p.style.name if p.style and p.style.name else ''
-        if nm == 'Heading 1' and not p.text.strip().startswith(part_prefix):
-            p._element.getparent().remove(p._element)
-            break
+    # 1. Remove the duplicate title H1: the first Heading 1 that is not a part
+    #    divider AND whose text matches the real Title paragraph. Skipped
+    #    entirely when cover.no_parts is set.
+    if not COVER.get('no_parts', False):
+        title_text = _cover_title_text(doc)
+        if title_text:
+            norm_title = _normalize_heading_text(title_text)
+            for p in list(doc.paragraphs):
+                nm = p.style.name if p.style and p.style.name else ''
+                if (nm == 'Heading 1' and not p.text.strip().startswith(part_prefix)
+                        and _normalize_heading_text(p.text) == norm_title):
+                    p._element.getparent().remove(p._element)
+                    break
+            else:
+                print(f"NOTE: build_reference_cover found a Title paragraph "
+                      f"('{title_text}') but no Heading 1 matching its text to "
+                      f"remove as a duplicate. If this document has no such "
+                      f"duplicate by design, that's fine (nothing was deleted). "
+                      f"If the title and the intended-duplicate heading text have "
+                      f"simply drifted apart (a rename on one side, not the "
+                      f"other), fix the mismatch or set cover.no_parts: true.")
+        else:
+            print("NOTE: build_reference_cover found no [Title]-styled paragraph "
+                  "(likely YAML frontmatter title metadata was stripped upstream, "
+                  "e.g. `render project` without --keep-frontmatter) -- skipping "
+                  "duplicate-title-H1 removal since there is nothing to match "
+                  "against; a positional deletion here would risk removing a real "
+                  "section heading instead (#122).")
 
     # 2. Replace the Date line with a clean version/date cover line.
     for p in doc.paragraphs:
@@ -687,9 +734,13 @@ def fix_header_footer_text(section, brief=False):
 
 
 def apply_brief_classification_marking(doc):
-    """Apply the brief/external marking replacements in headers/footers, per-run
-    so the PAGE field is preserved. Driven by classification.brief_replacements
-    (a list of {find: [str, ...], replace: str}); empty list = no-op.
+    """Apply the brief/external marking replacements in headers/footers. Driven
+    by classification.brief_replacements (a list of {find: [str, ...], replace:
+    str}); empty list = no-op. Matches against paragraph-concatenated text (#87
+    fix: was per-run, silently failing whenever an earlier hand-edit split a
+    marking string across a run boundary), writes the result into the first run
+    and blanks the rest, then runs the existing between-run PAGE-field-preserving
+    cleanup below unchanged.
 
     After a replacement, any leftover text sitting in the runs BETWEEN the marking
     run and the following Page-field run is blanked when it consists solely of
@@ -708,17 +759,29 @@ def apply_brief_classification_marking(doc):
 
     def fixpart(part):
         for para in part.paragraphs:
-            for run in para.runs:
-                replaced = False
-                for rule in rules:
-                    for find in (rule.get('find') or []):
-                        if find and find in run.text:
-                            run.text = run.text.replace(find, rule['replace'])
-                            replaced = True
-                            break
-                    if replaced:
-                        break
+            # Match against the PARAGRAPH-concatenated text, not per-run (#87):
+            # a marking string split across two runs by an earlier hand-edit
+            # (a real, observed Word behaviour after any in-place text change)
+            # never matched under the old per-run `if find in run.text` check,
+            # silently no-op-ing with no error. Concatenate first, find the
+            # match, then write the result into the first run and blank the
+            # rest -- the same pattern fix_header_footer_text already uses for
+            # the compact-profile path, which is why that path was never
+            # affected by this bug.
             runs = para.runs
+            if not runs:
+                continue
+            full_text = ''.join(r.text for r in runs)
+            new_text = full_text
+            for rule in rules:
+                for find in (rule.get('find') or []):
+                    if find and find in new_text:
+                        new_text = new_text.replace(find, rule['replace'])
+                        break
+            if new_text != full_text:
+                runs[0].text = new_text
+                for run in runs[1:]:
+                    run.text = ''
             for rule in rules:
                 mark = rule['replace']
                 mi = next((i for i, r in enumerate(runs) if mark in r.text), None)

@@ -183,3 +183,36 @@ def test_postrender_gate_advisory_opt_out(tmp_path):
     assert "FAKE-GATE: simulated finding" in out
     assert "advisory, not blocking" in out
     assert "render-doc complete" in out
+
+
+# ---- TEMPLATE_PROFILE exported to the gate script subprocess (#123 support) ----
+
+RECORD_TEMPLATE_PROFILE_SCRIPT = """
+import os, sys
+from pathlib import Path
+marker = Path(sys.argv[0]).parent / "template-profile-seen.txt"
+marker.write_text(os.environ.get("TEMPLATE_PROFILE") or "<unset>", encoding="utf-8")
+sys.exit(0)
+"""
+
+
+def test_template_profile_env_var_visible_to_gate_script(tmp_path):
+    """A gate script (docstyle/marking_lint.py, or any consumer's own) needs to
+    know which template-profile.yaml this render actually used to check a
+    finding against configured classification.* rules -- render-doc.sh did not
+    export TEMPLATE_PROFILE before invoking POSTRENDER_GATE_SCRIPT, so a
+    subprocess gate script never saw it even when --template-profile was passed."""
+    gate = tmp_path / "record_profile.py"
+    gate.write_text(RECORD_TEMPLATE_PROFILE_SCRIPT, encoding="utf-8")
+    profile = tmp_path / "my-profile.yaml"
+    profile.write_text("font: Arial\n", encoding="utf-8")
+
+    src, rc, out = _render(
+        tmp_path, "out-template-profile-env", "--postrender-gate",
+        "--template-profile", str(profile),
+        env_extra={"POSTRENDER_GATE_SCRIPT": str(gate)},
+    )
+    assert rc == 0, out
+    marker = gate.parent / "template-profile-seen.txt"
+    assert marker.exists(), out
+    assert marker.read_text(encoding="utf-8") == str(profile)

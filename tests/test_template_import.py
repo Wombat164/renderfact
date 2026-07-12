@@ -182,6 +182,62 @@ def test_derive_profile_and_yaml_carry_injected_values(tmp_path):
         assert re.search(rf"^# {key}: not derivable", yaml_text, re.MULTILINE) is not None
 
 
+# ---------- (k) header/footer marking detection at import time (#123) ----------
+
+def _template_with_header_marking(tmp_path, marking_text, name="marked.docx") -> Path:
+    doc = Document()
+    hdr = doc.sections[0].header
+    hdr.is_linked_to_previous = False
+    hdr.paragraphs[0].text = marking_text
+    doc.add_paragraph("Body paragraph.")
+    path = tmp_path / name
+    doc.save(str(path))
+    return path
+
+
+def test_derive_profile_detects_marking_like_header_text(tmp_path):
+    template = _template_with_header_marking(tmp_path, "UNCLASS")
+    theme = read_theme(_build_branded_template(tmp_path))  # any valid theme; not under test here
+    doc = Document(str(template))
+    dp = ti.derive_profile(doc, theme)
+
+    assert "UNCLASS" in dp.marking_findings
+
+
+def test_derive_profile_finds_no_marking_when_header_is_plain(tmp_path):
+    template = _template_with_header_marking(tmp_path, "Acme Corp Quarterly Report")
+    theme = read_theme(_build_branded_template(tmp_path))
+    doc = Document(str(template))
+    dp = ti.derive_profile(doc, theme)
+
+    assert dp.marking_findings == []
+
+
+def test_render_profile_yaml_flags_detected_marking(tmp_path):
+    template = _template_with_header_marking(tmp_path, "CONFIDENTIAL")
+    theme = read_theme(_build_branded_template(tmp_path))
+    doc = Document(str(template))
+    dp = ti.derive_profile(doc, theme)
+    prov = ti.build_import_provenance(template, date_str="2026-07-12")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert "NOT DERIVED, but flagged (#123)" in yaml_text
+    assert "CONFIDENTIAL" in yaml_text
+    assert "compliance issue, not a cosmetic one" in yaml_text
+
+
+def test_render_profile_yaml_no_marking_block_when_nothing_detected(tmp_path):
+    template = _build_branded_template(tmp_path)  # header text is plain, no marking
+    theme = read_theme(template)
+    doc = Document(str(template))
+    dp = ti.derive_profile(doc, theme)
+    prov = ti.build_import_provenance(template, date_str="2026-07-12")
+    yaml_text = ti.render_profile_yaml(prov, dp)
+
+    assert "flagged (#123)" not in yaml_text
+    assert "Optional marking / cover behaviour: authoring hints" in yaml_text  # the generic block instead
+
+
 def test_derive_profile_falls_back_to_theme_when_style_unset(tmp_path):
     # Normal/Heading 1 carry NO explicit colour/font -> theme accent1/dk1/minor used.
     path = tmp_path / "theme-only.docx"

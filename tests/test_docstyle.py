@@ -185,6 +185,42 @@ def test_header_footer_replacements_from_profile(tmp_path, monkeypatch):
     assert "HANDLE WITH CARE (POLICY-REF)" in hdr_text
 
 
+def test_brief_replacement_survives_a_run_boundary_split(tmp_path, monkeypatch):
+    """Root-cause reproduction for #87: apply_brief_classification_marking (the
+    --profile reference path) used to match per-run, so a marking string split
+    across two runs -- exactly what a real Word hand-edit produces -- silently
+    never matched. fix_header_footer_text (the compact path) was never affected,
+    since it already concatenated to paragraph-level text first; this test
+    exercises the path that WAS broken."""
+    doc = Document()
+    doc.add_paragraph("body text")
+    hdr = doc.sections[0].header
+    hdr.is_linked_to_previous = False
+    p = hdr.paragraphs[0]
+    p.text = ""
+    p.add_run("UNCLA")
+    p.add_run("SS")  # the marking string split across two runs, on purpose
+    src = tmp_path / "hdr-split.docx"
+    doc.save(str(src))
+
+    profile = tmp_path / "marking.yaml"
+    profile.write_text(
+        "classification:\n"
+        "  brief_replacements:\n"
+        '    - find: ["UNCLASS"]\n'
+        '      replace: "SNC"\n',
+        encoding="utf-8",
+    )
+    out = tmp_path / "hdr-split-out.docx"
+    _run_style(monkeypatch, [str(src), str(out), "--template-profile", str(profile),
+                             "--profile", "reference"])
+
+    hdr_text = Document(str(out)).sections[0].header.paragraphs[0].text
+    assert hdr_text == "SNC", (
+        f"expected the run-split 'UNCLASS' to be replaced with 'SNC', got {hdr_text!r} "
+        f"-- if this still reads 'UNCLASS', the run-boundary fix regressed")
+
+
 # ---------- (d) cover banner stripping via configured prefix ----------
 
 def test_cover_banner_strip_with_configured_prefix(tmp_path, monkeypatch):
@@ -376,6 +412,103 @@ def test_cover_version_and_date_render_the_cover_line(tmp_path):
 
     texts = [p.text for p in Document(str(out)).paragraphs]
     assert any("1.2" in t and "2026-07-10" in t for t in texts)
+
+
+# ---------- (i2) build_reference_cover title-match, not positional deletion (#122) ----------
+
+def test_flat_document_h1_matching_title_is_removed_as_duplicate(tmp_path):
+    doc = Document()
+    doc.add_heading("Example Report", level=0)   # level=0 -> [Title]-styled paragraph
+    doc.add_heading("Example Report", level=1)   # a genuine duplicate of the title text
+    doc.add_paragraph("Body content.")
+    src = tmp_path / "dup-title.docx"
+    doc.save(str(src))
+    out = tmp_path / "dup-title-out.docx"
+
+    sp.main([str(src), str(out), "--profile", "reference"])
+
+    paras = Document(str(out)).paragraphs
+    assert sum(1 for p in paras if p.text == "Example Report") == 1  # Title survives, H1 dupe gone
+    assert any(p.style and p.style.name == "Title" for p in paras)
+
+
+def test_flat_document_no_duplicate_h1_keeps_every_section_heading(tmp_path):
+    """Root-cause reproduction for #122: a flat document (no body H1 duplicating
+    the title at all -- a real-consumer shape, where the title comes purely from
+    YAML frontmatter via --keep-frontmatter) must not lose its first real
+    section heading to a positional 'first non-Part H1 = duplicate' guess."""
+    doc = Document()
+    doc.add_heading("Example Report", level=0)      # [Title], no matching body H1
+    doc.add_heading("Section One", level=1)
+    doc.add_paragraph("First section body.")
+    doc.add_heading("Section Two", level=1)
+    doc.add_paragraph("Second section body.")
+    src = tmp_path / "flat-no-dup.docx"
+    doc.save(str(src))
+    out = tmp_path / "flat-no-dup-out.docx"
+
+    sp.main([str(src), str(out), "--profile", "reference"])
+
+    headings = [p.text for p in Document(str(out)).paragraphs if p.style and p.style.name == "Heading 1"]
+    assert headings == ["Section One", "Section Two"], (
+        "both real section headings must survive -- the old positional check "
+        "would have deleted 'Section One' as if it were a duplicate title")
+
+
+def test_no_title_paragraph_at_all_skips_removal_without_deleting_a_section(tmp_path, capsys):
+    """A second #122 shape: no [Title] paragraph survives either (e.g. metadata
+    was stripped upstream before this ever reached style_postprocess). Nothing
+    to match against -> skip step 1 entirely rather than guess positionally."""
+    doc = Document()
+    doc.add_heading("Section One", level=1)
+    doc.add_paragraph("First section body.")
+    doc.add_heading("Section Two", level=1)
+    src = tmp_path / "no-title.docx"
+    doc.save(str(src))
+    out = tmp_path / "no-title-out.docx"
+
+    sp.main([str(src), str(out), "--profile", "reference"])
+
+    headings = [p.text for p in Document(str(out)).paragraphs if p.style and p.style.name == "Heading 1"]
+    assert headings == ["Section One", "Section Two"]
+    assert "NOTE" in capsys.readouterr().out
+
+
+def test_cover_no_parts_opt_out_skips_duplicate_removal_even_with_a_match(tmp_path):
+    doc = Document()
+    doc.add_heading("Example Report", level=0)
+    doc.add_heading("Example Report", level=1)  # would normally be removed as the duplicate
+    doc.add_paragraph("Body content.")
+    src = tmp_path / "no-parts.docx"
+    doc.save(str(src))
+
+    profile = tmp_path / "no-parts.yaml"
+    profile.write_text("cover:\n  no_parts: true\n", encoding="utf-8")
+    out = tmp_path / "no-parts-out.docx"
+
+    sp.main([str(src), str(out), "--profile", "reference", "--template-profile", str(profile)])
+
+    headings = [p.text for p in Document(str(out)).paragraphs if p.style and p.style.name == "Heading 1"]
+    assert headings == ["Example Report"]  # the H1 survives, no_parts skipped the whole step
+
+
+def test_book_shaped_document_with_part_heading_is_unaffected(tmp_path):
+    """Regression guard: the original book-shaped case (title H1 + a real
+    `Part N: ...` chapter heading) the function was designed for keeps working
+    exactly as before."""
+    doc = Document()
+    doc.add_heading("Example Report", level=0)
+    doc.add_heading("Example Report", level=1)     # duplicate of the title, matches
+    doc.add_heading("Part I: Overview", level=1)    # real chapter, Part-prefixed, never touched
+    doc.add_paragraph("Body content.")
+    src = tmp_path / "book.docx"
+    doc.save(str(src))
+    out = tmp_path / "book-out.docx"
+
+    sp.main([str(src), str(out), "--profile", "reference"])
+
+    headings = [p.text for p in Document(str(out)).paragraphs if p.style and p.style.name == "Heading 1"]
+    assert headings == ["Part I: Overview"]
 
 
 # ---------- (j) custom-style font/size fidelity (issue #98) ----------
