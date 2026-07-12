@@ -247,6 +247,28 @@ def test_keep_frontmatter_reattaches_source_frontmatter(source_file, ladders_pro
     assert text.startswith("---\ntitle: Example Dossier\n---\n")
 
 
+def test_dropping_frontmatter_without_keep_flag_warns(source_file, ladders_profiles, capsys):
+    ladders, profiles = ladders_profiles
+    projector.project(source_file, profiles["internal-full"], ladders, {})  # keep_fm defaults False
+    err = capsys.readouterr().err
+    assert "NOTE" in err
+    assert "--keep-frontmatter" in err
+
+
+def test_keeping_frontmatter_prints_no_warning(source_file, ladders_profiles, capsys):
+    ladders, profiles = ladders_profiles
+    projector.project(source_file, profiles["internal-full"], ladders, {}, keep_fm=True)
+    assert capsys.readouterr().err == ""
+
+
+def test_source_without_frontmatter_prints_no_warning(tmp_path, ladders_profiles, capsys):
+    ladders, profiles = ladders_profiles
+    no_fm = tmp_path / "no-frontmatter.md"
+    no_fm.write_text("# Overview\n\nJust body text, no YAML block.\n", encoding="utf-8")
+    projector.project(no_fm, profiles["internal-full"], ladders, {})
+    assert capsys.readouterr().err == ""
+
+
 # ---------- CLI ----------
 
 def test_cli_single_profile_writes_file(source_file, tmp_path):

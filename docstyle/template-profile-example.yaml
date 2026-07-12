@@ -36,13 +36,23 @@ margin_cm: 2.0         # uniform top/bottom/left/right
 # any find-string is present in a header/footer paragraph and the replace-string
 # is not already present, the find-string is replaced.
 #
+# ONLY ONE of the two keys below is read per render, chosen by --profile -- they
+# are NOT both applied, and a rule under the wrong one for the profile you're
+# rendering with silently does nothing (render logs a WARN if a configured
+# find-string never matched anything, naming which key was actually active).
+# The example below shows them deliberately DIFFERENT (compact = internal
+# working copy keeps "INTERNAL USE ONLY"; reference = external/brief-facing
+# copy downgrades it), which is a real, supported use case, not a copy-paste
+# mistake -- but if you just want ONE marking regardless of which profile a
+# consumer renders with, put the SAME find/replace rule under both keys.
+#
 # classification:
-#   # Applied on the standard (compact) header/footer path.
+#   # Read when --profile compact (fix_header_footer_text).
 #   header_footer_replacements:
 #     - find: ["INTERNAL USE ONLY"]
 #       replace: "INTERNAL USE ONLY (POLICY-REF)"
-#   # Applied on the brief/external (reference-profile) path, per-run so the
-#   # PAGE field in the footer survives the swap.
+#   # Read when --profile reference (apply_brief_classification_marking),
+#   # per-run so the PAGE field in the footer survives the swap.
 #   brief_replacements:
 #     - find: ["INTERNAL USE ONLY (POLICY-REF)"]
 #       replace: "GENERAL DISTRIBUTION (POLICY-REF)"

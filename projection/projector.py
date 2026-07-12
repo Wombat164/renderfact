@@ -223,6 +223,13 @@ def project(source_path: Path, prof: dict, ladders: dict, bank: dict,
     raw = Path(source_path).read_text(encoding="utf-8")
     m = re.match(r"^---\n.*?\n---\n", raw, flags=re.DOTALL)  # source frontmatter
     fm = m.group(0) if m else ""
+    if fm and not keep_fm:
+        # Silent metadata loss is the actual footgun (issue seen in practice: a
+        # downstream `render docx` then has no title to render, with nothing in
+        # this command's own output pointing at why). Noisy by design.
+        print(f"NOTE: {source_path}: source frontmatter (title, etc) dropped from "
+              f"this projection ({prof['_name']}); pass --keep-frontmatter "
+              f"to carry it into a downstream `render docx`.", file=sys.stderr)
     raw = raw[len(fm):]
     out: list[str] = []
     dropped = 0
