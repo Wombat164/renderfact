@@ -10,6 +10,18 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **Idempotency verification gate (B8, D25)**: `render gate <source.md> --stages idempotency` (new,
+  opt-in stage) actually renders a source TWICE -- into an isolated scratch copy, never the real file,
+  so a first-render `renderfact_uid` mutation never touches a consumer's source -- and asserts B7's
+  byte-identity claim automatically: every zip member's content AND zip-entry metadata
+  (`date_time`/`create_system`/`external_attr`) must match, except `docProps/core.xml`'s content,
+  where only D11's intentionally wall-clock `rendered_at` is excluded. `--idempotency-check-pdf`
+  extends the check to the DOCX->PDF path with pixel-level comparison (poppler's `pdftoppm` + Pillow,
+  `--idempotency-pixel-tolerance` to allow a converter's own minor rendering noise) rather than
+  requiring byte-identical PDFs. Verified both directions: a deliberately reintroduced regression
+  (disabling `ZIP_DETERMINISM_SCRIPT`) is caught and fails the gate, not just the happy path. New:
+  `gates/idempotency.py`; `tests/test_idempotency_gate.py` (16 tests, including a positive and a
+  negative full-pipeline integration test and a read-only-source guard). See `docs/DECISIONS.md` D25.
 - **Zip-container render determinism (B7, D24)**: `render-doc.sh` now resolves and exports
   `SOURCE_DATE_EPOCH` explicitly (default `1700000000`, matching `container/render`'s existing
   default) before invoking pandoc, which already honors it natively for both `docProps/core.xml`'s

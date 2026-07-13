@@ -211,6 +211,19 @@ for zero-arg hook invocation), keeping the public core domain-neutral.
   idempotency verification gate that actually runs a render twice and asserts the scoped byte-identity
   claim above, plus a pixel-diff track for the PDF path (untouched by this item - LibreOffice/Word-COM
   metadata determinism is a distinct investigation).
+- **B8 - Idempotency verification gate (D25).** `[build]` **DONE:** `render gate <source.md>
+  --stages idempotency` (new stage, `gates/idempotency.py` + `gates/run_gates.py`) actually renders a
+  source twice - into an isolated scratch copy, never the real file, so a first-render
+  `renderfact_uid` mutation never touches a consumer's own source - and asserts B7's byte-identity
+  claim automatically: every zip member's content AND zip-entry metadata
+  (date_time/create_system/external_attr) must match, except `docProps/core.xml`'s content, where only
+  D11's intentionally wall-clock `rendered_at` is excluded. `--idempotency-check-pdf` extends the same
+  check to the DOCX->PDF path with a pixel-level comparison (poppler's `pdftoppm` + Pillow) instead of
+  requiring byte-identical PDFs, since a converter's own metadata can legitimately vary.
+  Deliberately NOT in the default `--stages` set (meaningfully more expensive than the static-scan
+  stages); a consumer opts in explicitly. Verified both directions, not just the happy path: a
+  deliberately reintroduced regression (disabling `ZIP_DETERMINISM_SCRIPT`) is caught and fails the
+  gate, confirmed by test before shipping.
 
 ## Track C - Add
 

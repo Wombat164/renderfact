@@ -41,6 +41,17 @@ Stages (each adopted per docs/ROADMAP.md B3, CLI-subprocess only):
            --fail-on-hits` precedent rather than the fail-closed default.
            Pass --plainlang-fail-on-hits to make it CI-blocking once tuned.
            Deterministic, dependency-free.
+  idempotency  render-pipeline determinism (D24 follow-up, gates/idempotency.py):
+           actually renders each .md source TWICE (into an isolated scratch
+           copy, never the real file -- a gate must be read-only) and asserts
+           the two DOCX outputs are byte-identical, except D11's intentionally
+           wall-clock `rendered_at` provenance field. --idempotency-check-pdf
+           also exercises the DOCX->PDF path and compares pixel-by-pixel
+           (poppler's pdftoppm + Pillow when installed) rather than requiring
+           byte-identical PDFs (the converter's own metadata can legitimately
+           vary). Deterministic, no LLM; needs a working pandoc/bash render
+           pipeline (TOOL_MISSING otherwise, same fail-closed posture as
+           every stage here).
 All stages self-scope by file type, so one `render gate <dir>` run applies
 each stage to the files it understands.
 
@@ -48,6 +59,7 @@ Usage:
     render gate <files-or-dirs...> [--stages vale,lychee,verapdf] [--vale-config PATH]
                 [--online] [--pdf-flavour ua1|2b|...]
                 [--plainlang-min-words N] [--plainlang-min-count N] [--plainlang-fail-on-hits]
+                [--idempotency-check-pdf] [--idempotency-pixel-tolerance F]
 
 Exit codes: 0 every requested stage passed; 1 findings; 2 a requested stage's
 tool is missing or the invocation itself is unusable.
@@ -65,6 +77,14 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_VALE_CONFIG = REPO_ROOT / "gates" / "vale" / "vale.ini"
+
+# An editable install (`pip install -e .`, CONTRIBUTING.md) resolves `gates`/
+# `docstyle` package imports against WHATEVER checkout ran that install, not
+# necessarily this file's own worktree -- a real cross-worktree bug hit while
+# building the idempotency stage (its `from gates import idempotency` silently
+# imported a DIFFERENT checkout's copy). Pinning this worktree's own repo root
+# first fixes it for every such import in this file, not just the new one.
+sys.path.insert(0, str(REPO_ROOT))
 
 
 @dataclass
@@ -247,12 +267,26 @@ def run_plain_language(targets: list[str], min_words: int = 5, min_count: int = 
                        detail + "\n  (report-only: pass --plainlang-fail-on-hits to block on this)")
 
 
+def run_idempotency(targets: list[str], check_pdf: bool = False, pixel_tolerance: float = 0.0,
+                    which=shutil.which, runner=subprocess.run) -> StageResult:
+    """Render-pipeline determinism (D24 follow-up). See gates/idempotency.py's
+    module docstring for the scoped byte-identity definition and why a
+    source's first-ever render is deliberately never compared against."""
+    from gates import idempotency
+
+    status, detail = idempotency.check(targets, check_pdf=check_pdf,
+                                       pixel_tolerance=pixel_tolerance,
+                                       which=which, runner=runner)
+    return StageResult("idempotency", status, detail)
+
+
 STAGES = {
     "vale": run_vale,
     "lychee": run_lychee,
     "verapdf": run_verapdf,
     "uids": run_uids,
     "plainlang": run_plain_language,
+    "idempotency": run_idempotency,
 }
 
 
@@ -280,6 +314,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--plainlang-fail-on-hits", action="store_true",
                     help="plainlang: fail the run on a repeated-phrase finding (default: "
                          "report-only, since a hit is often legitimate repeated terminology)")
+    ap.add_argument("--idempotency-check-pdf", action="store_true",
+                    help="idempotency: also render the DOCX->PDF path twice and pixel-compare "
+                         "(needs pdftoppm/poppler-utils; TOOL_MISSING without it)")
+    ap.add_argument("--idempotency-pixel-tolerance", type=float, default=0.0,
+                    help="idempotency: max fraction of differing pixels per PDF page still "
+                         "considered a pass (default: 0.0, exact pixel-identity)")
     args = ap.parse_args(argv)
 
     requested = [s.strip() for s in args.stages.split(",") if s.strip()]
@@ -303,6 +343,9 @@ def main(argv: list[str] | None = None) -> int:
             results.append(run_plain_language(args.targets, min_words=args.plainlang_min_words,
                                               min_count=args.plainlang_min_count,
                                               fail_on_hits=args.plainlang_fail_on_hits))
+        elif stage == "idempotency":
+            results.append(run_idempotency(args.targets, check_pdf=args.idempotency_check_pdf,
+                                           pixel_tolerance=args.idempotency_pixel_tolerance))
 
     worst = 0
     for r in results:
