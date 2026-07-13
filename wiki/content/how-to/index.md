@@ -132,6 +132,44 @@ render provenance strip  <artifact.docx>                        # external / pub
 Strip is surgical: it only clears renderfact's own identifier, never a foreign DOI or an
 organisation's document number.
 
+## Add custom document properties and DOCPROPERTY fields to a DOCX
+
+```yaml
+# template-profile.yaml
+custom_properties:
+  ClientName:
+    type: text
+    value: "Acme Corp"
+  ApprovedBudget:
+    type: number
+    value: 50000
+  IsConfidential:
+    type: bool
+    value: true
+  ReviewDate:
+    type: date
+    value: "2026-07-13"
+```
+
+```markdown
+Client: [ ]{.docproperty name="ClientName"}
+
+Budget: [ ]{.docproperty name="Budget"}
+```
+
+Two separate pieces, deliberately: `custom_properties:` in `--template-profile` DECLARES a property
+(written into `docProps/custom.xml`, visible in Word's File > Info > Properties > Advanced);
+`[ ]{.docproperty name="..."}` anywhere in the markdown source DISPLAYS one, as a real `DOCPROPERTY`
+field. A property can be declared with no field displaying it (fine -- it's just not visible inline
+anywhere); a field can reference a name not yet declared (left as a `«Name»` placeholder, with a NOTE
+printed naming it, not a hard failure -- staging a field ahead of its value is a legitimate authoring
+step). `type` is `text` (default), `number`, `bool`, or `date` (`YYYY-MM-DD`, normalized to midnight
+UTC). The rendered field shows the real value immediately, not just after Word's own F9/update-fields-
+on-print recalculation. See `docs/DECISIONS.md` D24 for why this is a separate mechanism from the D11
+provenance embedding, and for the `docProps/custom.xml` merge semantics (a pre-existing property this
+feature doesn't manage -- including one pandoc's own writer sometimes emits from YAML frontmatter's
+`version:` key -- is never touched or reordered).
+
 ## Onboard a branded corporate template
 
 Derive a skin from a real DOCX template instead of hand-writing a profile:

@@ -70,6 +70,8 @@ The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero
 | `FILTERS_DIR` | directory of pandoc lua filters, applied in name order | none |
 | `TEMPLATE_PROFILE` | YAML consumed by the style post-processor; a top-level `toc: false` key also opts out of the table of contents (`--no-toc` is the flag form; either is sufficient, issue #99) | none (neutral defaults) |
 | `STYLE_POSTPROCESS` | house-style DOCX post-processor | `docstyle/style_postprocess.py` (in-repo) |
+| `DOC_PROPERTIES_FILTER` | `[ ]{.docproperty name="..."}` DOCPROPERTY field markdown syntax (issue #105's sibling feature, C13); a `FILTERS_DIR` filter for the same span class runs first and can override it | `docstyle/filters/doc-properties.lua` (in-repo, built-in); `""` disables |
+| `CUSTOM_PROPERTIES_SCRIPT` | writes `docProps/custom.xml` + fills DOCPROPERTY field caches from `TEMPLATE_PROFILE`'s `custom_properties:` key; no-op when that key (or `TEMPLATE_PROFILE` itself) is unset | `docstyle/custom_properties.py` (in-repo) |
 | `HEADING_NUMBERING` | field-based numbering injector | `docstyle/heading_numbering.py` (in-repo) |
 | `PROJECTION_CONFIG` | ladders-plus-profiles YAML for `--project` | `projection/profiles-example.yaml` |
 | `QC_SCRIPT` / `NLQA_DIR` / `PAGECHECK_SCRIPT` | optional pre/post checks | off when unset |
@@ -99,6 +101,20 @@ roadmap-only, tracked as a follow-up to #96, not part of this escape hatch. On t
 same RawBlock is present in the AST but is silently dropped by the typst writer (it does not recognise
 the `openxml` format tag), the same filtering pandoc already applies to an unrecognised `raw_html`
 block, so the shared constant needs no path-specific carve-out.
+
+**Custom document properties (issue #105's sibling feature, C13, D24).** `docstyle/filters/
+doc-properties.lua`, a built-in pandoc Lua filter always applied on the DOCX path, converts
+`[label]{.docproperty name="ClientName"}` -- native pandoc span syntax, same as the dropdown/checkbox
+syntax above -- into a real `w:fldSimple` `DOCPROPERTY` field, via the same `raw_attribute`
+pass-through. `docstyle/custom_properties.py`, a post-pandoc step, writes the property's actual
+name/type/value into `docProps/custom.xml` from `TEMPLATE_PROFILE`'s `custom_properties:` key AND
+fills the field's cached display text with the real value, so a rendered template shows it immediately
+rather than waiting on Word's own field recalculation. Declaration and display are deliberately
+separate: a template can add/move a display location without touching the declared value, or change
+the value without hunting down every reference. Merges into whatever `docProps/custom.xml` a render
+already carries rather than overwriting wholesale -- pandoc's own writer already puts one `version`
+property there from YAML frontmatter, discovered empirically while building this (D24), so "merge, do
+not clobber" was a real requirement, not defensive-for-its-own-sake.
 
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.

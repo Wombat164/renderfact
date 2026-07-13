@@ -25,6 +25,19 @@
 #                       [--template-profile <yaml>] --cover-version --cover-date
 #                       default: <repo>/docstyle/style_postprocess.py (generic
 #                       in-repo implementation); consumers override with their own
+#   DOC_PROPERTIES_FILTER  `[ ]{.docproperty name="..."}` DOCPROPERTY field
+#                       markdown syntax (issue #105's sibling feature); a
+#                       consumer FILTERS_DIR filter for the same span class
+#                       runs FIRST and can fully override it. default:
+#                       <repo>/docstyle/filters/doc-properties.lua; set to ""
+#                       to disable entirely
+#   CUSTOM_PROPERTIES_SCRIPT  writes docProps/custom.xml + fills DOCPROPERTY
+#                       field caches from --template-profile's
+#                       custom_properties: key; called as: <script> <docx>
+#                       [--template-profile <yaml>]. A no-op (skipped with an
+#                       honest message) when TEMPLATE_PROFILE has no
+#                       custom_properties key configured. default:
+#                       <repo>/docstyle/custom_properties.py
 #   QC_SCRIPT           pre-render QC script, called with <source.md> (--qc);
 #                       ADVISORY by default (findings print, render continues);
 #                       set QC_BLOCKING=1 (or pass --qc-blocking) so a non-zero
@@ -169,6 +182,11 @@ TEMPLATE_DOCX="${TEMPLATE_DOCX:-$(skin_default reference.docx)}"
 FILTERS_DIR="${FILTERS_DIR:-$(skin_default filters)}"
 TEMPLATE_PROFILE="${TEMPLATE_PROFILE:-$(skin_default template-profile.yaml)}"
 STYLE_POSTPROCESS="${STYLE_POSTPROCESS:-$REPO_ROOT/docstyle/style_postprocess.py}"
+# `-` not `:-`: an explicit DOC_PROPERTIES_FILTER="" must stay empty (the
+# documented disable path); `:-` would treat empty the same as unset and
+# silently re-enable the default, defeating the opt-out.
+DOC_PROPERTIES_FILTER="${DOC_PROPERTIES_FILTER-$REPO_ROOT/docstyle/filters/doc-properties.lua}"
+CUSTOM_PROPERTIES_SCRIPT="${CUSTOM_PROPERTIES_SCRIPT:-$REPO_ROOT/docstyle/custom_properties.py}"
 QC_SCRIPT="${QC_SCRIPT:-}"
 QC_BLOCKING="${QC_BLOCKING:-0}"
 NLQA_DIR="${NLQA_DIR:-}"
@@ -334,6 +352,13 @@ if [ -n "$FILTERS_DIR" ] && [ -d "$FILTERS_DIR" ]; then
     echo "  lua-filter: $(basename "$lf")"
   done
 fi
+# Built-in DOCPROPERTY field-reference syntax, applied LAST so a consumer
+# FILTERS_DIR filter handling the same .docproperty span class above always
+# gets first refusal and can fully override this.
+if [ -n "$DOC_PROPERTIES_FILTER" ] && [ -f "$DOC_PROPERTIES_FILTER" ]; then
+  PANDOC_ARGS+=(--lua-filter="$DOC_PROPERTIES_FILTER")
+  echo "  lua-filter: $(basename "$DOC_PROPERTIES_FILTER") (built-in, DOCPROPERTY fields)"
+fi
 "$PANDOC" "${PANDOC_ARGS[@]}" -o "$OUTPUT_FILE" "$TMP_INPUT"
 
 echo ""
@@ -349,6 +374,14 @@ if [ -n "$STYLE_POSTPROCESS" ] && [ -f "$STYLE_POSTPROCESS" ]; then
     --profile "$PROFILE" "${TP_ARG[@]}" --cover-version "$VERSION" --cover-date "$COVER_DATE"
 else
   echo "Skipping house-style pass: no STYLE_POSTPROCESS configured (consumer skin supplies one)."
+fi
+
+echo ""
+if [ -n "$CUSTOM_PROPERTIES_SCRIPT" ] && [ -f "$CUSTOM_PROPERTIES_SCRIPT" ] \
+   && [ -n "$TEMPLATE_PROFILE" ] && [ -f "$TEMPLATE_PROFILE" ]; then
+  "$PYTHON" "$CUSTOM_PROPERTIES_SCRIPT" "$OUTPUT_FILE" --template-profile "$TEMPLATE_PROFILE"
+else
+  echo "Skipping custom document properties: no CUSTOM_PROPERTIES_SCRIPT and/or TEMPLATE_PROFILE configured."
 fi
 
 rm -f "$TMP_INPUT"

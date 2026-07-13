@@ -644,3 +644,65 @@ of the other (issue #71's gate-hook contract, merged first) -- the same class of
 same file. D22 (sendable email output) was the highest number on `main` at merge time, so this
 decision becomes D23, immediately after it; content and reasoning are otherwise unchanged from the
 original PR #67 draft.
+
+## D24 - Custom document properties: reverse D11's docProps/custom.xml avoidance, reimplement (not share) the OPC-part registration technique, declaration and display kept as separate concerns
+
+Issue #105's sibling feature (alongside dropdown/checkbox content controls, developed in a parallel
+branch that may land before or after this one -- if D24 is already taken when these merge, this
+becomes the next free number, the same renumbering this file already has precedent for, see D23
+above): named, typed custom document properties, visible in Word via `[ ]{.docproperty name="..."}`
+bound `{ DOCPROPERTY }` field references.
+
+**Reverses roundtrip/provenance.py's own D11 decision to avoid `docProps/custom.xml`.** That module's
+docstring gives its reasoning: "none of the three libraries has native support for it, and
+hand-rolling the OOXML content-types + relationship registration carries real corruption risk... for
+no functional gain over the core_properties approach at this stage." That reasoning is sound for D11's
+own use case -- one opaque, machine-only JSON blob, for which `dc:identifier` (a core property) was a
+genuinely adequate substitute. It does not hold here: this feature needs multiple, independently
+NAMED and TYPED values a human opens File > Info > Properties > Advanced to read or edit, and Word's
+`DOCPROPERTY` field mechanism can only bind to a real custom property, never to an arbitrary core-
+property JSON blob. There is no substitute for `docProps/custom.xml` for this feature, so the
+"corruption risk" tradeoff is worth taking (and mitigated the same way D11 already mitigated it: a
+dedicated test asserting both registrations happen correctly, not just assumed).
+
+**The `_OpcCoreProps` OPC-part-registration technique is reimplemented for `docProps/custom.xml`, not
+imported from `roundtrip/provenance.py`.** `docstyle/custom_properties.py`'s `_register_custom_part`
+follows the exact same two-registration pattern (`[Content_Types].xml` Override +
+`_rels/.rels` Relationship) `_OpcCoreProps._register_core_part` already proved out for
+`docProps/core.xml` on `.vsdx`. It is copied as a PATTERN, not shared as a library call: `roundtrip/`
+(round-trip provenance, D11/D14, a different lifecycle -- runs on already-rendered artifacts, possibly
+long after the render) and `docstyle/` (render-time post-processing, runs once per render immediately
+after pandoc) are architecturally separate subsystems in this repo with no existing cross-imports
+between them, and this repo's own precedent (`docstyle/marking_lint.py` and `gates/content_scan.py`
+independently implement their own small raw-zip header/footer readers rather than sharing one) already
+favours a small local helper over a premature shared abstraction for a ~20-line registration routine.
+Revisit if a THIRD OPC-part writer ever needs the same pattern -- three independent copies is the
+usual threshold where extracting a shared helper stops being premature.
+
+**Declaration (template-profile-level) and display (per-span) are kept as two separate mechanisms, not
+one.** A property's name/type/value lives centrally in `--template-profile`'s `custom_properties:` key
+(read once, by `docstyle/custom_properties.py`, a post-pandoc step); WHERE it is shown, if anywhere, is
+a `[ ]{.docproperty name="..."}` markdown span anywhere in the source, converted by
+`docstyle/filters/doc-properties.lua` during the pandoc run itself into a real `w:fldSimple`
+`DOCPROPERTY` field. This means a template can move or add a display location without touching the
+declared value, and change the value without hunting down every place it is referenced -- and it means
+the Lua filter itself stays simple and stateless (no YAML parsing inside Lua, no cross-file
+coordination at pandoc-run time): it emits a well-formed field with a guillemet placeholder
+(`«name»`) as the cached result, and `docstyle/custom_properties.py` fills in the real value
+afterward, by matching the field's own `DOCPROPERTY <name>` instruction text -- a `.docproperty` span
+whose name is never declared is left as its placeholder with a printed NOTE, not a hard failure (unlike
+the malformed-input cases in #105's dropdown/checkbox filter): a template author plausibly stages a
+field ahead of declaring its value, and that is a legitimate, non-error state this feature should not
+punish.
+
+**Discovered empirically while building this: pandoc's own DOCX writer already writes
+`docProps/custom.xml` with exactly one property, `version`, sourced from the YAML frontmatter's
+`version:` key** (verified: a plain `pandoc source.md -o out.docx` with `version: v1` in frontmatter
+produces a `docProps/custom.xml` containing that property, with no `docstyle/` code involved at all;
+arbitrary OTHER frontmatter keys are not carried through the same way). This is a narrow, pandoc-
+internal special case, not a general mechanism -- it does not extend to arbitrary named/typed
+properties -- but it is real, and confirms the "merge into whatever is already there, never overwrite
+wholesale" design in `_merge_custom_xml` was necessary, not defensive-for-its-own-sake: a real render
+already has a foreign-to-this-feature property present by the time `docstyle/custom_properties.py`
+runs, on every single render, verified directly (`tests/test_custom_properties.py::
+test_process_merges_with_existing_foreign_property`), not assumed from reading pandoc's source.

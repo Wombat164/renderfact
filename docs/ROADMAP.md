@@ -329,6 +329,18 @@ for zero-arg hook invocation), keeping the public core domain-neutral.
   (a Typst symbol-name lint, and an `identity-block`/`:::identity` authoring helper) rather than
   leaving them as prose inside #62. Cheap - anti-rot housekeeping on top of already-shipped work,
   not new design.
+- **C13 - Custom document properties + DOCPROPERTY field references.** `[build]` **DONE:**
+  `docstyle/custom_properties.py` writes named, typed properties (text/number/bool/date) into
+  `docProps/custom.xml` from a `--template-profile custom_properties:` key, merging into whatever a
+  render already has there rather than overwriting wholesale (pandoc's own writer already puts one
+  `version` property there from YAML frontmatter, discovered empirically while building this - see
+  `docs/DECISIONS.md` D24). `docstyle/filters/doc-properties.lua` gives markdown a
+  `[ ]{.docproperty name="..."}` syntax that becomes a real `w:fldSimple` `DOCPROPERTY` field,
+  independent of where/whether the underlying property is declared. Declaration and display are
+  deliberately two separate mechanisms (D24). Reverses `roundtrip/provenance.py`'s own D11 decision to
+  avoid `docProps/custom.xml`; the two use cases (one opaque JSON blob vs. multiple named/typed,
+  human-editable values a `DOCPROPERTY` field can bind to) are different enough that the earlier
+  avoidance does not generalize, and D24 says so explicitly rather than silently contradicting D11.
 
 ## Track D - Round-trip / draft reconciliation
 
