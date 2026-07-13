@@ -24,7 +24,7 @@ mode argument parsing and path resolution still live in each pipeline; a shared 
 | `provenance` | embed / extract / adopt / retarget hidden source provenance across DOCX/XLSX/PPTX | shipped |
 | `import-template` | derive a template profile (theme, fonts, geometry) from a branded DOCX, with an idempotency gate | shipped |
 | `qa` | deterministic post-render gate (leaks / tables / paras / figs / purpose) | shipped |
-| `gate` | fail-closed pre-publish QA gate chain (vale / lychee / verapdf / uids / plainlang) | shipped |
+| `gate` | fail-closed pre-publish QA gate chain (vale / lychee / verapdf / uids / plainlang / idempotency, opt-in) | shipped |
 | `comprehension-review` | fresh-reader comprehension gate for a rendered text document (D16-gated, always escalates); the text peer of the diagram vision-review gate (issue #84) | shipped |
 | `serve` | localhost HTTP API plus opt-in thin reference UI | shipped |
 | `container` | raw passthrough to the OCI render wrapper | shipped |
@@ -525,7 +525,7 @@ findings fail the run, AND a requested stage whose tool is not installed also fa
 a gate you cannot execute is not a gate you passed. Every stage is a deterministic CLI subprocess
 or dependency-free Python, no LLM anywhere. Default chain: `vale,lychee,verapdf,uids,plainlang`,
 each stage self-scoping by file type so one `render gate <dir>` run applies each stage to the files
-it understands.
+it understands. `idempotency` (D25) is opt-in, not in the default chain (see below).
 
 - `vale`: text hygiene on markdown sources (errata-ai/vale). The generic-core default
   (`gates/vale/vale.ini`) ships only Vale's built-in checks (repetition blocks, spelling warns);
@@ -555,6 +555,16 @@ it understands.
   repeated phrase is very often legitimate (a programme or component name used consistently), so
   fail-closed-by-default would make it noise rather than signal, in the same
   `render qa leaks --fail-on-hits` report-only shape used below.
+- `idempotency` (D25, opt-in, not in the default chain -- meaningfully more expensive than the static
+  scans above): actually renders a `.md` source TWICE via the real pipeline and asserts B7/D24's
+  byte-identity claim (`gates/idempotency.py`). Every zip member's content AND zip-entry metadata
+  (date_time/create_system/external_attr) must match between the two renders, except
+  `docProps/core.xml`'s content, where D11's intentionally wall-clock `rendered_at` is excluded first.
+  Never renders the real source file directly: a scratch-directory copy absorbs a first-render
+  `renderfact_uid` mutation (D24), keeping this stage read-only like every other one here.
+  `--idempotency-check-pdf` extends the same check across the DOCX->PDF path with a pixel-level
+  comparison (poppler's `pdftoppm` + Pillow, `--idempotency-pixel-tolerance` to allow a converter's own
+  minor rendering noise) instead of requiring byte-identical PDF bytes.
 
 ## Post-render QA gate
 

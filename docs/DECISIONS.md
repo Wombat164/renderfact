@@ -716,3 +716,64 @@ back to the SECOND run reading a source file the FIRST run had already mutated, 
 determinism gap). A fair idempotency comparison needs a source whose `renderfact_uid` is already
 stable before taking the two comparison renders -- a test-harness concern for the verification-gate
 PR, not something to special-case here.
+
+## D25 - Idempotency verification as a `render gate` stage, not a new top-level render mode; scratch-copy isolation instead of touching the real source
+
+D24 established the byte-identity claim empirically by hand; this is the automated gate that keeps it
+true as the pipeline evolves. Branches stacked on D24's own PR (`feat/zip-determinism`): the claim this
+gate verifies requires that branch's fixes to be present, so a bare-`main` CI run of this branch alone,
+before D24 merges, would correctly show the exact gap D24 closes -- expected, not a bug in the gate.
+
+**A `render gate` stage (`gates/idempotency.py` + a thin `run_idempotency` wrapper in
+`gates/run_gates.py`), not a new `render` mode.** `run_gates.py`'s existing stages already mix
+source-file-scoped checks (vale, plainlang) with artifact-scoped ones (verapdf); an idempotency check
+needs the SOURCE (to render it) rather than an already-rendered artifact, so it fits the same
+`_resolve_files(targets, (".md",))` self-scoping shape `vale`/`plainlang` already use, not a
+standalone `POSTRENDER_GATE_SCRIPT`-shaped script (`gates/content_scan.py`'s contract), which only
+ever sees one already-finished artifact and has no way to render a second one to compare against.
+
+**Heavy logic in `gates/idempotency.py`, a thin STAGES wrapper in `run_gates.py` itself** -- the same
+shape `run_plain_language`/`docstyle/plain_language.py` already established, not a new pattern. The
+helper module returns a plain `(status, detail)` tuple in `run_gates.py`'s own status vocabulary
+rather than a duplicate `StageResult` dataclass, so there is exactly one `StageResult` definition in
+the whole gate chain.
+
+**Comparison scope, precisely: every zip member's CONTENT and zip-entry METADATA
+(date_time/create_system/external_attr) must match, except docProps/core.xml's content, which is
+normalized first (D24's own exception: D11's `rendered_at` is intentionally wall-clock).** An earlier
+draft compared content only; it was blind to a real regression class (disabling D24's own
+`zip_determinism.py` produces WRONG output that a content-only diff cannot see, since only the zip
+entries' own timestamp/platform metadata changes, not any XML content) -- caught by deliberately
+reintroducing that exact regression and confirming the gate failed to catch it before this fix, and
+does after (`tests/test_idempotency_gate.py::test_gate_fails_on_a_real_regression`). A gate that can
+only ever report PASS is not a verified gate; this one is tested both ways.
+
+**A source's real, checked-out copy is NEVER rendered directly -- a temp-directory scratch copy is,
+always.** D24 already found that a source's first-ever render mutates its own frontmatter
+(`renderfact_uid`). A gate is expected to be read-only (matching every other stage in
+`gates/run_gates.py`, none of which write anything); this gate copies the source into an isolated
+scratch directory, does one throwaway PRIMING render there to settle a stable `renderfact_uid` in the
+COPY, then takes its two real comparison renders from that now-stable copy -- the real source file on
+disk is never touched, verified directly
+(`tests/test_idempotency_gate.py::test_gate_never_mutates_the_real_source_file`), not assumed safe by
+construction.
+
+**PDF: pixel comparison via poppler's `pdftoppm` + Pillow, not a byte-identity requirement.** Verified
+before writing this that neither soffice/LibreOffice nor Word-COM is available for hands-on testing on
+this dev host, so the DOCX->PDF integration path itself is exercised only via
+`shutil.which`-gated skips in CI/container, not locally; the pixel-comparison LOGIC (`compare_pdf_pixels`)
+is unit-tested directly against synthetic PDFs (typst-compiled fixtures, since typst is already a repo
+dependency for the PDF backend), independent of which converter eventually produces the real PDF. A
+requested `--idempotency-check-pdf` with no working PDF converter configured, or with `pdftoppm`
+itself missing, is TOOL_MISSING, not a silent skip -- the same fail-closed posture every other stage in
+this gate chain already holds itself to. `pixel_tolerance` defaults to `0.0` (exact pixel-identity);
+exposed as a flag rather than hardcoded because a real converter's own anti-aliasing/font-hinting
+could legitimately introduce a handful of differing pixels between two runs even with byte-identical
+DOCX input, and this repo has not yet observed that empirically one way or the other -- a `0.0` default
+makes the gate strict-by-default and lets a consumer who DOES observe converter-level noise widen it
+deliberately, rather than baking in an unverified tolerance guess.
+
+**Not in the default `--stages` set.** Unlike `vale`/`lychee`/`verapdf`/`uids`/`plainlang` (cheap
+static scans), this stage renders the pipeline two or three times per source -- meaningfully more
+expensive. A consumer opts in explicitly (`--stages idempotency` or `--stages vale,...,idempotency`),
+consistent with this being a real-render integration check, not a lint pass.

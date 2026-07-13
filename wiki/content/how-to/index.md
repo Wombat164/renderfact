@@ -121,6 +121,22 @@ Stages self-scope by file type. Exception: `plainlang` (repeated-phrase-across-s
 defect; add `--plainlang-fail-on-hits` once you have tuned `--plainlang-min-words` /
 `--plainlang-min-count` for your corpus.
 
+## Verify a source renders idempotently
+
+```bash
+render gate mydoc.md --stages idempotency
+render gate mydoc.md --stages idempotency --idempotency-check-pdf --idempotency-pixel-tolerance 0.001
+```
+
+Opt-in (not in the default `--stages` list): renders `mydoc.md` TWICE through the real pipeline, into
+an isolated scratch copy (your actual file is never touched -- a `renderfact_uid` established on a
+source's first-ever render never leaks into your working copy), and fails if the two DOCX outputs
+differ in anything except D11's intentionally wall-clock `rendered_at` provenance timestamp.
+`--idempotency-check-pdf` also renders the PDF path twice and compares pixel-by-pixel (needs poppler's
+`pdftoppm`; Pillow if installed gives a real tolerance, otherwise falls back to exact PNG-byte
+comparison) rather than requiring byte-identical PDF bytes, since a converter's own metadata can
+legitimately vary run to run. See `docs/DECISIONS.md` D25.
+
 ## Embed, inspect, or strip provenance
 
 ```bash
