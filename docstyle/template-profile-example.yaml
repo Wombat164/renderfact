@@ -70,3 +70,26 @@ cover:
 # House punctuation normalization (unicode dashes/quotes/NBSP to ASCII) applied
 # to body text and headers/footers. Set false to leave punctuation untouched.
 normalize_punctuation: true
+
+# Custom document properties (issue #105's sibling feature, docstyle/custom_properties.py):
+# written into docProps/custom.xml (File > Info > Properties > Advanced in Word), and used
+# to fill in the cached display text of any [ ]{.docproperty name="..."} markdown span
+# (docstyle/filters/doc-properties.lua) bound to the same name. `type` is one of
+# text|number|bool|date (default text); `date` values are YYYY-MM-DD (a bare date is
+# normalized to midnight UTC). A property declared here but never referenced by a
+# .docproperty span is still written -- it just has no visible field anywhere. A
+# .docproperty span referencing a name NOT declared here is left as its placeholder,
+# with a NOTE printed naming the unbound name.
+# custom_properties:
+#   ClientName:
+#     type: text
+#     value: ""
+#   ApprovedBudget:
+#     type: number
+#     value: 0
+#   IsConfidential:
+#     type: bool
+#     value: false
+#   ReviewDate:
+#     type: date
+#     value: "2026-01-01"

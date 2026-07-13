@@ -10,6 +10,21 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **Custom document properties + DOCPROPERTY field references (issue #105's sibling feature, C13,
+  D24)**: `custom_properties:` in `--template-profile` (name -> `{type: text|number|bool|date,
+  value}`) writes named, typed properties into `docProps/custom.xml`, visible in Word's File > Info >
+  Properties > Advanced. `[ ]{.docproperty name="ClientName"}` markdown syntax becomes a real
+  `w:fldSimple` `DOCPROPERTY` field via a new built-in Lua filter, `docstyle/filters/doc-properties.lua`
+  (wired via `DOC_PROPERTIES_FILTER`, on by default, consumer-overridable). A new post-pandoc step,
+  `docstyle/custom_properties.py` (`CUSTOM_PROPERTIES_SCRIPT`), fills the field's cached display text
+  with the real value so a rendered template shows it immediately, not just after Word's own field
+  recalculation. Declaration and display are two separate mechanisms by design. Merges into whatever
+  `docProps/custom.xml` a render already carries rather than overwriting wholesale -- pandoc's own
+  writer already puts one `version` property there from YAML frontmatter, discovered empirically while
+  building this. Reverses `roundtrip/provenance.py`'s own D11 decision to avoid `docProps/custom.xml`;
+  see `docs/DECISIONS.md` D24 for why the two use cases don't generalize the same way. New:
+  `tests/test_custom_properties.py` (34 tests: unit coverage for the merge/fill logic, idempotency,
+  pandoc-level filter assertions, and a full `render.py docx` integration pass).
 - **Three silent-footgun warnings, found via a real consumer session hitting all three**: (1)
   `render project` now prints a `NOTE` to stderr when the source has YAML frontmatter (title, etc)
   and `--keep-frontmatter` was not passed, since the stripped metadata otherwise surfaces
