@@ -196,3 +196,39 @@ def test_main_exits_2_on_missing_pattern_file(tmp_path, capsys):
     rc = content_scan.main([str(doc_path), "--pattern-file", str(tmp_path / "nope.txt")])
     assert rc == 2
     assert "pattern file not found" in capsys.readouterr().err
+
+
+# ---------- authoring-artifact-patterns.example.txt (the shipped example) ----------
+
+EXAMPLE_PATTERN_FILE = REPO_ROOT / "gates" / "authoring-artifact-patterns.example.txt"
+
+
+def _build_authoring_leak_doc(path: Path) -> Path:
+    doc = Document()
+    doc.add_paragraph("Ordinary opening paragraph, nothing tooling-related here.")
+    doc.add_paragraph("Per constants.yaml this figure is authoritative.")
+    doc.add_paragraph("See [[Some Internal Note]] for background.")
+    doc.add_paragraph("<!-- projected: profile=internal-full -->")
+    doc.add_paragraph("Ref G-proj-011 covers the timeline.")
+    doc.save(str(path))
+    return path
+
+
+def test_example_pattern_file_exists_and_is_well_formed():
+    assert EXAMPLE_PATTERN_FILE.exists()
+    patterns = content_scan._read_pattern_file(EXAMPLE_PATTERN_FILE)
+    assert len(patterns) >= 4
+    for p in patterns:
+        re.compile(p)  # every line must be a valid regex
+
+
+def test_example_pattern_file_catches_authoring_artifacts(tmp_path):
+    doc_path = _build_authoring_leak_doc(tmp_path / "leak.docx")
+    rc = content_scan.main([str(doc_path), "--pattern-file", str(EXAMPLE_PATTERN_FILE)])
+    assert rc == 1
+
+
+def test_example_pattern_file_does_not_false_positive_on_clean_prose(tmp_path):
+    doc_path = _build_clean_doc(tmp_path / "clean.docx")
+    rc = content_scan.main([str(doc_path), "--pattern-file", str(EXAMPLE_PATTERN_FILE)])
+    assert rc == 0

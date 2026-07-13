@@ -1,0 +1,42 @@
+# authoring-artifact-patterns.example.txt: example RENDERFACT_GATE_PATTERN_FILE
+# for gates/content_scan.py, covering a class of leak that any fact-store-driven
+# authoring pipeline can produce: a literal reference to the AUTHORING SYSTEM
+# itself (a config filename, an internal note-taking wikilink, an internal
+# citation ID, an HTML comment carrying tooling metadata) surviving into a
+# rendered artifact meant to leave the authoring environment entirely.
+#
+# This is generic, not domain-specific (D3): a consumer whose drafting process
+# assembles a source from many small facts (a fact-store, a knowledge base, a
+# note-taking vault) each carrying provenance -- and that provenance/citation
+# scaffolding is only ever meant to be internal, never shipped -- can point
+# RENDERFACT_GATE_PATTERN_FILE at a copy of this file (extended with THEIR own
+# tool-specific filenames/ID shapes; the four patterns below cover COMMON
+# shapes, not an exhaustive or consumer-specific list).
+#
+# One regex per line; blank lines and '#'-comment lines are ignored, matching
+# content_scan.py's own --pattern-file format.
+
+# A config/fact-store filename mentioned in prose (e.g. "per constants.yaml",
+# "see granules.yaml") -- authoring-tool file references have no business in
+# rendered document text, regardless of what the consumer's own filenames are.
+\b[\w-]+\.ya?ml\b
+\b[\w-]+\.json\b
+
+# A leftover Obsidian-style (or similar) wikilink, [[Some Note]] or
+# [[Some Note|Display Text]] -- these resolve inside a note-taking tool and
+# are never valid prose once rendered elsewhere.
+\[\[.*?\]\]
+
+# An HTML comment carrying tooling metadata (a projection engine's own
+# provenance stamp, a build-step marker) that should have been stripped by
+# the pipeline's own strip_provenance/D14 handling but wasn't.
+<!--.*?-->
+
+# A short, all-caps-prefixed hyphenated ID shape common to fact-store /
+# ticket-tracker citation conventions (e.g. "G-proj-011", "REQ-042",
+# "TASK-1138") -- deliberately loose (2-6 letters, then digits, optionally a
+# dossier/project segment in the middle); a consumer whose real prose
+# genuinely needs a bare code like this should scope their own pattern file
+# more tightly (e.g. anchor to their specific prefix) rather than rely on
+# this example as-is.
+\b[A-Z]{1,6}-[a-z0-9]+-\d+\b

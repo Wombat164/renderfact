@@ -45,7 +45,13 @@
 #                       is right for QC_SCRIPT above (see docs/DECISIONS.md D18
 #                       for the reasoning). Set POSTRENDER_GATE_ADVISORY=1 to opt
 #                       back into advisory-only. gates/content_scan.py is the
-#                       generic (pattern-as-parameter) reference implementation.
+#                       generic (pattern-as-parameter) reference implementation;
+#                       gates/authoring-artifact-patterns.example.txt is a ready
+#                       RENDERFACT_GATE_PATTERN_FILE for one common use of it: a
+#                       fact-store/note-taking-driven authoring pipeline leaking
+#                       its OWN tooling references (a config filename, an
+#                       internal wikilink, a citation ID) into a rendered
+#                       artifact meant to leave that pipeline entirely.
 #   POSTRENDER_GATE_ADVISORY  1 = POSTRENDER_GATE_SCRIPT findings are advisory
 #                       only (print, do not stop the render); default 0 (blocking)
 #   PDF_CONVERTER_PS1   Windows Word-COM converter script (--pdf); without it,
