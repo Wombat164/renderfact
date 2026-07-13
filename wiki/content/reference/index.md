@@ -264,6 +264,7 @@ MIME-multipart HTML signature (`docs/ROADMAP.md` Track J).
 | `RENDERFACT_VALE_CONFIG` | gate (vale) | Override the built-in Vale config. |
 | `RENDERFACT_LYCHEE_BIN` / `_VERAPDF_BIN` | gate | Native binary overrides. |
 | `PROVENANCE=off` | render pipeline | Skip provenance embedding for a render. |
+| `SOURCE_DATE_EPOCH` | render pipeline | Unix timestamp render output is pinned to, for byte-identical repeat renders (D24). Default `1700000000`. |
 
 ## D17 direct-API escalation channel (optional, off by default)
 

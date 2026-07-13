@@ -35,6 +35,15 @@
 #   HEADING_NUMBERING   field-numbering script, called with <docx> (--number-headings)
 #                       default: <repo>/docstyle/heading_numbering.py (generic
 #                       in-repo implementation); consumers override with their own
+#   ZIP_DETERMINISM_SCRIPT  normalizes the rendered docx's zip-container
+#                       timestamps/platform metadata (D24) to SOURCE_DATE_EPOCH
+#                       (default 1700000000, same as container/render's
+#                       default); the LAST content-mutating step, after
+#                       provenance embedding. Content is never touched, only
+#                       zip-entry cruft that python-docx's own save otherwise
+#                       stamps with wall-clock time. default:
+#                       <repo>/docstyle/zip_determinism.py; set to "" to
+#                       disable
 #   PAGECHECK_SCRIPT    page-economy analyzer, called with <docx|pdf> (--page-check)
 #   POSTRENDER_GATE_SCRIPT   post-render content-safety gate, called with the
 #                       finished <docx> (--postrender-gate), after render and
@@ -160,6 +169,14 @@ PYTHON="${PYTHON:-}"
 [ -z "$PYTHON" ] && PYTHON="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
 [ -z "$PYTHON" ] && { echo "ERROR: python not found" >&2; exit 3; }
 
+# ---- reproducible-build timestamp (D24): resolved and exported HERE, not left to
+# ambient shell inheritance -- container/Containerfile + container/render already set
+# this default, but only the containerized path happened to inherit it; a bare
+# dev-host or CI invocation of this script did not. Exporting it explicitly means
+# pandoc (which already honors SOURCE_DATE_EPOCH natively, verified empirically) gets
+# it on every invocation path, not just inside the container.
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1700000000}"
+
 # ---- consumer skin resolution (each var: explicit env, else SKIN_DIR, else off) ----
 SKIN_DIR="${SKIN_DIR:-}"
 skin_default() {  # $1 = relative path under SKIN_DIR; echoes it when it exists
@@ -173,6 +190,7 @@ QC_SCRIPT="${QC_SCRIPT:-}"
 QC_BLOCKING="${QC_BLOCKING:-0}"
 NLQA_DIR="${NLQA_DIR:-}"
 HEADING_NUMBERING="${HEADING_NUMBERING:-$REPO_ROOT/docstyle/heading_numbering.py}"
+ZIP_DETERMINISM_SCRIPT="${ZIP_DETERMINISM_SCRIPT-$REPO_ROOT/docstyle/zip_determinism.py}"
 PAGECHECK_SCRIPT="${PAGECHECK_SCRIPT:-}"
 POSTRENDER_GATE_SCRIPT="${POSTRENDER_GATE_SCRIPT:-}"
 POSTRENDER_GATE_ADVISORY="${POSTRENDER_GATE_ADVISORY:-0}"
@@ -383,6 +401,14 @@ if [ "${PROVENANCE:-auto}" != "off" ]; then
     echo "Provenance (D11/D14): embedding source identity (from the canonical source, not the projection)..."
     "$PYTHON" "$PROV_TOOL" embed "$OUTPUT_FILE" --source "$ORIG_SOURCE"
   fi
+fi
+
+# ---- D24: zip-container determinism, the LAST content-mutating step (every save
+# above this point, python-docx or raw-zip, otherwise re-stamps every entry with
+# wall-clock time regardless of SOURCE_DATE_EPOCH) ----
+if [ -n "$ZIP_DETERMINISM_SCRIPT" ] && [ -f "$ZIP_DETERMINISM_SCRIPT" ]; then
+  echo ""
+  "$PYTHON" "$ZIP_DETERMINISM_SCRIPT" "$OUTPUT_FILE" --source-date-epoch "$SOURCE_DATE_EPOCH"
 fi
 
 # ---- optional PDF: Word COM (when a converter is configured) or LibreOffice ----

@@ -10,6 +10,20 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **Zip-container render determinism (B7, D24)**: `render-doc.sh` now resolves and exports
+  `SOURCE_DATE_EPOCH` explicitly (default `1700000000`, matching `container/render`'s existing
+  default) before invoking pandoc, which already honors it natively for both `docProps/core.xml`'s
+  timestamps and its own zip-entry mtimes -- discovered empirically while investigating this, not
+  assumed. New `docstyle/zip_determinism.py` runs once, as the last content-mutating step in the
+  pipeline, normalizing the finished artifact's zip-entry timestamps/`create_system`/`external_attr`
+  to fixed values, closing the gap python-docx's own `Document.save()` otherwise reintroduces on
+  every save regardless of `SOURCE_DATE_EPOCH` (verified at the zipfile source level: unconditional
+  wall-clock stamping via a bare `writestr(name, data)` call). Verified precisely, not just claimed:
+  with `PROVENANCE=off`, two independent renders of the same source are 100% byte-identical; with the
+  default `PROVENANCE=auto` and a source whose `renderfact_uid` is already stable, the only remaining
+  difference is D11's intentionally-wall-clock `rendered_at` field, not zip cruft. See
+  `docs/DECISIONS.md` D24. New: `tests/test_zip_determinism.py` (14 tests, including two full-pipeline
+  integration tests asserting real byte-identity).
 - **Three silent-footgun warnings, found via a real consumer session hitting all three**: (1)
   `render project` now prints a `NOTE` to stderr when the source has YAML frontmatter (title, etc)
   and `--keep-frontmatter` was not passed, since the stripped metadata otherwise surfaces

@@ -71,6 +71,7 @@ The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero
 | `TEMPLATE_PROFILE` | YAML consumed by the style post-processor; a top-level `toc: false` key also opts out of the table of contents (`--no-toc` is the flag form; either is sufficient, issue #99) | none (neutral defaults) |
 | `STYLE_POSTPROCESS` | house-style DOCX post-processor | `docstyle/style_postprocess.py` (in-repo) |
 | `HEADING_NUMBERING` | field-based numbering injector | `docstyle/heading_numbering.py` (in-repo) |
+| `ZIP_DETERMINISM_SCRIPT` | normalizes the finished docx's zip-entry timestamps/platform metadata to `SOURCE_DATE_EPOCH` (D24); the LAST content-mutating step | `docstyle/zip_determinism.py` (in-repo); `""` disables |
 | `PROJECTION_CONFIG` | ladders-plus-profiles YAML for `--project` | `projection/profiles-example.yaml` |
 | `QC_SCRIPT` / `NLQA_DIR` / `PAGECHECK_SCRIPT` | optional pre/post checks | off when unset |
 | `QC_BLOCKING` | `1` makes a `QC_SCRIPT` finding stop the render (`--qc-blocking` is the flag form) | `0` (advisory) |
@@ -99,6 +100,16 @@ roadmap-only, tracked as a follow-up to #96, not part of this escape hatch. On t
 same RawBlock is present in the AST but is silently dropped by the typst writer (it does not recognise
 the `openxml` format tag), the same filtering pandoc already applies to an unrecognised `raw_html`
 block, so the shared constant needs no path-specific carve-out.
+
+**Render-pipeline determinism (D24).** `render-doc.sh` resolves and exports `SOURCE_DATE_EPOCH`
+explicitly (default `1700000000`) before invoking pandoc, which already honors it natively for both
+`docProps/core.xml`'s timestamps and its own zip-entry mtimes (discovered empirically, not assumed).
+`docstyle/zip_determinism.py` runs once, as the last content-mutating step, normalizing the finished
+artifact's zip-entry timestamps/platform metadata -- the gap python-docx's own `Document.save()`
+otherwise reintroduces on every save, regardless of `SOURCE_DATE_EPOCH`. Verified: with
+`PROVENANCE=off`, two independent renders of the same source are byte-identical; with the default
+`PROVENANCE=auto` and a source whose `renderfact_uid` is already stable, the only difference is D11's
+intentionally-wall-clock `rendered_at` field -- documented, not a residual gap.
 
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.
