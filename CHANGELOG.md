@@ -10,6 +10,16 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **`gates/authoring-artifact-patterns.example.txt`**: a ready `RENDERFACT_GATE_PATTERN_FILE` for
+  `gates/content_scan.py` (the existing, domain-neutral post-render content-safety gate, D18) covering
+  a leak class any fact-store/note-taking-driven authoring pipeline can produce: a literal reference to
+  the AUTHORING SYSTEM itself (a config filename, an internal wikilink, an HTML provenance comment that
+  should have been stripped, a citation-ID shape) surviving into a rendered artifact meant to leave that
+  pipeline entirely. `content_scan.py` itself ships no default pattern by design (D3/D18); this file is
+  an example a consumer points `RENDERFACT_GATE_PATTERN_FILE` at directly, or copies and extends with
+  their own tool-specific filenames/ID shapes. 3 new tests confirm it both catches realistic leak shapes
+  and does not false-positive on ordinary prose.
+
 - **Three silent-footgun warnings, found via a real consumer session hitting all three**: (1)
   `render project` now prints a `NOTE` to stderr when the source has YAML frontmatter (title, etc)
   and `--keep-frontmatter` was not passed, since the stripped metadata otherwise surfaces
