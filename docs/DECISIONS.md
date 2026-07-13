@@ -644,3 +644,75 @@ of the other (issue #71's gate-hook contract, merged first) -- the same class of
 same file. D22 (sendable email output) was the highest number on `main` at merge time, so this
 decision becomes D23, immediately after it; content and reasoning are otherwise unchanged from the
 original PR #67 draft.
+
+## D24 - Zip-container determinism: pass SOURCE_DATE_EPOCH through explicitly, normalize the rest as a single final pass, leave D11 provenance's own timestamp alone
+
+Session-level goal: make the DOCX render pipeline idempotent (the same logical input renders
+byte-identically twice). This decision is developed in parallel with two sibling PRs from the same
+session (dropdown/checkbox content controls, custom document properties) that may land before or
+after it -- if D24 is already taken at merge time, this becomes the next free number, per this file's
+own established renumbering precedent (see D23 above).
+
+**Discovered empirically before writing any fix, not assumed:** pandoc's own DOCX writer already
+honors `SOURCE_DATE_EPOCH` (the reproducible-builds.org convention) for both `docProps/core.xml`'s
+`dcterms:created`/`modified` content and every zip entry's own timestamp -- two independent
+`pandoc ... -o out.docx` runs on identical input, with the env var set, are already byte-identical,
+verified as a whole-file comparison. `container/Containerfile` and `container/render` already set a
+default (`1700000000`) for this var, but nothing in this repo's own code ever READ it -- it worked,
+when it worked at all, purely by accidental shell-inheritance from the container wrapper into
+`render-doc.sh`'s pandoc subprocess call, and did NOT work for a bare dev-host or CI invocation of
+`render-doc.sh` (verified: none of it was set in my own testing until this fix). **Fix (gap 1):**
+`render-doc.sh` now resolves `SOURCE_DATE_EPOCH` once, near the top (`${SOURCE_DATE_EPOCH:-1700000000}`,
+the same default container/render already used) and `export`s it explicitly, so every invocation
+path gets it, not just the containerized one.
+
+**python-docx does NOT honor `SOURCE_DATE_EPOCH`.** `Document.save()` calls
+`zipfile.ZipFile.writestr(name, data)` with a plain string name, so Python's zipfile module
+auto-generates a `ZipInfo` whose `date_time` is `time.localtime()` at save time -- unconditional
+wall-clock, verified at the zipfile source level. Because `save()` rewrites the WHOLE zip in one
+shot, this stamps every member, not just the ones a given pass actually modifies -- verified directly:
+two independent full-pipeline renders differed in `date_time` on all ~20 members of a real rendered
+docx, not only the ones `style_postprocess.py`/`heading_numbering.py`/`custom_properties.py` touch.
+The same gap exists in every raw-zip writer this repo has (`heading_numbering.py`,
+`docstyle/custom_properties.py`, `roundtrip/provenance.py`'s `_OpcCoreProps`) -- all use plain
+`writestr(name, data)`, all inherit the same wall-clock stamping. `zipfile.ZipInfo` also defaults
+`create_system` to a platform-dependent value (0 on win32, 3 elsewhere) -- a real gap for this repo's
+own CI matrix (ubuntu + windows, CONTRIBUTING.md), confirmed at the zipfile source level.
+
+**Fix (gap 2), chosen over patching all four call sites individually:** `docstyle/zip_determinism.py`
+runs ONCE, as the LAST content-mutating step in `render-doc.sh` (after provenance embedding, before
+optional PDF conversion), and normalizes every zip entry's `date_time`/`create_system`/`external_attr`
+to fixed values on the FINAL, fully-mutated artifact. Because it operates on the end result, not each
+intermediate stage, it closes the gap for all four upstream writers in one pass, without needing any
+of them to change how they save. Content and member order are never touched, only per-entry metadata;
+idempotent by construction (a second call against an already-normalized file returns without writing
+anything, the same "true no-op, not just assumed" bar `heading_numbering.py`'s own idempotency test
+already holds itself to). A standalone `docstyle/style_postprocess.py` invocation (the wiki's own
+documented "standalone entry point" recipe) does NOT get this pass automatically -- scoped
+deliberately to the `render-doc.sh` pipeline this session's goal actually names ("the whole generation
+pipeline"), not every individual tool run in isolation; the module is still directly callable by hand
+for that case.
+
+**Deliberately NOT normalized, by design: D11 provenance's `rendered_at` field.** Embedded into
+`docProps/core.xml`'s `dc:identifier` when `PROVENANCE=auto` (the default), it is INTENTIONALLY
+wall-clock -- its entire purpose is recording when a render actually happened. A full render with
+provenance embedding therefore never produces a byte-identical artifact against a later independent
+render of the same source, by design, and that is correct, not a residual bug this PR failed to close.
+Verified precisely: with `PROVENANCE=off`, two independent renders (2 seconds apart) of the same
+source are 100% byte-identical; with `PROVENANCE=auto` and a source whose `renderfact_uid` has already
+been established (see the next paragraph), the ONE differing zip member is `docProps/core.xml`, and
+within it, only the `rendered_at` value inside the provenance JSON blob -- not `dcterms:created`
+(pandoc-sourced, now stable), not any zip-entry timestamp, not any other member. The later idempotency
+verification-gate PR is expected to compare with `PROVENANCE=off`, or exclude that one JSON field
+specifically, rather than treat a `PROVENANCE=auto` artifact as one opaque blob that must match
+exactly.
+
+**A source's FIRST render is not "the same logical input" as its second, and that's also by design,
+not this PR's concern to fix.** `roundtrip/source_uid.py`'s `get_or_create_source_uid()` persists a
+`renderfact_uid:` line into the source markdown's own frontmatter the first time provenance is
+embedded for it -- discovered as a real confound while verifying this fix empirically (an initial
+two-run comparison showed spurious differences in `docProps/custom.xml` and `core.xml` that traced
+back to the SECOND run reading a source file the FIRST run had already mutated, not to any zip
+determinism gap). A fair idempotency comparison needs a source whose `renderfact_uid` is already
+stable before taking the two comparison renders -- a test-harness concern for the verification-gate
+PR, not something to special-case here.

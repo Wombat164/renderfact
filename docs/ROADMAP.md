@@ -196,6 +196,21 @@ for zero-arg hook invocation), keeping the public core domain-neutral.
   Better: ship a small default `container/word-to-pdf.ps1` Word-COM converter that `render-doc.sh`
   falls back to automatically when Word is detected and no custom `PDF_CONVERTER_PS1` is set,
   keeping the env var as an override for consumers who want different conversion settings.
+- **B7 - Zip-container render determinism (D24).** `[build]` **DONE:** `render-doc.sh` now resolves
+  and exports `SOURCE_DATE_EPOCH` explicitly (default `1700000000`, matching
+  `container/render`'s own existing default) instead of relying on accidental shell-inheritance from
+  the container wrapper - pandoc's own docx writer already honors it natively (discovered
+  empirically), closing the largest gap. `docstyle/zip_determinism.py`, a single final pass after
+  provenance embedding, normalizes every zip entry's timestamp/create_system/external_attr on the
+  finished artifact, closing the gap python-docx's own `Document.save()` leaves (unconditional
+  wall-clock stamping on every save, verified at the zipfile source level). Verified precisely: with
+  `PROVENANCE=off`, two independent renders of the same source are 100% byte-identical; with
+  `PROVENANCE=auto` (default) and a source whose `renderfact_uid` is already stable, the only
+  remaining difference is the intentionally-wall-clock `rendered_at` field inside D11's own
+  provenance blob - not zip cruft, not anything this fix left unclosed. **NEXT (a separate PR):** an
+  idempotency verification gate that actually runs a render twice and asserts the scoped byte-identity
+  claim above, plus a pixel-diff track for the PDF path (untouched by this item - LibreOffice/Word-COM
+  metadata determinism is a distinct investigation).
 
 ## Track C - Add
 
