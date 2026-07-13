@@ -68,6 +68,7 @@ The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero
 | `SKIN_DIR` | convenience root: the vars below default into it when set | unset |
 | `TEMPLATE_DOCX` | pandoc `--reference-doc` | pandoc built-in style |
 | `FILTERS_DIR` | directory of pandoc lua filters, applied in name order | none |
+| `FORM_CONTROLS_FILTER` | dropdown/checkbox content-control markdown syntax (issue #105); a `FILTERS_DIR` filter for the same span classes runs first and can override it | `docstyle/filters/form-controls.lua` (in-repo, built-in); `""` disables |
 | `TEMPLATE_PROFILE` | YAML consumed by the style post-processor; a top-level `toc: false` key also opts out of the table of contents (`--no-toc` is the flag form; either is sufficient, issue #99) | none (neutral defaults) |
 | `STYLE_POSTPROCESS` | house-style DOCX post-processor | `docstyle/style_postprocess.py` (in-repo) |
 | `HEADING_NUMBERING` | field-based numbering injector | `docstyle/heading_numbering.py` (in-repo) |
@@ -92,13 +93,25 @@ fenced code block tagged ` ```{=openxml} ` into a genuine `RawBlock` AST node in
 literal code block. This is a manual, advanced escape hatch, DONE and verified end-to-end into the
 DOCX pipeline (a hand-authored ` ```{=openxml} ` block containing raw OOXML now reaches
 `word/document.xml` verbatim), not a first-class markdown feature: authoring OOXML by hand is fragile
-and requires no validation from the toolchain. It exists specifically because two structural gaps have
-no markdown syntax at all today: Word content controls (`w:sdt` checkboxes/dropdowns) and
-merged/spanned table cells (`gridSpan`). Native, ergonomic markdown syntax for either is
-roadmap-only, tracked as a follow-up to #96, not part of this escape hatch. On the PDF/typst path the
+and requires no validation from the toolchain. It exists specifically because two structural gaps had
+no markdown syntax at all: Word content controls (`w:sdt` checkboxes/dropdowns) -- **now closed, see
+below** -- and merged/spanned table cells (`gridSpan`), still roadmap-only (issue #105, rescoped to
+just this remaining gap). On the PDF/typst path the
 same RawBlock is present in the AST but is silently dropped by the typst writer (it does not recognise
 the `openxml` format tag), the same filtering pandoc already applies to an unrecognised `raw_html`
 block, so the shared constant needs no path-specific carve-out.
+
+**Dropdown/checkbox content controls (issue #105, D24).** `docstyle/filters/form-controls.lua`, a
+built-in pandoc Lua filter always applied on the DOCX path (the same "always-on core filter" pattern
+`pdf/filters/semantic-blocks.lua` already established for typst, #33), converts
+`[label]{.dropdown tag="dept" choices="IT|HR|Finance"}` and `[ ]{.checkbox tag="agree"}` bracketed
+spans -- native pandoc syntax (`bracketed_spans`/`native_spans`, on by default, no reader extension
+to pin) -- into real `w:sdt` dropdown-list and `w14:checkbox` content controls, via a
+`RawInline("openxml", ...)` that reuses the same `raw_attribute` pass-through the manual escape hatch
+above relies on. No python-docx/lxml post-processing step is needed: the `w14` namespace is declared
+locally on the `<w14:checkbox>` element itself rather than requiring the document root to carry it
+(pandoc's own built-in reference docx does not), and `w:id` assignment is a deterministic counter, not
+random, so the same source produces identical content-control IDs on every render.
 
 A consumer keeps a thin wrapper that exports the variables it needs. There is no hardcoded host path
 and no assumed tree layout: the pipeline is generic core, the wrapper is private skin.

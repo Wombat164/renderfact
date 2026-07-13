@@ -644,3 +644,58 @@ of the other (issue #71's gate-hook contract, merged first) -- the same class of
 same file. D22 (sendable email output) was the highest number on `main` at merge time, so this
 decision becomes D23, immediately after it; content and reasoning are otherwise unchanged from the
 original PR #67 draft.
+
+## D24 - Dropdown/checkbox content controls: native bracketed-span syntax, w14:checkbox over FORMCHECKBOX, a built-in Lua filter over python-docx/lxml post-processing
+
+Issue #105 (C10's named follow-up) asked for real markdown syntax for the two gaps the raw
+`{=openxml}` escape hatch (#96) left unclosed. This decision covers the checkbox/dropdown half;
+merged/spanned table cells (`gridSpan`) stays open under #105, rescoped to that alone.
+
+**Syntax: pandoc's own bracketed-span attributes, not a new reader extension.** `[label]{.dropdown
+tag="..." choices="A|B|C"}` and `[ ]{.checkbox tag="..."}` use `bracketed_spans`/`native_spans`,
+both on by default in pandoc's `markdown` format (verified: `pandoc --list-extensions=markdown`) --
+no new extension for `pandoc_markdown.py` to pin, and the syntax reads naturally inline inside a
+sentence or table cell, unlike a fenced div.
+
+**Mechanism: a Lua filter emitting `RawInline("openxml", ...)`, not python-docx/lxml
+post-processing.** The prior-art pass (`docs/prior-art-template-analysis.md` section 6) already
+found no adoptable library for building or reading SDT content controls; python-docx has no API for
+them at all. Two ways to hand-roll it were available: (a) a `docstyle/` post-processor in the
+`style_postprocess.py` family, scanning the rendered docx for a sentinel marker and splicing in
+`w:sdt` XML via lxml after the fact, or (b) a pandoc Lua filter converting the `.dropdown`/`.checkbox`
+span directly into raw OOXML during the pandoc run itself, reusing `raw_attribute` (#96) the same way
+the manual escape hatch already does. (b) won: `container/render-doc.sh` already has a `FILTERS_DIR`
+hook for consumer lua filters and an unconditional built-in one for the PDF/typst path
+(`pdf/filters/semantic-blocks.lua`, #33) -- the DOCX path had the mechanism wired but empty. Using it
+here means no new post-render pass, no re-parsing pandoc's own output, and the exact same "raw OOXML
+spliced verbatim into the writer's output" guarantee the escape hatch already relies on and this repo
+already trusts.
+
+**w14:checkbox over legacy FORMCHECKBOX.** FORMCHECKBOX (the WordprocessingML `w:ffData` legacy form
+field) only becomes interactive under Word's "restrict editing -> filling in forms" protection lock;
+this generator does not turn that on by default, and doing so for every rendered document would be a
+much bigger, separate feature (see the form-protection issue filed alongside this one). `w14:checkbox`
+(the modern Word 2010+ SDT-based content control, Developer tab "Check Box Content Control") toggles
+in an ordinary unprotected document and shares the same `w:sdt`/`w:sdtPr` scaffolding as the dropdown,
+so one small builder engine covers both features instead of two structurally unrelated ones.
+
+**The w14 namespace is declared locally on the `<w14:checkbox>` element, not the document root.**
+Verified empirically: pandoc's own built-in reference docx does not declare `xmlns:w14` on
+`<w:document>` at all (a real Word-saved `--reference-doc` usually does, but cannot be relied on). A
+locally-scoped `xmlns:w14="..."` on the element that uses it is valid, self-contained XML and needs no
+root-element rewrite, no raw-zip post-processing step, and survives `style_postprocess.py`'s
+python-docx re-save unchanged (lxml preserves an already-declared namespace on save) -- confirmed by
+rendering, house-styling, and re-inspecting the result.
+
+**Deterministic `w:id` via a plain incrementing counter, not `os.urandom`/pandoc's own ID
+allocator.** `w:id` should be unique per SDT (ECMA-376 best practice); a Lua module-level counter
+starting at 900000000 gets there without colliding with pandoc's own low-numbered auto-IDs (e.g. the
+ToC SDT), and, critically, is fully deterministic run-to-run for the same source document -- required
+for the render-pipeline idempotency work this same session also scoped (`ROADMAP.md`), not just a
+nicety.
+
+**Malformed controls fail the render, loudly, not silently.** A `.dropdown` span with no `choices`,
+or a `.checkbox` with `checked="yes"` instead of `"true"`/`"false"`, raises a Lua `error()` that halts
+pandoc with a non-zero exit and a clear message naming the offending `tag`. This matches #124's
+established posture (silent footguns get render-time signal, not silence) rather than letting a typo
+degrade into plain, unconverted bracket text with no indication anything went wrong.
