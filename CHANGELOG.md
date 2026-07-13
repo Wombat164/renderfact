@@ -10,6 +10,19 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ### Added
 
+- **Dropdown and checkbox Word content controls, real markdown syntax (issue #105, D24)**:
+  `[label]{.dropdown tag="dept" choices="IT|HR|Finance"}` and `[ ]{.checkbox tag="agree"}` /
+  `[ ]{.checkbox tag="agree" checked="true"}` now render as genuine `w:sdt` dropdown-list and
+  `w14:checkbox` content controls, clickable in an unprotected Word document. New built-in Lua
+  filter `docstyle/filters/form-controls.lua`, wired into `container/render-doc.sh` via the new
+  `FORM_CONTROLS_FILTER` variable (default on; a consumer `FILTERS_DIR` filter for the same span
+  classes runs first and can override it; set to `""` to disable entirely). `w:id` assignment is a
+  deterministic counter, not random, so the same source renders identical content-control IDs on
+  every run. Malformed spans (missing `tag`/`choices`, an unlisted `default`, an invalid `checked`
+  value) fail the render with a clear message instead of silently degrading to plain bracket text.
+  New: `tests/test_form_controls.py` (18 tests: filter unit tests, pandoc-level content-control
+  assertions, id-determinism, and a full `render.py docx` integration pass).
+
 - **Three silent-footgun warnings, found via a real consumer session hitting all three**: (1)
   `render project` now prints a `NOTE` to stderr when the source has YAML frontmatter (title, etc)
   and `--keep-frontmatter` was not passed, since the stripped metadata otherwise surfaces

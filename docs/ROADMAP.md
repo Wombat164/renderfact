@@ -303,14 +303,20 @@ for zero-arg hook invocation), keeping the public core domain-neutral.
   as raw OOXML (verified end-to-end: a real `render docx` run puts the block's marker text into
   `word/document.xml` verbatim, and the negative control with the extension explicitly disabled
   confirms it stays an inert code block without it). This is deliberately the SMALL, mechanical half
-  of the issue: it only unblocks the escape hatch, it does not add any native markdown syntax. **NEXT
-  (filed as #105, the follow-up this note already named):** purpose-built markdown syntax for the two
-  gaps that motivated the escape hatch and that onboarding a real institutional form template
-  surfaced - checkbox/dropdown Word content controls (`w:sdt`, currently unrepresentable in the AST
-  at all) and merged/spanned table cells (`gridSpan`, pipe/grid tables have no colspan or rowspan
-  support). Manual
-  `{=openxml}` blocks remain the only path to either until that follow-up lands, and they are
-  advanced/fragile by nature (hand-written OOXML, no toolchain validation), not the ergonomic answer.
+  of the issue: it only unblocks the escape hatch, it does not add any native markdown syntax.
+  **#105's checkbox/dropdown half: `[build]` DONE.** `docstyle/filters/form-controls.lua` (a built-in
+  pandoc Lua filter, wired into `container/render-doc.sh` via `FORM_CONTROLS_FILTER`, applied after
+  any consumer `FILTERS_DIR` filter so a consumer can still override) turns
+  `[label]{.dropdown tag="..." choices="A|B|C"}` and `[ ]{.checkbox tag="..."}` bracketed spans
+  (native pandoc syntax, no new reader extension needed) into real `w:sdt` dropdown-list / w14:checkbox
+  content controls, reusing the same `raw_attribute` pass-through the manual escape hatch relies on.
+  See `docs/DECISIONS.md` D24 for the w14-over-FORMCHECKBOX call and the determinism/namespace
+  details. **#105's remaining half, still open, rescoped to just this:** merged/spanned table cells
+  (`gridSpan`, pipe/grid tables have no colspan or rowspan support) -- manual `{=openxml}` blocks
+  remain the only path to that one gap. Also out of scope, filed as follow-up issues rather than built
+  in the same session: radio-style exclusive content-control groups, date-picker content controls,
+  document/section form-protection (the mechanism FORMCHECKBOX would have needed), repeating-section
+  content controls.
 
 - **C11 - `render xlsx` styling mode (#63).** `[build]` No XLSX render mode exists today (`MODES` in
   `render.py` has no `xlsx` entry) - the only current XLSX support is D11 provenance embed/retarget on

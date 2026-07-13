@@ -15,6 +15,11 @@
 #                         SKIN_DIR default: $SKIN_DIR/reference.docx
 #   FILTERS_DIR         directory of pandoc lua filters, applied in name order
 #                         SKIN_DIR default: $SKIN_DIR/filters
+#   FORM_CONTROLS_FILTER  dropdown/checkbox content-control markdown syntax
+#                       (issue #105); a consumer FILTERS_DIR filter for the
+#                       same span class runs FIRST and can fully override it.
+#                       default: <repo>/docstyle/filters/form-controls.lua;
+#                       set to "" to disable the feature entirely
 #   TEMPLATE_PROFILE    yaml consumed by the style post-processor; a top-level
 #                       `toc: false` key opts out of the table of contents
 #                       (same effect as --no-toc; either one is enough, see
@@ -169,6 +174,10 @@ TEMPLATE_DOCX="${TEMPLATE_DOCX:-$(skin_default reference.docx)}"
 FILTERS_DIR="${FILTERS_DIR:-$(skin_default filters)}"
 TEMPLATE_PROFILE="${TEMPLATE_PROFILE:-$(skin_default template-profile.yaml)}"
 STYLE_POSTPROCESS="${STYLE_POSTPROCESS:-$REPO_ROOT/docstyle/style_postprocess.py}"
+# `-` not `:-`: an explicit FORM_CONTROLS_FILTER="" must stay empty (the
+# documented disable path); `:-` would treat empty the same as unset and
+# silently re-enable the default, defeating the opt-out.
+FORM_CONTROLS_FILTER="${FORM_CONTROLS_FILTER-$REPO_ROOT/docstyle/filters/form-controls.lua}"
 QC_SCRIPT="${QC_SCRIPT:-}"
 QC_BLOCKING="${QC_BLOCKING:-0}"
 NLQA_DIR="${NLQA_DIR:-}"
@@ -333,6 +342,13 @@ if [ -n "$FILTERS_DIR" ] && [ -d "$FILTERS_DIR" ]; then
     PANDOC_ARGS+=(--lua-filter="$lf")
     echo "  lua-filter: $(basename "$lf")"
   done
+fi
+# Built-in dropdown/checkbox content-control syntax (#105), applied LAST so a
+# consumer FILTERS_DIR filter handling the same .dropdown/.checkbox span
+# classes above always gets first refusal and can fully override this.
+if [ -n "$FORM_CONTROLS_FILTER" ] && [ -f "$FORM_CONTROLS_FILTER" ]; then
+  PANDOC_ARGS+=(--lua-filter="$FORM_CONTROLS_FILTER")
+  echo "  lua-filter: $(basename "$FORM_CONTROLS_FILTER") (built-in, dropdown/checkbox)"
 fi
 "$PANDOC" "${PANDOC_ARGS[@]}" -o "$OUTPUT_FILE" "$TMP_INPUT"
 

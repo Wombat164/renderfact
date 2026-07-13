@@ -31,11 +31,36 @@ More ordinary paragraph.
 `raw_attribute` (issue #96) lets a fenced code block tagged `{=openxml}` pass through verbatim into
 the docx writer as raw OOXML, instead of being read as an inert, literal code block. This is a manual,
 advanced escape hatch, not new markdown syntax -- reach for it only when nothing else in this guide
-covers your case (a genuinely empty spacer paragraph, a one-off structure no fenced div expresses). It
-does **not** give you native syntax for Word content controls (checkboxes/dropdowns) or merged/spanned
-table cells; both remain open gaps (see the tracking issues) because a hand-authored raw block for
-either is fragile enough that it needs its own worked recipe, not a one-liner. Malformed XML here fails
-at the pandoc step with a clear error, not a silent corrupt docx.
+covers your case (a genuinely empty spacer paragraph, a one-off structure no fenced div expresses).
+Dropdown/checkbox content controls now have real native syntax instead (see the next recipe); merged/
+spanned table cells (`gridSpan`) remain the one open gap this escape hatch is still the only path to
+(issue #105). Malformed XML here fails at the pandoc step with a clear error, not a silent corrupt
+docx.
+
+## Add dropdown/checkbox content controls to a DOCX
+
+```markdown
+Choose your department: [ ]{.dropdown tag="dept" choices="IT|HR|Finance"}
+
+Choose your department: [ ]{.dropdown tag="dept" choices="IT|HR|Finance" default="HR" alias="Department"}
+
+I agree to the terms and conditions [ ]{.checkbox tag="agree"}
+
+I agree to the terms and conditions [ ]{.checkbox tag="agree" checked="true"}
+```
+
+Issue #105's checkbox/dropdown half, closed via a built-in pandoc Lua filter
+(`docstyle/filters/form-controls.lua`, on by default -- no config needed). `.dropdown` requires `tag`
+and pipe-delimited `choices`; `default` picks the initially-shown item (first choice if omitted) and
+must be one of `choices`. `.checkbox` requires `tag`; `checked` is `"true"`/`"false"` (unchecked if
+omitted). `alias` (both) sets the content control's display name in Word's Developer pane; defaults to
+`tag`. Renders as a real `w:sdt` dropdown-list / `w14:checkbox` -- clickable in an ordinary,
+unprotected Word document, not gated behind "restrict editing". A malformed control (missing `tag`, no
+`choices`, an unlisted `default`, an invalid `checked` value) fails the render with a clear message
+naming the offending `tag`, the same "loud, not silent" posture as the raw-OOXML escape hatch above.
+To disable the feature (e.g. a skin ships its own competing handling for the same span classes), set
+`FORM_CONTROLS_FILTER=""`; a `FILTERS_DIR` filter for `.dropdown`/`.checkbox` runs first and can
+override the built-in behaviour without disabling it entirely. See `docs/DECISIONS.md` D24.
 
 ## Insert a genuinely empty paragraph (spacer)
 
