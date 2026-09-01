@@ -226,17 +226,39 @@ def test_help_needs_no_shell_no_pandoc_and_no_skin():
     assert "source not found" not in r.stdout + r.stderr
 
 
+# Tool resolution runs BEFORE source validation in both the shell and the port, so on a machine
+# without pandoc these would exit 3 at the pandoc check and never reach the exit-2 paths under
+# test (this is exactly how they failed on the pandoc-less CI runners). PANDOC is env-overridden
+# to a name that is trusted without an existence check, faithfully matching the shell's
+# `PANDOC="${PANDOC:-}"`, and both paths fail before anything would ever invoke it.
+_PANDOC_STUB = {**os.environ, "PANDOC": "pandoc-stub-never-invoked"}
+
+
 def test_missing_source_exits_2_and_names_it():
     r = subprocess.run([sys.executable, str(DRIVER), "no-such-file.md"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, env=_PANDOC_STUB)
     assert r.returncode == 2
     assert "source not found: no-such-file.md" in r.stderr
 
 
 def test_absent_source_argument_exits_2():
-    r = subprocess.run([sys.executable, str(DRIVER)], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, str(DRIVER)], capture_output=True, text=True,
+                       env=_PANDOC_STUB)
     assert r.returncode == 2
     assert "<source.md> is required" in r.stderr
+
+
+def test_a_missing_pandoc_wins_over_a_missing_source():
+    """The shell resolved tools before validating arguments; exit 3 must keep that precedence."""
+    if Path("C:/Program Files/Pandoc/pandoc.exe").is_file():
+        import pytest
+        pytest.skip("a system-wide pandoc sits on a hardcoded fallback path; resolution cannot fail")
+    env = {**os.environ, "PANDOC": "", "PATH": "", "LOCALAPPDATA": "",
+           "USERNAME": "", "USER": ""}  # no PATH hit, no env override, no user-dir fallback
+    r = subprocess.run([sys.executable, str(DRIVER), "no-such-file.md"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 3
+    assert "pandoc not found" in r.stderr
 
 
 def _python_code_only(path: Path) -> str:
