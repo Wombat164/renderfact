@@ -29,6 +29,7 @@ the exit code of whichever step failed, matching `set -euo pipefail`.
 
 from __future__ import annotations
 
+import glob as globmodule
 import os
 import re
 import shutil
@@ -173,6 +174,14 @@ def strip_render_skip(text: str) -> str:
     return "".join(out)
 
 
+def default_name(source: str) -> str:
+    """The shell's `basename "${SOURCE%.md}"`: strip ONE trailing `.md`, case-sensitively,
+    and nothing else. `notes.markdown` stays `notes.markdown`; `doc.MD` stays `doc.MD`.
+    (`Path.with_suffix("")` would strip ANY extension, which is not what the shell did.)"""
+    base = Path(source).name
+    return base[:-3] if base.endswith(".md") else base
+
+
 def extract_version(text: str) -> str:
     """First `version:` line's second whitespace-separated field, else v1 (awk parity)."""
     for line in text.splitlines():
@@ -190,10 +199,14 @@ def _load_yaml(path: str):
         return yaml.safe_load(fh) or {}
 
 
-def _run(cmd, *, check=True, env=None, quiet=False):
-    """Run a step. `check` mirrors `set -e`: a failure aborts the render."""
+def _run(cmd, *, check=True, env=None, quiet=False, quiet_stdout=False):
+    """Run a step. `check` mirrors `set -e`: a failure aborts the render.
+
+    `quiet` silences both streams (the shell's `>/dev/null 2>&1`); `quiet_stdout` silences stdout
+    only (the shell's bare `>/dev/null`), keeping the child's diagnostics visible.
+    """
     result = subprocess.run(cmd, env=env,
-                            stdout=subprocess.DEVNULL if quiet else None,
+                            stdout=subprocess.DEVNULL if (quiet or quiet_stdout) else None,
                             stderr=subprocess.DEVNULL if quiet else None)
     if check and result.returncode != 0:
         raise _StepFailed(result.returncode)
@@ -311,7 +324,7 @@ def main(argv=None) -> int:
         _err(f"ERROR: source not found: {source}")
         return 2
 
-    name = args["name"] or Path(source).with_suffix("").name
+    name = args["name"] or default_name(source)
     resource_path = os.environ.get("RESOURCE_PATH") or str(Path(source).resolve().parent)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -552,22 +565,37 @@ def _maybe_pdf(args, os_name, output_file: Path, output_dir: Path, name, version
         pdf_made = True
     elif shutil.which("soffice"):
         print("Converting to PDF via LibreOffice headless...")
+        # quiet_stdout, not quiet: the shell redirected only stdout (`>/dev/null`), so a failing
+        # soffice still showed its own error. Silencing stderr too would make the failure mute.
         if _run(["soffice", "--headless", "--convert-to", "pdf", "--outdir",
-                 str(output_dir), str(output_file)], check=False, quiet=True) == 0:
+                 str(output_dir), str(output_file)], check=False, quiet_stdout=True) == 0:
             pdf_made = True
     else:
         print("WARN: --pdf needs LibreOffice (soffice) on PATH, or PDF_CONVERTER_PS1 on Windows.")
         print("      For archival PDF use the typst path (render-pdf.py). Skipping PDF + prune.")
 
     if pdf_made:
-        print(f"Pruning prior-dated {name}_{version}_*_{suffix} artefacts...")
-        keep = {output_file.name, pdf_file.name}
-        for ext in ("docx", "pdf"):
-            for f in sorted(output_dir.glob(f"{name}_{version}_*_{suffix}.{ext}")):
-                if f.name not in keep:
-                    print(f"  removed {f.name}")
-                    f.unlink(missing_ok=True)
+        prune_prior(output_dir, output_file, pdf_file, name, version, suffix)
     return pdf_made
+
+
+def prune_prior(output_dir: Path, output_file: Path, pdf_file: Path,
+                name, version, suffix) -> None:
+    """Remove prior-dated same-name+version+suffix artefacts, keeping the two just made.
+
+    name/version/suffix are glob-ESCAPED: the shell quoted them (`"${NAME}_" * "_${SUFFIX}"`),
+    so only the date position ever globbed. Interpolating them raw would let a name like
+    `doc?` match, and delete, another document's artefacts.
+    """
+    print(f"Pruning prior-dated {name}_{version}_*_{suffix} artefacts...")
+    keep = {output_file.name, pdf_file.name}
+    esc = globmodule.escape
+    for ext in ("docx", "pdf"):
+        pattern = f"{esc(name)}_{esc(version)}_*_{esc(suffix)}.{ext}"
+        for f in sorted(output_dir.glob(pattern)):
+            if f.name not in keep:
+                print(f"  removed {f.name}")
+                f.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

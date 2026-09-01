@@ -679,9 +679,11 @@ overwrites the lifecycle suffix. Things that looked worth improving were left al
 the PR instead, because a port that also redesigns cannot be reviewed against the original.
 
 **Evidence it is faithful.** The end-to-end suites (provenance, ToC opt-out, gate hooks, wikilink
-resolution, raw-attribute escape hatch) drive the real pipeline and were the regression net. On
-Windows they had always SKIPPED for want of bash: 14 passed, 2 failed, 18 skipped before the change,
-and 34 passed with none skipped after it. The 18 that had never once run on that platform now do.
+resolution, raw-attribute escape hatch; 22 tests) drive the real pipeline and were the regression
+net. On a bashless Windows machine 18 of the 22 had always SKIPPED for want of bash (4 passed, 18
+skipped before the change; all 22 pass, none skipped, after it). The API-docx and template-import
+`--check` integration tests stop skipping for the same reason. The 18 that had never once run on
+that platform now do, against assertions written for the bash pipeline's behaviour.
 
 **Consequence for `render container`.** That mode still needs a POSIX shell, because it wraps a
 podman invocation rather than a pipeline. Its error message now says so explicitly and states that
