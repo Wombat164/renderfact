@@ -99,20 +99,25 @@ def _find_bash() -> str | None:
 
 
 def run_docx(args: list[str]) -> int:
-    """Dispatch to render-doc.sh (bash), unmodified -- the proven DOCX pipeline."""
-    script = CONTAINER_DIR / "render-doc.sh"
+    """Dispatch to container/render_doc.py, the DOCX pipeline. No shell involved (issue #157).
+
+    This used to locate a bash and hand it render-doc.sh. The pipeline is unchanged: render_doc.py
+    IS render-doc.sh's implementation now, and the shell script is a thin caller onto the same
+    module, so the two entry points cannot drift.
+
+    Dropping bash from this path is the point. On a managed Windows machine that allows software
+    by Authenticode signature, `git.exe` is signed and runs while the `bash.exe` beside it is not,
+    so the whole DOCX half of the tool was unreachable and the error advised installing the one
+    thing that could not help.
+    """
+    script = CONTAINER_DIR / "render_doc.py"
     if not script.exists():
         print(f"ERROR: {script} not found", file=sys.stderr)
         return 3
-    bash = _find_bash()
-    if not bash:
-        print(
-            "ERROR: bash not found on PATH (render-doc.sh requires bash; "
-            "on Windows install git-bash / MSYS2)",
-            file=sys.stderr,
-        )
-        return 3
-    result = subprocess.run([bash, str(script), *args])
+    # A subprocess rather than an import, deliberately: the pipeline calls sys.exit-style paths and
+    # mutates cwd-relative state, and keeping it isolated preserves the exit-code contract exactly
+    # as the bash version had it.
+    result = subprocess.run([sys.executable, str(script), *args])
     return result.returncode
 
 
@@ -156,7 +161,16 @@ def run_container(args: list[str]) -> int:
         return 3
     bash = _find_bash()
     if not bash:
-        print("ERROR: bash not found on PATH", file=sys.stderr)
+        # Deliberately says what this mode needs and what it does NOT imply. `render docx` no
+        # longer needs bash (issue #157), so "bash not found" must not read as "renderfact needs
+        # bash": this mode wraps a podman invocation and needs a POSIX shell for the wrapper
+        # itself, which is a different requirement from the DOCX pipeline's.
+        print(
+            "ERROR: bash not found on PATH. `render container` wraps a podman invocation and "
+            "needs a POSIX shell.\n"
+            "  This does NOT apply to `render docx`, which runs natively and needs no shell.",
+            file=sys.stderr,
+        )
         return 3
     result = subprocess.run([bash, str(script), *args])
     return result.returncode

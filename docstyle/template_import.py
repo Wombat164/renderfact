@@ -597,41 +597,25 @@ def format_comparison_table(rows: list[ComparisonRow]) -> str:
     return "\n".join(lines)
 
 
-def _find_bash() -> str | None:
-    if os.name == "nt":
-        program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-        for cand in (
-            Path(program_files) / "Git" / "bin" / "bash.exe",
-            Path(program_files) / "Git" / "usr" / "bin" / "bash.exe",
-        ):
-            if cand.exists():
-                return str(cand)
-    for name in ("bash", "bash.exe"):
-        found = shutil.which(name)
-        if found:
-            return found
-    return None
-
-
 def run_idempotency_check(probe_md: Path, template: Path, profile_path: Path,
                           expected: dict[str, Any]) -> int:
-    """Render probe_md through container/render-doc.sh with TEMPLATE_DOCX=template
-    and TEMPLATE_PROFILE=profile_path (env-set, subprocess bash, same pattern
+    """Render probe_md through container/render_doc.py with TEMPLATE_DOCX=template
+    and TEMPLATE_PROFILE=profile_path (env-set subprocess, the same pattern
     render.py's run_docx uses), then compare the re-extracted rendered properties
     against `expected`. Prints the pass/drift table; returns 1 on any drift, 0
-    clean, 3 (skip cleanly) when bash or pandoc is unavailable."""
-    bash = _find_bash()
-    if not bash:
-        print("SKIP: --check requires bash on PATH (render-doc.sh needs it; on "
-              "Windows install git-bash/MSYS2).")
-        return 3
+    clean, 3 (skip cleanly) when pandoc is unavailable.
+
+    No bash (issue #157, D24). This gate had its own copy of render.py's bash
+    resolver and skipped with exit 3 when it found none, so on a machine without
+    bash the template-fidelity check reported SKIP forever: a gate that cannot
+    run reads exactly like a gate that passed."""
     if not shutil.which("pandoc"):
         print("SKIP: --check requires pandoc on PATH.")
         return 3
 
-    render_doc_sh = REPO_ROOT / "container" / "render-doc.sh"
-    if not render_doc_sh.exists():
-        print(f"SKIP: {render_doc_sh} not found.")
+    render_doc = REPO_ROOT / "container" / "render_doc.py"
+    if not render_doc.exists():
+        print(f"SKIP: {render_doc} not found.")
         return 3
 
     with tempfile.TemporaryDirectory(prefix="render-import-template-check-") as tmp:
@@ -650,11 +634,12 @@ def run_idempotency_check(probe_md: Path, template: Path, profile_path: Path,
         # Part-prefixed top heading (e.g. "# Part I: ...") or its Heading 1 gets
         # removed before extraction and 'accent' reads back as not-present.
         result = subprocess.run(
-            [bash, str(render_doc_sh), str(probe_md), "--name", "c7-check", "--profile", "reference"],
+            [sys.executable, str(render_doc), str(probe_md), "--name", "c7-check",
+             "--profile", "reference"],
             cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, timeout=180,
         )
         if result.returncode != 0:
-            print("ERROR: render-doc.sh failed during the --check probe render:")
+            print("ERROR: the probe render failed during --check:")
             print(result.stdout[-3000:])
             print(result.stderr[-3000:])
             return 1

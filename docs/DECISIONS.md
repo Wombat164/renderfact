@@ -644,3 +644,46 @@ of the other (issue #71's gate-hook contract, merged first) -- the same class of
 same file. D22 (sendable email output) was the highest number on `main` at merge time, so this
 decision becomes D23, immediately after it; content and reasoning are otherwise unchanged from the
 original PR #67 draft.
+
+## D24 - The DOCX pipeline is Python with a shell caller, not a shell script
+
+**Decision.** `container/render_doc.py` is the DOCX pipeline. `render docx` invokes it directly and
+needs no shell. `container/render-doc.sh` remains as a THIN CALLER onto the same module: it resolves
+a python and execs it, and contains no pipeline logic.
+
+**Why.** The pipeline was a 433-line bash script that `render.py` ran by locating a bash. That works
+until it does not: on a managed Windows machine where software is allowed by Authenticode signature
+rather than by path, Git for Windows' `git.exe` is signed and runs while the `bash.exe` beside it is
+not, and MSYS2 ships unsigned as well. There is then no bash to find and no install that produces
+one, so the whole DOCX half of the tool was unreachable on a platform this project supports and runs
+CI against. The error message compounded it by advising the user to install git-bash, which is
+precisely the thing that cannot help (issue #157).
+
+**Why the port was cheap, and why that is the argument.** The shell was never doing the work. Every
+functional step was already `$PYTHON <script>` or `$PANDOC`: the projector, the QC pass,
+`nlqa gen-vale`, `pandoc_markdown`, `style_postprocess`, `heading_numbering`, and the provenance
+strip/embed. What bash contributed was argument parsing, sequencing, and temp-file bookkeeping,
+which Python does without a dependency. The only genuinely external tools left are `soffice` and a
+Word-COM converter, both optional and confined to the `--pdf` leg (issue #120).
+
+**One implementation, two entry points.** The alternative considered and rejected was keeping the
+shell pipeline and adding a Python one beside it. Two copies of a 433-line pipeline is how a
+consumer ends up with two answers to the same question, and the copies diverge in the direction
+nobody is testing. A test asserts that `render-doc.sh` stays under fifteen lines of code and
+mentions no pandoc invocation, so the caller cannot quietly grow back into an implementation.
+
+**What was NOT changed.** This is a transcription, deliberately: the same steps in the same order,
+the same messages, the same exit codes, and the same environment-variable contract, including the
+existence-gating of `SKIN_DIR` defaults and the argument parser's rule that a second bare word
+overwrites the lifecycle suffix. Things that looked worth improving were left alone and recorded in
+the PR instead, because a port that also redesigns cannot be reviewed against the original.
+
+**Evidence it is faithful.** The end-to-end suites (provenance, ToC opt-out, gate hooks, wikilink
+resolution, raw-attribute escape hatch) drive the real pipeline and were the regression net. On
+Windows they had always SKIPPED for want of bash: 14 passed, 2 failed, 18 skipped before the change,
+and 34 passed with none skipped after it. The 18 that had never once run on that platform now do.
+
+**Consequence for `render container`.** That mode still needs a POSIX shell, because it wraps a
+podman invocation rather than a pipeline. Its error message now says so explicitly and states that
+the requirement does not extend to `render docx`, so "bash not found" cannot be read again as
+"renderfact needs bash".
