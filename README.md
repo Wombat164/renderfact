@@ -168,7 +168,8 @@ docstyle/    generic DOCX house-style post-processor + field-based heading numbe
 api/         stdlib HTTP API: step contracts + projection over localhost, opt-in /ui,
              openapi.json + /docs; loopback-Host/origin/path-jail guards
 gates/       fail-closed QA chain (vale / lychee / verapdf / uids stages)
-container/   OCI image + render wrapper + render-doc.sh + bundle-annex-linux.py + verify-pins.sh
+container/   OCI image + render wrapper + render_doc.py (the DOCX pipeline; render-doc.sh is a
+             thin caller onto it, D24) + bundle-annex-linux.py + verify-pins.sh
 lint/        diagram render harness + pre-render linters + visual-QA metrics + render_qa +
              the first LLM step contract (vision review)
 tokens/      brand.yaml token mechanism + per-engine generators

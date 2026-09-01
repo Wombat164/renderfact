@@ -8,6 +8,38 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
 
 ## [Unreleased]
 
+### Changed
+
+- **`render docx` no longer needs a shell; the DOCX pipeline is now `container/render_doc.py`**
+  (issue #157, D24). `render.py` used to locate a bash and hand it `container/render-doc.sh`. On a
+  managed Windows machine that allows software by Authenticode signature rather than by path there
+  is no bash to find and no install that produces one: Git for Windows' `git.exe` is signed and
+  runs, the `bash.exe` beside it is not, and MSYS2 ships unsigned too. The whole DOCX half of the
+  tool was therefore unreachable on a platform this project supports and runs CI against, and the
+  error message advised installing git-bash, which is exactly what cannot help.
+
+  The port was cheap because the shell was never doing the work: every functional step was already
+  `$PYTHON <script>` or `$PANDOC`, and what bash contributed was argument parsing, sequencing and
+  temp-file bookkeeping. Only the optional `--pdf` leg still needs an external tool (`soffice`, or
+  a Word-COM converter), which is issue #120.
+
+  **One implementation, two entry points.** `container/render-doc.sh` remains, as a thin caller
+  onto the same module, so existing shell consumers, the container image and the documented
+  invocation are unaffected. A test asserts the caller stays under fifteen lines of code and
+  invokes no pandoc, so it cannot quietly grow back into a second copy of the pipeline.
+
+  **This is a transcription, not a redesign**: the same steps in the same order, the same messages,
+  the same exit codes, and the same environment-variable contract, down to the existence-gating of
+  `SKIN_DIR` defaults and the parser rule that a second bare word overwrites the lifecycle suffix.
+
+  Measured on Windows, running the end-to-end pipeline suites (provenance, ToC opt-out, gate hooks,
+  wikilink resolution, raw-attribute escape hatch): **before, 14 passed, 2 failed, 18 skipped;
+  after, 34 passed, 0 skipped.** Those 18 had never executed on that platform.
+
+- **`render container`'s "bash not found" now says what it does and does not imply.** That mode
+  wraps a podman invocation and genuinely needs a POSIX shell; the message now states that the
+  requirement does not extend to `render docx`, so it cannot be read as "renderfact needs bash".
+
 ### Added
 
 - **Three silent-footgun warnings, found via a real consumer session hitting all three**: (1)
