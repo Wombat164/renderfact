@@ -82,12 +82,29 @@ def scan_tree_paths() -> list[str]:
     return findings
 
 
-def scan_identities(extra_allowed: list[str]) -> list[str]:
+def scan_identities(extra_allowed: list[str], baseline_shas: list[str] | None = None) -> list[str]:
+    """Flag commit identities outside the allowlist, across all refs.
+
+    `baseline_shas` accepts a KNOWN, ALREADY-PUBLISHED commit so it stops failing every future run.
+    This is needed because the scan is boundary-free by design: it reads `--all`, and GitHub keeps
+    `refs/pull/<n>/head` forever, so an identity that once reached a pull request stays reachable
+    even after the branch is deleted and the PR closed. Without a baseline the gate then fails on
+    every later PR over a commit nobody can reach any more, and a gate that is always red stops
+    being read.
+
+    Baselining is keyed by SHA and never by email, deliberately. Allowlisting the address would
+    write the very string this gate exists to keep out into a tracked file in a public repository,
+    permanently, and would additionally wave through any FUTURE commit carrying it. A SHA is not
+    sensitive, identifies exactly one immutable object, and cannot pre-authorise anything new.
+    """
     exact_allowed = set(extra_allowed)
+    baseline = {s.strip().lower()[:12] for s in (baseline_shas or []) if s.strip()}
     out = _git("log", "--all", "--format=%H%x1f%ae%x1f%ce")
     problems = []
     for record in out.splitlines():
         sha, ae, ce = (record.split("\x1f") + [""] * 3)[:3]
+        if sha[:12].lower() in baseline:
+            continue
         for email in {ae, ce}:
             if not email or email in exact_allowed:
                 continue
@@ -101,10 +118,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--allow-email", action="append", default=[],
                     help="additional exact email to allow (repeatable)")
+    ap.add_argument("--baseline-sha", action="append", default=[],
+                    help="a known, already-published commit to stop reporting (repeatable). "
+                         "Use this, never --allow-email, to accept a historical identity: a SHA "
+                         "cannot pre-authorise a future commit and is not itself sensitive.")
     args = ap.parse_args(argv)
 
     findings = scan_tree_paths()
-    identity_problems = scan_identities(args.allow_email)
+    identity_problems = scan_identities(args.allow_email, args.baseline_sha)
 
     if findings:
         print(f"GENERIC GATE FAIL: {len(findings)} personal-path hit(s):")

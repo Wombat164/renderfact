@@ -38,6 +38,13 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: "3.12"
-      - run: python scripts/generic_gate.py
+      # 6083c123eb55 carries a non-allowlisted author identity. It is unreachable from any branch
+      # (its PR was closed and its branch deleted) but GitHub keeps refs/pull/<n>/head forever, so
+      # this scan, which reads --all on purpose, would otherwise fail on every future PR over a
+      # commit nobody can reach. Baselined by SHA, not by email: an --allow-email entry would write
+      # the very string this gate exists to exclude into a tracked file in a public repo, and would
+      # additionally wave through any future commit carrying it. A SHA accepts exactly one
+      # immutable object and pre-authorises nothing.
+      - run: python scripts/generic_gate.py --baseline-sha 6083c123eb55
       - name: Wiki reference in sync with the render command surface
         run: python scripts/check_wiki_sync.py
