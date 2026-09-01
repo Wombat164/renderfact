@@ -58,10 +58,18 @@ your private config (skin)         renderfact (this repo, generic)
   source corpus      ------------>  lint/ + QA gates -> governed artifacts
 ```
 
-**The skin contract is environment variables.** `container/render-doc.sh` is the generic DOCX
+**The skin contract is environment variables.** `container/render_doc.py` is the generic DOCX
 pipeline: it assumes no consumer directory layout. Every consumer-supplied piece is plugged in via an
 environment variable, and each step SKIPS with an honest message when its piece is not configured.
 The pipeline itself (projection, pandoc conversion, optional PDF) runs with zero consumer config.
+
+**It has two entry points and one implementation (D24).** `render docx` calls `render_doc.py`
+directly and needs no shell; `container/render-doc.sh` is a thin caller onto the same module, kept
+so existing shell consumers and the container image are unaffected. The pipeline was bash until
+issue #157: on a machine that allows software by Authenticode signature rather than by path there
+is no bash to find, so the entire DOCX half of the tool was unreachable on a supported platform.
+The port was cheap because the shell was never doing the work, and the shell must stay a caller
+rather than becoming a second copy.
 
 | Variable | Purpose | Default |
 |---|---|---|

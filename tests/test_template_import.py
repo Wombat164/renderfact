@@ -661,12 +661,16 @@ def test_format_comparison_table_reads_cleanly():
     assert "(not derivable)" in table and "SKIP" in table
 
 
-# ---------- (e) real --check integration through render-doc.sh ----------
+# ---------- (e) real --check integration through the render pipeline ----------
 
-_PANDOC_AND_BASH_AVAILABLE = shutil.which("pandoc") is not None and shutil.which("bash") is not None
+# Pandoc only since issue #157: the --check gate renders through container/render_doc.py and no
+# longer needs a shell. This matters more here than elsewhere, because the thing being gated is
+# template FIDELITY: on a machine without bash this test skipped, and a fidelity gate that cannot
+# run is indistinguishable from one that passed.
+_PANDOC_AVAILABLE = shutil.which("pandoc") is not None
 
 
-@pytest.mark.skipif(not _PANDOC_AND_BASH_AVAILABLE, reason="requires pandoc and bash on PATH")
+@pytest.mark.skipif(not _PANDOC_AVAILABLE, reason="requires pandoc on PATH")
 def test_check_gate_clean_render_through_real_pipeline(tmp_path, capsys):
     template = _build_branded_template(tmp_path)
     probe = tmp_path / "probe.md"

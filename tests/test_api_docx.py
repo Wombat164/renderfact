@@ -24,8 +24,9 @@ from api import app as api_app  # noqa: E402
 from docstyle import docx_pipeline  # noqa: E402
 
 HAVE_PANDOC = shutil.which("pandoc") is not None
-HAVE_BASH = docx_pipeline.find_bash() is not None
-docx_tools = pytest.mark.skipif(not (HAVE_PANDOC and HAVE_BASH), reason="needs pandoc + bash")
+# Pandoc alone since issue #157: POST /render/docx no longer goes through a shell, so these stop
+# skipping on any machine that has no bash. That is the point of the change, not a side effect.
+docx_tools = pytest.mark.skipif(not HAVE_PANDOC, reason="needs pandoc")
 
 DOCX_CTYPE = api_app.RenderfactApi.DOCX_CTYPE
 
