@@ -32,9 +32,16 @@ up real tags from v0.1.0 onward, with bare-commit fallback for dev builds.
   the same exit codes, and the same environment-variable contract, down to the existence-gating of
   `SKIN_DIR` defaults and the parser rule that a second bare word overwrites the lifecycle suffix.
 
-  Measured on Windows, running the end-to-end pipeline suites (provenance, ToC opt-out, gate hooks,
-  wikilink resolution, raw-attribute escape hatch): **before, 14 passed, 2 failed, 18 skipped;
-  after, 34 passed, 0 skipped.** Those 18 had never executed on that platform.
+  Measured on a bashless Windows machine, running the end-to-end pipeline suites (provenance, ToC
+  opt-out, gate hooks, wikilink resolution, raw-attribute escape hatch; 22 tests): **before,
+  4 passed and 18 skipped; after, all 22 pass, none skipped.** Those 18 had never executed on that
+  platform. The API-docx and template-import `--check` integration tests stop skipping the same way.
+
+  A pre-merge fidelity review restored three shell behaviours the port had silently changed, each
+  with a test: the default output name strips only a trailing `.md` (not any extension), the PDF
+  prune glob-escapes name/version/suffix (the shell quoted them, so a name containing a glob
+  metacharacter cannot match another document's artefacts), and a failing `soffice` keeps its
+  stderr visible (the shell redirected only stdout).
 
 - **`render container`'s "bash not found" now says what it does and does not imply.** That mode
   wraps a podman invocation and genuinely needs a POSIX shell; the message now states that the

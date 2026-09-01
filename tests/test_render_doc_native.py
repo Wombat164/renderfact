@@ -139,6 +139,62 @@ def test_the_first_version_line_wins():
     assert rd.extract_version("version: v1.0\nversion: v2.0\n") == "v1.0"
 
 
+# ---------- output naming ----------
+
+def test_default_name_strips_only_a_trailing_dot_md():
+    """The shell's `basename "${SOURCE%.md}"` strips ONE trailing `.md` and nothing else.
+
+    A port via `Path.with_suffix("")` would strip ANY extension, silently renaming the output
+    of every non-.md source.
+    """
+    assert rd.default_name("dir/doc.md") == "doc"
+    assert rd.default_name("notes.markdown") == "notes.markdown"
+    assert rd.default_name("doc.MD") == "doc.MD"          # %.md is case-sensitive
+    assert rd.default_name("archive.tar.md") == "archive.tar"
+    assert rd.default_name("README") == "README"
+
+
+# ---------- the PDF prune ----------
+
+def test_prune_treats_name_version_suffix_as_literals(tmp_path):
+    """The shell quoted NAME/VERSION/SUFFIX in its glob, so only the date position ever globbed.
+
+    Unescaped interpolation would let a name containing a glob metacharacter match, and delete,
+    another document's artefacts.
+    """
+    keep_docx = tmp_path / "doc?_v1_20260901_DRAFT.docx"
+    other = tmp_path / "docs_v1_20260801_DRAFT.docx"      # must NOT match name 'doc?'
+    stale = tmp_path / "doc?_v1_20260101_DRAFT.docx"
+    victims = [keep_docx, other]
+    if os.name != "nt":  # '?' is not a legal NTFS filename character
+        for f in victims + [stale]:
+            f.write_bytes(b"x")
+        rd.prune_prior(tmp_path, keep_docx, keep_docx.with_suffix(".pdf"),
+                       "doc?", "v1", "DRAFT")
+        assert keep_docx.exists() and other.exists()
+        assert not stale.exists()
+    # bracketed names ARE legal on every platform
+    keep2 = tmp_path / "doc[1]_v1_20260901_DRAFT.docx"
+    stale2 = tmp_path / "doc[1]_v1_20260101_DRAFT.docx"
+    bystander = tmp_path / "doc1_v1_20260101_DRAFT.docx"  # inside-the-class match without escape
+    for f in (keep2, stale2, bystander):
+        f.write_bytes(b"x")
+    rd.prune_prior(tmp_path, keep2, keep2.with_suffix(".pdf"), "doc[1]", "v1", "DRAFT")
+    assert keep2.exists() and bystander.exists()
+    assert not stale2.exists()
+
+
+def test_run_quiet_stdout_keeps_stderr_visible(capfd):
+    """The shell quieted only soffice's stdout (`>/dev/null`); its diagnostics stayed visible."""
+    code = rd._run([sys.executable, "-c",
+                    "import sys; print('OUT'); sys.stderr.write('DIAG\\n'); sys.exit(4)"],
+                   check=False, quiet_stdout=True)
+    out, err = capfd.readouterr()
+    assert code == 4
+    assert "OUT" not in out
+    assert "DIAG" in err
+
+
 # ---------- skin resolution ----------
 
 def test_skin_default_is_existence_gated(tmp_path):
